@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 
 	flag "github.com/spf13/pflag"
@@ -29,7 +30,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.0.1"
+var version = "v1.0.2"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -304,6 +305,41 @@ func runProxyMode(ctx context.Context, cfg config.Config) {
 	}
 }
 
+// hostPluginBuildFlags returns build flags + env vars that must match the
+// host binary so Go's plugin loader will accept the resulting .so/.dylib.
+// Derived from runtime/debug.BuildInfo of the running binary. Without this,
+// a host built with `-trimpath -tags netgo,osusergo` (release config) and a
+// plugin built with bare `go build -buildmode=plugin` produce different
+// stdlib package hashes, and dlopen rejects the plugin with
+// "plugin was built with a different version of package internal/goarch".
+func hostPluginBuildFlags() (flags []string, env []string) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return nil, nil
+	}
+	var tags string
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "-trimpath":
+			if s.Value == "true" {
+				flags = append(flags, "-trimpath")
+			}
+		case "-tags":
+			tags = s.Value
+		case "CGO_ENABLED":
+			env = append(env, "CGO_ENABLED="+s.Value)
+		case "GOARM64":
+			env = append(env, "GOARM64="+s.Value)
+		case "GOAMD64":
+			env = append(env, "GOAMD64="+s.Value)
+		}
+	}
+	if tags != "" {
+		flags = append(flags, "-tags", tags)
+	}
+	return flags, env
+}
+
 // runBuildPlugin compiles a Go plugin from srcDir. Returns an exit code.
 func runBuildPlugin(srcDir, output string, install bool, dataDir string) int {
 	// Go's plugin package and -buildmode=plugin are not supported on Windows.
@@ -336,10 +372,18 @@ func runBuildPlugin(srcDir, output string, install bool, dataDir string) int {
 		outPath, _ = filepath.Abs(output)
 	}
 
+	hostFlags, hostEnv := hostPluginBuildFlags()
+
 	fmt.Printf("Building plugin from %s\n", srcDir)
 	fmt.Printf("  Go version: %s\n", runtime.Version())
 	fmt.Printf("  OS/Arch:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Printf("  Output:     %s\n", outPath)
+	if len(hostFlags) > 0 {
+		fmt.Printf("  Flags:      %s\n", strings.Join(hostFlags, " "))
+	}
+	if len(hostEnv) > 0 {
+		fmt.Printf("  Env:        %s\n", strings.Join(hostEnv, " "))
+	}
 
 	// Go's plugin loader rejects .so files built with a different Go toolchain
 	// version than the host binary. Warn loudly when `go build` in srcDir
@@ -351,11 +395,19 @@ func runBuildPlugin(srcDir, output string, install bool, dataDir string) int {
 		fmt.Fprintf(os.Stderr, "           The built plugin may fail to load. Match versions or rebuild joro from source.\n")
 	}
 
-	// Run go build -buildmode=plugin.
-	cmd := exec.Command("go", "build", "-buildmode=plugin", "-o", outPath, ".")
+	// Run go build -buildmode=plugin, forwarding the host's ABI-relevant
+	// flags + env (-trimpath, -tags, GOARM64, ...) so the plugin's stdlib
+	// hashes match and dlopen accepts it.
+	args := []string{"build", "-buildmode=plugin"}
+	args = append(args, hostFlags...)
+	args = append(args, "-o", outPath, ".")
+	cmd := exec.Command("go", args...)
 	cmd.Dir = srcDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	if len(hostEnv) > 0 {
+		cmd.Env = append(os.Environ(), hostEnv...)
+	}
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "build failed: %v\n", err)
 		return 1
