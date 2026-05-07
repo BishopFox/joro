@@ -1,0 +1,34 @@
+[data-theme="hotdogstand"] {
+  color-scheme: dark;
+
+  --color-surface-body: #FF0000;
+  --color-surface-card: #CC0000;
+  --color-surface-input: #AA0000;
+  --color-surface-hover: #FF4444;
+  --color-surface-terminal: #990000;
+
+  --color-border: #FFFF00;
+  --color-border-subtle: #CC0000;
+
+  --color-content-primary: #FFFF00;
+  --color-content-secondary: #FFFF00;
+  --color-content-muted: #FFCC00;
+
+  --color-accent: #AA0000;
+  --color-accent-hover: #880000;
+  --color-accent-secondary: #AA0000;
+  --color-accent-secondary-hover: #880000;
+  --color-accent-tertiary: #AA0000;
+  --color-accent-tertiary-hover: #880000;
+
+  --color-semantic-success: #FFFF00;
+  --color-semantic-error: #FFFF00;
+  --color-semantic-error-bg: #AA0000;
+  --color-semantic-error-hover: #FF4444;
+  --color-semantic-info: #FFFF00;
+  --color-semantic-warning: #FFFFFF;
+  --color-semantic-special: #FFFF00;
+
+  --color-selection: rgba(255, 255, 0, 0.40);
+  --color-active-line: rgba(255, 68, 68, 0.75);
+}

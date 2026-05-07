@@ -1,0 +1,34 @@
+[data-theme="miami"] {
+  color-scheme: dark;
+
+  --color-surface-body: #070600;
+  --color-surface-card: #121110;
+  --color-surface-input: #1C1B19;
+  --color-surface-hover: #272622;
+  --color-surface-terminal: #030200;
+
+  --color-border: #2A2927;
+  --color-border-subtle: #1A1918;
+
+  --color-content-primary: #F7F7FF;
+  --color-content-secondary: #B8B8C2;
+  --color-content-muted: #6E6E78;
+
+  --color-accent: #EA526F;
+  --color-accent-hover: #F07A90;
+  --color-accent-secondary: #23B5D3;
+  --color-accent-secondary-hover: #4FC8E0;
+  --color-accent-tertiary: #279AF1;
+  --color-accent-tertiary-hover: #54B1F5;
+
+  --color-semantic-success: #279AF1;
+  --color-semantic-error: #EA526F;
+  --color-semantic-error-bg: #D4324F;
+  --color-semantic-error-hover: #F07A90;
+  --color-semantic-info: #23B5D3;
+  --color-semantic-warning: #FFBA49;
+  --color-semantic-special: #EA526F;
+
+  --color-selection: rgba(35, 181, 211, 0.40);
+  --color-active-line: rgba(39, 38, 34, 0.75);
+}

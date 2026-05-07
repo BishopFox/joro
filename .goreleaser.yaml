@@ -1,0 +1,70 @@
+version: 2
+
+project_name: joro
+
+before:
+  hooks:
+    - go mod tidy
+    - sh -c "cd web && npm ci && npm run build"
+
+builds:
+  - id: joro
+    main: .
+    binary: joro
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Tag}}
+      - -X main.commit={{.ShortCommit}}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+# NOTE: this archive name template is duplicated in internal/update/update.go
+# (binary-mode asset download). Keep them in sync.
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+  groups:
+    - title: Features
+      regexp: "^(?i).*add.*$"
+      order: 0
+    - title: "Bug fixes"
+      regexp: "^(?i).*fix.*$"
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  draft: true
+  replace_existing_draft: true

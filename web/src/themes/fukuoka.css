@@ -1,0 +1,34 @@
+[data-theme="fukuoka"] {
+  color-scheme: dark;
+
+  --color-surface-body: #14100E;
+  --color-surface-card: #1E1814;
+  --color-surface-input: #2A2320;
+  --color-surface-hover: #382E28;
+  --color-surface-terminal: #0A0807;
+
+  --color-border: #4A3C32;
+  --color-border-subtle: #2A2320;
+
+  --color-content-primary: #EFE6D4;
+  --color-content-secondary: #C9A878;
+  --color-content-muted: #7F6E5C;
+
+  --color-accent: #D9314A;
+  --color-accent-hover: #E84E65;
+  --color-accent-secondary: #3D6FA8;
+  --color-accent-secondary-hover: #5289C2;
+  --color-accent-tertiary: #D9A84A;
+  --color-accent-tertiary-hover: #E6BD6A;
+
+  --color-semantic-success: #8FB454;
+  --color-semantic-error: #D9314A;
+  --color-semantic-error-bg: #A82438;
+  --color-semantic-error-hover: #E84E65;
+  --color-semantic-info: #3D6FA8;
+  --color-semantic-warning: #D9A84A;
+  --color-semantic-special: #8C4A7D;
+
+  --color-selection: rgba(217, 49, 74, 0.35);
+  --color-active-line: rgba(56, 46, 40, 0.75);
+}

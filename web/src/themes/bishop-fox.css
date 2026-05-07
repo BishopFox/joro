@@ -1,0 +1,34 @@
+[data-theme="bishop-fox"] {
+  color-scheme: dark;
+
+  --color-surface-body: #12141A;
+  --color-surface-card: #1B1E26;
+  --color-surface-input: #252830;
+  --color-surface-hover: #2F3340;
+  --color-surface-terminal: #0A0B10;
+
+  --color-border: #2D3140;
+  --color-border-subtle: #1E2028;
+
+  --color-content-primary: #FFFFFF;
+  --color-content-secondary: #D0CFCF;
+  --color-content-muted: #7A7D7D;
+
+  --color-accent: #FA4844;
+  --color-accent-hover: #EF5B5B;
+  --color-accent-secondary: #00A49E;
+  --color-accent-secondary-hover: #33B8B3;
+  --color-accent-tertiary: #D7E300;
+  --color-accent-tertiary-hover: #E2ED33;
+
+  --color-semantic-success: #D7E300;
+  --color-semantic-error: #FA4844;
+  --color-semantic-error-bg: #E40505;
+  --color-semantic-error-hover: #EF5B5B;
+  --color-semantic-info: #00A49E;
+  --color-semantic-warning: #FFBA49;
+  --color-semantic-special: #BF1363;
+
+  --color-selection: rgba(250, 72, 68, 0.40);
+  --color-active-line: rgba(47, 51, 64, 0.75);
+}

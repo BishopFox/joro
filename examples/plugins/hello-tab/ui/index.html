@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Hello Tab Plugin</title>
+  <link rel="stylesheet" href="/api/v1/theme/variables.css">
+  <script>
+    const theme = new URLSearchParams(window.location.search).get('theme') || 'bishop-fox';
+    document.documentElement.setAttribute('data-theme', theme);
+  </script>
+  <style>
+    body { font-family: system-ui, sans-serif; background: var(--color-surface-body); color: var(--color-content-primary); margin: 0; padding: 24px; }
+    h1 { color: var(--color-accent); font-size: 18px; }
+    p { color: var(--color-content-muted); font-size: 14px; }
+    button { background: var(--color-accent-secondary); color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+    button:hover { background: var(--color-accent-secondary-hover); }
+    #output { margin-top: 12px; padding: 12px; background: var(--color-surface-terminal); border-radius: 4px; font-family: monospace; font-size: 13px; min-height: 40px; color: var(--color-content-primary); }
+  </style>
+</head>
+<body>
+  <h1>Hello Tab Plugin</h1>
+  <p>This is an example top-level tab plugin rendered inside an iframe.</p>
+  <button onclick="fetchHello()">Call API</button>
+  <div id="output"></div>
+  <script>
+    async function fetchHello() {
+      try {
+        const res = await fetch('/api/v1/plugin/hello-tab/hello')
+        const data = await res.json()
+        document.getElementById('output').textContent = JSON.stringify(data, null, 2)
+      } catch (e) {
+        document.getElementById('output').textContent = 'Error: ' + e.message
+      }
+    }
+  </script>
+</body>
+</html>

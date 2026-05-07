@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Hello Feature</title>
+  <link rel="stylesheet" href="/api/v1/theme/variables.css">
+  <script>
+    const theme = new URLSearchParams(window.location.search).get('theme') || 'bishop-fox';
+    document.documentElement.setAttribute('data-theme', theme);
+  </script>
+  <style>
+    body { font-family: system-ui, sans-serif; background: var(--color-surface-body); color: var(--color-content-primary); margin: 0; padding: 24px; }
+    h1 { color: var(--color-accent); font-size: 16px; }
+    p { color: var(--color-content-muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Hello Feature</h1>
+  <p>This is an example plugin feature rendered as a sub-tab within the Plugins page.</p>
+</body>
+</html>

@@ -1,0 +1,159 @@
+@import './themes/aomori.css';
+@import './themes/bishop-fox.css';
+@import './themes/earth.css';
+@import './themes/fukuoka.css';
+@import './themes/hirosaki.css';
+@import './themes/hotdogstand.css';
+@import './themes/miami.css';
+@import './themes/midori.css';
+@import './themes/mirai.css';
+@import './themes/morioka.css';
+@import './themes/nagoya.css';
+@import './themes/nambu.css';
+@import './themes/okinawa.css';
+@import './themes/osaka.css';
+@import './themes/purple.css';
+@import './themes/sendai.css';
+@import './themes/takara.css';
+@import './themes/tokyo.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+button, a, select, input {
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+body {
+  @apply bg-surface-body text-content-primary font-mono;
+  margin: 0;
+}
+
+::selection {
+  background-color: var(--color-selection);
+}
+
+/* The react-codemirror wrapper div needs height so .cm-editor 100% resolves */
+div:has(> .cm-editor) {
+  height: 100%;
+}
+
+/* CodeMirror theme overrides - match editor backgrounds to our surfaces */
+.cm-editor {
+  background-color: var(--color-surface-input) !important;
+  height: 100% !important;
+  max-height: 100% !important;
+}
+.cm-editor .cm-scroller {
+  overflow: auto !important;
+}
+.cm-editor .cm-gutters {
+  background-color: var(--color-surface-card) !important;
+  border-right-color: var(--color-border) !important;
+  color: var(--color-content-muted) !important;
+}
+.cm-editor .cm-activeLineGutter {
+  background-color: var(--color-active-line) !important;
+}
+.cm-editor .cm-activeLine {
+  background-color: var(--color-active-line) !important;
+}
+.cm-editor .cm-cursor {
+  border-left-color: var(--color-accent) !important;
+}
+.cm-editor.cm-focused .cm-selectionBackground,
+.cm-editor .cm-selectionBackground {
+  background-color: var(--color-selection) !important;
+}
+
+/* Drag handles for resizable panels */
+.drag-handle-h {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--color-border);
+  flex-shrink: 0;
+  transition: background-color 150ms ease;
+}
+.drag-handle-h:hover { background: var(--color-accent-secondary); }
+.drag-handle-v {
+  height: 4px;
+  cursor: row-resize;
+  background: var(--color-border);
+  flex-shrink: 0;
+  transition: background-color 150ms ease;
+}
+.drag-handle-v:hover { background: var(--color-accent-secondary); }
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-surface-card); }
+::-webkit-scrollbar-thumb { background: var(--color-content-muted); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-surface-hover); }
+
+/* FUZZ keyword highlighting in CodeMirror (per-position colors) */
+.cm-fuzz-keyword,
+.cm-fuzz-pos-0 {
+  background: var(--color-accent);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.cm-fuzz-pos-1 {
+  background: var(--color-accent-secondary);
+  color: #000;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.cm-fuzz-pos-2 {
+  background: #FF7F11;
+  color: #000;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.cm-fuzz-pos-3 {
+  background: #BF1363;
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.cm-fuzz-pos-4 {
+  background: var(--color-accent-tertiary);
+  color: #000;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.cm-fuzz-pos-5 {
+  background: #FFBA49;
+  color: #000;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* Selection override inside FUZZ position highlights */
+.cm-fuzz-pos-0 .cm-selectionBackground,
+.cm-fuzz-pos-1 .cm-selectionBackground,
+.cm-fuzz-pos-2 .cm-selectionBackground,
+.cm-fuzz-pos-3 .cm-selectionBackground,
+.cm-fuzz-pos-4 .cm-selectionBackground,
+.cm-fuzz-pos-5 .cm-selectionBackground {
+  background-color: rgba(255, 255, 255, 0.45) !important;
+}
+
+/* Non-printable character markers in CodeMirror */
+.cm-nonprintable {
+  background: var(--color-surface-hover);
+  color: var(--color-accent);
+  font-size: 0.7em;
+  padding: 0 2px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+
+/* Network graph animations */
+@keyframes joro-edge-flow {
+  to { stroke-dashoffset: -20; }
+}
+@keyframes joro-node-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
