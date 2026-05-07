@@ -29,7 +29,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.0.0"
+var version = "v1.0.1"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -306,6 +306,12 @@ func runProxyMode(ctx context.Context, cfg config.Config) {
 
 // runBuildPlugin compiles a Go plugin from srcDir. Returns an exit code.
 func runBuildPlugin(srcDir, output string, install bool, dataDir string) int {
+	// Go's plugin package and -buildmode=plugin are not supported on Windows.
+	if runtime.GOOS == "windows" {
+		fmt.Fprintln(os.Stderr, "error: plugins are not supported on Windows (Go's plugin package is Linux/macOS/FreeBSD only)")
+		return 1
+	}
+
 	srcDir, err := filepath.Abs(srcDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -334,6 +340,16 @@ func runBuildPlugin(srcDir, output string, install bool, dataDir string) int {
 	fmt.Printf("  Go version: %s\n", runtime.Version())
 	fmt.Printf("  OS/Arch:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Printf("  Output:     %s\n", outPath)
+
+	// Go's plugin loader rejects .so files built with a different Go toolchain
+	// version than the host binary. Warn loudly when `go build` in srcDir
+	// would use a different toolchain than this binary was compiled with.
+	// Run `go version` from srcDir so the plugin's go.mod (and any
+	// auto-toolchain directive) influences which version is reported.
+	if v, ok := localGoVersion(srcDir); ok && v != runtime.Version() {
+		fmt.Fprintf(os.Stderr, "  Warning: local Go toolchain (%s) differs from this binary's Go version (%s).\n", v, runtime.Version())
+		fmt.Fprintf(os.Stderr, "           The built plugin may fail to load. Match versions or rebuild joro from source.\n")
+	}
 
 	// Run go build -buildmode=plugin.
 	cmd := exec.Command("go", "build", "-buildmode=plugin", "-o", outPath, ".")
@@ -380,4 +396,23 @@ func runBuildPlugin(srcDir, output string, install bool, dataDir string) int {
 	}
 
 	return 0
+}
+
+// localGoVersion returns the version reported by `go version` when run from
+// dir (e.g. "go1.25.0"). Running in dir lets a project-local go.mod with a
+// `go` directive trigger Go's auto-toolchain download, so the reported
+// version matches what `go build` will actually use. Returns ok=false if
+// `go` is missing or the output is unparseable.
+func localGoVersion(dir string) (string, bool) {
+	cmd := exec.Command("go", "version")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) < 3 {
+		return "", false
+	}
+	return fields[2], true
 }

@@ -24,7 +24,7 @@ A web exploitation framework for offensive security professionals. Intercepting 
 - **Transform** - encoding/decoding chains, hash generation, and JWT tampering tools
 - **Team Server** - collaborative mode with shared team chat, shared notes, and active user presence
 - **Notes** - per-host notes for tracking findings during engagements
-- **Plugins** - extend Joro with Go plugins for custom execution backends, proxy hooks, tabs, and dashboards
+- **Plugins** - extend Joro with Go plugins for custom execution backends, proxy hooks, tabs, and dashboards (Linux and macOS only - Go's plugin package does not support Windows)
 - **Single binary** - the entire UI is embedded, nothing to install separately
 
 ## Installation

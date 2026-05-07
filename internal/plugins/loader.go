@@ -86,6 +86,12 @@ func loadOne(path string) (loadedPlugin, error) {
 
 	p, err := plugin.Open(path)
 	if err != nil {
+		// "plugin: not implemented" surfaces when the host binary was built
+		// with CGO_ENABLED=0 — Go's plugin runtime is dlopen-based and gets
+		// compiled out. Re-skin the error with actionable guidance.
+		if strings.Contains(err.Error(), "plugin: not implemented") {
+			return loadedPlugin{}, fmt.Errorf("Go plugin support is disabled in this joro binary (built without CGO). Install a release v1.0.1 or later, or build from source with `make build`")
+		}
 		return loadedPlugin{}, fmt.Errorf("open: %w", err)
 	}
 

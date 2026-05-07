@@ -6,13 +6,45 @@ before:
   hooks:
     - go mod tidy
     - sh -c "cd web && npm ci && npm run build"
+    - sh -c "command -v zig >/dev/null || { echo 'zig not found on PATH (brew install zig)'; exit 1; }"
 
 builds:
   - id: joro
     main: .
     binary: joro
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
+      # CC routing:
+      #   - darwin: leave unset so Go uses Apple's clang, which natively
+      #     handles cross-arch builds within the darwin family. Cross-
+      #     compiling darwin via zig hits framework/SDK dependency-
+      #     resolution issues (libobjc.tbd, etc.) that aren't worth
+      #     working around when host clang already supports both archs.
+      #   - linux/windows: route through scripts/cc.sh which wraps zig cc
+      #     and works around several Go-vs-zig integration issues.
+      # The release build host therefore must be macOS with Xcode CLT
+      # installed (for darwin builds) AND zig on PATH (for linux/windows).
+      - >-
+        CC={{- if eq .Os "darwin" -}}
+          cc
+        {{- else -}}
+          {{ .Env.PWD }}/scripts/cc.sh
+          {{- if eq .Os "linux" }}
+            {{- if eq .Arch "amd64" }} x86_64-linux-gnu.2.17{{ end }}
+            {{- if eq .Arch "arm64" }} aarch64-linux-gnu.2.17{{ end }}
+          {{- end }}
+          {{- if eq .Os "windows" }}
+            {{- if eq .Arch "amd64" }} x86_64-windows-gnu{{ end }}
+            {{- if eq .Arch "arm64" }} aarch64-windows-gnu{{ end }}
+          {{- end }}
+        {{- end }}
+    # netgo + osusergo route DNS and os/user lookups through pure-Go
+    # implementations instead of libresolv / libc. Required for cross-compile
+    # via zig cc since zig's macOS sysroot doesn't ship libresolv. CGO stays
+    # on (-buildmode=plugin needs it); the tags only swap stdlib internals.
+    tags:
+      - netgo
+      - osusergo
     flags:
       - -trimpath
     ldflags:

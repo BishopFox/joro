@@ -14,7 +14,7 @@ Thanks for your interest in contributing. This document describes the expectatio
 * Commits [must be signed](https://docs.github.com/en/github/authenticating-to-github/signing-commits) for any PR to `main`.
 * Provide meaningful commit messages, and reference the related issue.
 * `gofmt` your Go code.
-* Avoid `CGO` - it breaks cross-compilation. `modernc.org/sqlite` should be used instead if necessary.
+* Avoid `import "C"` and CGO-wrapped C library dependencies in source code - they hurt cross-compilation and portability. Prefer pure-Go libraries (e.g. `modernc.org/sqlite` over the cgo sqlite driver). This is about source dependencies, not the `CGO_ENABLED` build flag - release binaries are built with `CGO_ENABLED=1` (via `zig cc`) so Go's `plugin` package works on Linux and macOS.
 * Avoid global variables in internal packages; pass dependencies as parameters.
 * Do not call `os.Exit` outside `main.go`; errors should always be handled cleanly.
 * Frontend changes must use semantic Tailwind classes from the theme system (see `CLAUDE.md`).
