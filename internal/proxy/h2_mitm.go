@@ -82,7 +82,7 @@ func (h *Handler) h2Stream(w http.ResponseWriter, r *http.Request, hostname, hos
 	}
 
 	scheme := r.URL.Scheme
-	host := hostname
+	host := r.URL.Host
 	if h.transport != nil && h.transport.HTTP2() {
 		// h2Cache could be plumbed through Handler if reuse becomes important;
 		// per-stream fresh transports are fine for proxy traffic since the
