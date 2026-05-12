@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../lib/api'
+import { copyText } from '../lib/clipboard'
 
 function b64Decode(s: string) { try { return atob(s) } catch { return s } }
 
@@ -64,8 +65,6 @@ export default function Generator() {
     a.click()
     URL.revokeObjectURL(url)
   }
-
-  function copy(text: string) { navigator.clipboard.writeText(text) }
 
   const canGenerate = mode === 'webshell' || (
     implantUrl.trim() !== '' && (execMethod === 'memory' || binaryName.trim() !== '')
@@ -175,7 +174,7 @@ export default function Generator() {
           <div className="bg-surface-card rounded p-3 border border-border">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-content-muted uppercase">Auth Key</span>
-              <button onClick={() => copy(result.authKey)} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+              <button onClick={() => copyText(result.authKey)} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
                 Copy
               </button>
             </div>
@@ -193,7 +192,7 @@ export default function Generator() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-content-muted uppercase">Content</span>
               <div className="flex gap-2">
-                <button onClick={() => copy(b64Decode(result.content))} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+                <button onClick={() => copyText(b64Decode(result.content))} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
                   Copy
                 </button>
                 <button onClick={download} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">

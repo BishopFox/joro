@@ -4,12 +4,11 @@ import { useCallbackStore, type CallbackInteraction } from '../stores/callbackSt
 import { useXSSHunterStore, type XSSFire, type CollectedPageSummary, type CollectedPage } from '../stores/xssHunterStore'
 import { useSettingsStore, type Settings } from '../stores/settingsStore'
 import { onPluginEvent } from '../lib/ws'
+import { copyText } from '../lib/clipboard'
 
 function b64Decode(s: string) {
   try { return atob(s) } catch { return s }
 }
-
-function copy(text: string) { navigator.clipboard.writeText(text) }
 
 type UnifiedEvent = {
   id: string
@@ -285,7 +284,7 @@ export default function Callbacks() {
       const token = await api.createToken(tokenNote.trim())
       addToken(token)
       setTokenNote('')
-      copy(payloadUrl(token.token))
+      copyText(payloadUrl(token.token))
       setTokenCreated(true)
       window.setTimeout(() => setTokenCreated((s) => s ? false : s), 2000)
     } catch (e) {
@@ -386,7 +385,7 @@ export default function Callbacks() {
   }
 
   function handleCopyPayload(payload: string, name: string) {
-    copy(payload)
+    copyText(payload)
     setCopiedId(name)
     setTimeout(() => setCopiedId((s) => s === name ? null : s), 1500)
   }
@@ -463,7 +462,7 @@ export default function Callbacks() {
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-content-muted uppercase">Raw Request</span>
-                <button onClick={() => copy(b64Decode(item.rawRequest!))} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+                <button onClick={() => copyText(b64Decode(item.rawRequest!))} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
                   Copy
                 </button>
               </div>
@@ -485,7 +484,7 @@ export default function Callbacks() {
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-content-muted uppercase">Raw Request</span>
-              <button onClick={() => copy(b64Decode(item.rawRequest!))} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+              <button onClick={() => copyText(b64Decode(item.rawRequest!))} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
                 Copy
               </button>
             </div>
@@ -533,7 +532,7 @@ export default function Callbacks() {
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-content-muted uppercase">Page Text</span>
-              <button onClick={() => copy(fire.pageText!)} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+              <button onClick={() => copyText(fire.pageText!)} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
                 Copy
               </button>
             </div>
@@ -546,7 +545,7 @@ export default function Callbacks() {
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-content-muted uppercase">DOM Snapshot</span>
-              <button onClick={() => copy(fire.dom!)} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+              <button onClick={() => copyText(fire.dom!)} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
                 Copy
               </button>
             </div>
@@ -576,7 +575,7 @@ export default function Callbacks() {
               <div className="mt-2">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs text-content-muted uppercase truncate">{selectedPage.url}</span>
-                  <button onClick={() => copy(selectedPage.html || '')} className="text-xs text-accent-secondary hover:text-accent-secondary-hover shrink-0">
+                  <button onClick={() => copyText(selectedPage.html || '')} className="text-xs text-accent-secondary hover:text-accent-secondary-hover shrink-0">
                     Copy
                   </button>
                 </div>
@@ -760,7 +759,7 @@ export default function Callbacks() {
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-xs text-content-muted">{t.hitCount} hit{t.hitCount !== 1 ? 's' : ''}</span>
                   <button
-                    onClick={() => copy(payloadUrl(t.token))}
+                    onClick={() => copyText(payloadUrl(t.token))}
                     className="text-xs text-accent-secondary hover:text-accent-secondary-hover"
                   >
                     Copy URL
@@ -905,7 +904,7 @@ export default function Callbacks() {
                         <div className="flex items-center justify-between mt-1">
                           <code className="text-[10px] text-accent-secondary truncate">{inst.payloadUrl}</code>
                           <button
-                            onClick={() => copy(inst.payloadUrl)}
+                            onClick={() => copyText(inst.payloadUrl)}
                             className="text-[10px] text-accent-secondary hover:text-accent-secondary-hover shrink-0 ml-2"
                           >
                             Copy
@@ -1025,7 +1024,7 @@ function DetailField({ label, value, copyable }: { label: string; value: string;
         <span className="text-xs text-content-muted uppercase">{label}</span>
         {copyable && (
           <button
-            onClick={() => copy(value)}
+            onClick={() => copyText(value)}
             className="text-xs text-accent-secondary hover:text-accent-secondary-hover"
           >
             Copy

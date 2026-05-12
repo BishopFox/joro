@@ -13,6 +13,7 @@ import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { copyText } from '../lib/clipboard'
 
 const HIGHLIGHT_COLORS: { key: string; label: string; swatch: string; bg: string }[] = [
   { key: 'red', label: 'Red', swatch: '#E53935', bg: 'rgba(229, 57, 53, 0.18)' },
@@ -349,7 +350,7 @@ function WSHistory() {
             { label: 'Manipulate', onClick: () => sendWSToManipulate(msgMenu.msg) },
             {
               label: 'Copy Payload',
-              onClick: () => navigator.clipboard.writeText(msgMenu.msg.payload),
+              onClick: () => copyText(msgMenu.msg.payload),
             },
           ]}
         />
@@ -469,19 +470,19 @@ function HTTPHistory() {
 
   function copyUrl() {
     if (!selectedDetail) return
-    navigator.clipboard.writeText(selectedDetail.url)
+    copyText(selectedDetail.url)
   }
 
   function copyCurl() {
     if (!selectedDetail) return
     const raw = b64Decode(selectedDetail.reqRaw)
-    navigator.clipboard.writeText(rawToCurl(raw, selectedDetail.url))
+    copyText(rawToCurl(raw, selectedDetail.url))
   }
 
   function copyRaw(tab: 'request' | 'response') {
     if (!selectedDetail) return
     const raw = tab === 'request' ? selectedDetail.reqRaw : selectedDetail.respRaw
-    navigator.clipboard.writeText(b64Decode(raw))
+    copyText(b64Decode(raw))
   }
 
   async function load() {

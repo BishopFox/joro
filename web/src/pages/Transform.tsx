@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { copyText } from '../lib/clipboard'
 
 type Encoding = 'url' | 'base64' | 'hex' | 'html'
 
@@ -214,14 +215,14 @@ export default function Transform() {
   const [copied, setCopied] = useState<string | null>(null)
 
   const copyHash = useCallback((label: string, value: string) => {
-    navigator.clipboard.writeText(value)
+    copyText(value)
     setCopied(label)
     setTimeout(() => setCopied(null), 1500)
   }, [])
 
   const copyAll = useCallback(() => {
     const text = `MD5:    ${hashes.md5}\nSHA-1:  ${hashes.sha1}\nSHA-256:${hashes.sha256}\nSHA-512:${hashes.sha512}`
-    navigator.clipboard.writeText(text)
+    copyText(text)
     setCopied('all')
     setTimeout(() => setCopied(null), 1500)
   }, [hashes])

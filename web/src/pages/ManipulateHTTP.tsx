@@ -12,6 +12,7 @@ import { changeRequestType, changeContentType, getMethod, getContentType, rawToC
 import ContextMenu from '../components/ContextMenu'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { copyText } from '../lib/clipboard'
 
 function b64Encode(s: string) { try { return btoa(s) } catch { return s } }
 function b64Decode(s: string) { try { return atob(s) } catch { return s } }
@@ -205,10 +206,10 @@ export default function ManipulateHTTP() {
     return `${tab.scheme}://${tab.host}${path}`
   }
 
-  function copyUrl() { navigator.clipboard.writeText(getRequestUrl()) }
-  function copyCurl() { navigator.clipboard.writeText(rawToCurl(tab.rawReq, getRequestUrl())) }
-  function copyRawRequest() { navigator.clipboard.writeText(tab.rawReq) }
-  function copyRawResponse() { navigator.clipboard.writeText(tab.response || '') }
+  function copyUrl() { copyText(getRequestUrl()) }
+  function copyCurl() { copyText(rawToCurl(tab.rawReq, getRequestUrl())) }
+  function copyRawRequest() { copyText(tab.rawReq) }
+  function copyRawResponse() { copyText(tab.response || '') }
 
   const reqExtensions = useMemo(() => {
     const exts: any[] = [contextMenuExt]

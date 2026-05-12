@@ -8,6 +8,7 @@ import { PendingRequest, useInterceptStore } from '../stores/interceptStore'
 import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { copyText } from '../lib/clipboard'
 import { rawToCurl } from '../lib/httpTransform'
 
 function b64Decode(s: string) {
@@ -96,9 +97,9 @@ export default function Intercept() {
 
   const handleCloseCtxMenu = useCallback(() => setCtxMenu(null), [])
 
-  function copyUrl() { if (selected) navigator.clipboard.writeText(selected.url) }
-  function copyCurl() { if (selected) navigator.clipboard.writeText(rawToCurl(editedReq, selected.url)) }
-  function copyRawRequest() { navigator.clipboard.writeText(editedReq) }
+  function copyUrl() { if (selected) copyText(selected.url) }
+  function copyCurl() { if (selected) copyText(rawToCurl(editedReq, selected.url)) }
+  function copyRawRequest() { copyText(editedReq) }
 
   return (
     <div className="flex flex-1 min-h-0" ref={hSplit.containerRef}>

@@ -12,6 +12,7 @@ import {
   type WSOpcode,
 } from '../stores/manipulateWSStore'
 import { Tooltip } from '../components/Tooltip'
+import { copyText } from '../lib/clipboard'
 
 function b64Encode(s: string) { try { return btoa(unescape(encodeURIComponent(s))) } catch { return btoa(s) } }
 function b64Decode(s: string) {
@@ -426,7 +427,7 @@ export default function ManipulateWS() {
                 <span className="text-[10px] text-content-muted">{selectedFrame.opcode}</span>
                 <span className="text-[10px] text-content-muted">{formatSize(selectedFrame.size)}</span>
                 <button
-                  onClick={() => navigator.clipboard.writeText(selectedFramePayload)}
+                  onClick={() => copyText(selectedFramePayload)}
                   className="ml-auto text-[10px] px-2 py-0.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary"
                 >
                   Copy

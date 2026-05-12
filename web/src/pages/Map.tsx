@@ -13,6 +13,7 @@ import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { copyText } from '../lib/clipboard'
 
 const METHOD_COLORS: Record<string, string> = {
   GET: 'text-semantic-success',
@@ -158,19 +159,19 @@ export default function Map() {
 
   function copyUrl() {
     if (!selectedDetail) return
-    navigator.clipboard.writeText(selectedDetail.url)
+    copyText(selectedDetail.url)
   }
 
   function copyCurl() {
     if (!selectedDetail) return
     const raw = b64Decode(selectedDetail.reqRaw)
-    navigator.clipboard.writeText(rawToCurl(raw, selectedDetail.url))
+    copyText(rawToCurl(raw, selectedDetail.url))
   }
 
   function copyRaw(tab: 'request' | 'response') {
     if (!selectedDetail) return
     const raw = tab === 'request' ? selectedDetail.reqRaw : selectedDetail.respRaw
-    navigator.clipboard.writeText(b64Decode(raw))
+    copyText(b64Decode(raw))
   }
 
   return (

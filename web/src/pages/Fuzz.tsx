@@ -10,6 +10,7 @@ import { useFuzzStore, MAX_TABS, type FuzzSortColumn, type FilterType, type Matc
 import ContextMenu from '../components/ContextMenu'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { copyText } from '../lib/clipboard'
 import { rawToCurl, updateContentLengthInRaw } from '../lib/httpTransform'
 import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
 
@@ -528,15 +529,15 @@ export default function Fuzz() {
   }
 
   function copyUrl() {
-    navigator.clipboard.writeText(getRequestUrl())
+    copyText(getRequestUrl())
   }
 
   function copyCurl() {
-    navigator.clipboard.writeText(rawToCurl(tab.rawReq, getRequestUrl()))
+    copyText(rawToCurl(tab.rawReq, getRequestUrl()))
   }
 
   function copyRawRequest() {
-    navigator.clipboard.writeText(tab.rawReq)
+    copyText(tab.rawReq)
   }
 
   function toggleSort(col: FuzzSortColumn) {
