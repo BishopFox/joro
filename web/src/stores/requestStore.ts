@@ -64,6 +64,30 @@ export type SortDir = 'asc' | 'desc'
 
 const DEFAULT_EXCLUDE = '.css,.png,.jpg,.jpeg,.gif,.svg,.ico,.webp,.woff,.woff2'
 
+const SORT_STORAGE_KEY = 'joro-history-sort'
+const VALID_SORT_COLUMNS: SortColumn[] = ['seq', 'method', 'statusCode', 'contentType', 'url', 'timestamp', 'responseSize']
+
+function loadSort(): { column: SortColumn; dir: SortDir } {
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY)
+    if (!raw) return { column: 'seq', dir: 'desc' }
+    const parsed = JSON.parse(raw)
+    const column = VALID_SORT_COLUMNS.includes(parsed?.column) ? parsed.column as SortColumn : 'seq'
+    const dir: SortDir = parsed?.dir === 'asc' || parsed?.dir === 'desc' ? parsed.dir : 'desc'
+    return { column, dir }
+  } catch {
+    return { column: 'seq', dir: 'desc' }
+  }
+}
+
+function persistSort(column: SortColumn, dir: SortDir) {
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify({ column, dir }))
+  } catch { /* ignore quota / privacy-mode failures */ }
+}
+
+const initialSort = loadSort()
+
 // sortRequestItems sorts items in place by the given column/direction. Mirrors
 // the comparator in History.tsx; kept in the store so mutations land sorted and
 // the rendered order can never desync from the user's chosen sort.
@@ -93,8 +117,8 @@ export const useRequestStore = create<RequestState>((set) => ({
   selectedDetail: null,
   highlights: {},
   reloadCounter: 0,
-  sortColumn: 'seq',
-  sortDir: 'asc',
+  sortColumn: initialSort.column,
+  sortDir: initialSort.dir,
   filter: { host: '', method: '', search: '', status: '', exclude: localStorage.getItem('joro-history-exclude') ?? DEFAULT_EXCLUDE, extMode: (localStorage.getItem('joro-history-extMode') as 'exclude' | 'include' | '') ?? 'exclude', contentTypes: [], scopeOnly: false, offset: 0, limit: 0 },
 
   addItem: (item) =>
@@ -165,11 +189,14 @@ export const useRequestStore = create<RequestState>((set) => ({
   })),
   setSelected: (selected) => set({ selected }),
   setSelectedDetail: (selectedDetail) => set({ selectedDetail }),
-  setSort: (sortColumn, sortDir) => set((s) => ({
-    sortColumn,
-    sortDir,
-    items: sortRequestItems([...s.items], sortColumn, sortDir),
-  })),
+  setSort: (sortColumn, sortDir) => set((s) => {
+    persistSort(sortColumn, sortDir)
+    return {
+      sortColumn,
+      sortDir,
+      items: sortRequestItems([...s.items], sortColumn, sortDir),
+    }
+  }),
   setFilter: (f) => set((s) => ({ filter: { ...s.filter, ...f, offset: 0 } })),
   setLoading: (loading) => set({ loading }),
   clear: () => set({ items: [], total: 0, selected: null, selectedDetail: null }),
