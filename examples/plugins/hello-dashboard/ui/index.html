@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Dashboard Plugin</title>
+  <link rel="stylesheet" href="/api/v1/theme/variables.css">
+  <script>
+    const theme = new URLSearchParams(window.location.search).get('theme') || 'bishop-fox';
+    document.documentElement.setAttribute('data-theme', theme);
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--color-surface-body);
+      color: var(--color-content-primary);
+      padding: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .header h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--color-accent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .header .badge {
+      font-size: 11px;
+      color: var(--color-content-muted);
+      background: var(--color-surface-card);
+      padding: 2px 8px;
+      border-radius: 3px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: var(--color-surface-card);
+      border: 1px solid var(--color-border);
+      border-radius: 4px;
+      padding: 12px 14px;
+    }
+    .card .label {
+      font-size: 11px;
+      color: var(--color-content-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+    .card .value {
+      font-size: 20px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .card .value.teal { color: var(--color-accent-secondary); }
+    .card .value.lime { color: var(--color-accent-tertiary); }
+    .card .value.amber { color: var(--color-semantic-warning); }
+    .card .value.coral { color: var(--color-semantic-error); }
+
+    .panel {
+      background: var(--color-surface-card);
+      border: 1px solid var(--color-border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .panel-header h2 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-content-secondary);
+    }
+    .panel-header .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--color-semantic-success);
+      display: inline-block;
+      margin-right: 6px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--color-content-muted);
+      padding: 6px 14px;
+      border-bottom: 1px solid var(--color-border-subtle);
+    }
+    td {
+      padding: 5px 14px;
+      font-size: 12px;
+      font-family: ui-monospace, monospace;
+      border-bottom: 1px solid var(--color-border-subtle);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 300px;
+    }
+    tr:hover td { background: var(--color-surface-hover); }
+
+    .method {
+      font-weight: 600;
+      font-size: 11px;
+      padding: 1px 5px;
+      border-radius: 2px;
+      display: inline-block;
+      min-width: 36px;
+      text-align: center;
+    }
+    .method.get { background: #00A49E33; color: var(--color-accent-secondary); }
+    .method.post { background: #FFBA4933; color: var(--color-semantic-warning); }
+    .method.put { background: #FF7F1133; color: #FF7F11; }
+    .method.delete { background: #FA484433; color: var(--color-semantic-error); }
+    .method.other { background: #56525433; color: var(--color-content-secondary); }
+
+    .status { font-weight: 600; }
+    .status.s2xx { color: var(--color-semantic-success); }
+    .status.s3xx { color: var(--color-accent-secondary); }
+    .status.s4xx { color: var(--color-semantic-warning); }
+    .status.s5xx { color: var(--color-semantic-error); }
+
+    .empty {
+      padding: 32px;
+      text-align: center;
+      color: var(--color-content-muted);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Engagement Dashboard</h1>
+  <span class="badge" id="uptime">Loading...</span>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <div class="label">Requests</div>
+    <div class="value teal" id="stat-requests">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Hosts</div>
+    <div class="value lime" id="stat-hosts">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Callbacks</div>
+    <div class="value amber" id="stat-callbacks">--</div>
+  </div>
+  <div class="card">
+    <div class="label">XSS Fires</div>
+    <div class="value coral" id="stat-fires">--</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <h2><span class="dot"></span>Recent Activity</h2>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:60px">Method</th>
+        <th style="width:60px">Status</th>
+        <th>Host</th>
+        <th>Path</th>
+        <th style="width:60px">Size</th>
+        <th style="width:50px">Time</th>
+      </tr>
+    </thead>
+    <tbody id="activity"></tbody>
+  </table>
+  <div class="empty" id="empty-msg">No requests captured yet.</div>
+</div>
+
+<script>
+  const PLUGIN = '/api/v1/plugin/hello-dashboard';
+  const API = '/api/v1';
+
+  function $(id) { return document.getElementById(id); }
+
+  function methodClass(m) {
+    const l = m.toLowerCase();
+    if (l === 'get') return 'get';
+    if (l === 'post') return 'post';
+    if (l === 'put' || l === 'patch') return 'put';
+    if (l === 'delete') return 'delete';
+    return 'other';
+  }
+
+  function statusClass(s) {
+    if (s >= 200 && s < 300) return 's2xx';
+    if (s >= 300 && s < 400) return 's3xx';
+    if (s >= 400 && s < 500) return 's4xx';
+    if (s >= 500) return 's5xx';
+    return '';
+  }
+
+  function fmtSize(b) {
+    if (b == null) return '-';
+    if (b < 1024) return b + 'B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + 'K';
+    return (b / 1048576).toFixed(1) + 'M';
+  }
+
+  function fmtDuration(ms) {
+    if (ms == null) return '-';
+    if (ms < 1000) return ms + 'ms';
+    return (ms / 1000).toFixed(1) + 's';
+  }
+
+  function extractPath(url) {
+    try {
+      const u = new URL(url);
+      return u.pathname + u.search;
+    } catch {
+      return url;
+    }
+  }
+
+  async function fetchJSON(url) {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return res.json();
+  }
+
+  async function refresh() {
+    const stats = await fetchJSON(PLUGIN + '/stats').catch(() => null);
+    if (stats) {
+      $('uptime').textContent = 'Uptime: ' + stats.uptime;
+    }
+
+    const reqs = await fetchJSON(API + '/requests?limit=1').catch(() => null);
+    if (reqs) {
+      $('stat-requests').textContent = reqs.total ?? 0;
+    }
+
+    const sitemap = await fetchJSON(API + '/sitemap').catch(() => null);
+    if (sitemap && sitemap.hosts) {
+      $('stat-hosts').textContent = sitemap.hosts.length;
+    }
+
+    const interactions = await fetchJSON(API + '/callbacks/interactions?limit=1').catch(() => null);
+    if (interactions) {
+      $('stat-callbacks').textContent = interactions.total ?? 0;
+    }
+
+    const fires = await fetchJSON(API + '/xss/fires?limit=1').catch(() => null);
+    if (fires) {
+      $('stat-fires').textContent = fires.total ?? 0;
+    }
+
+    const recent = await fetchJSON(API + '/requests?limit=20').catch(() => null);
+    const tbody = $('activity');
+    const emptyMsg = $('empty-msg');
+
+    if (!recent || !recent.items || recent.items.length === 0) {
+      tbody.innerHTML = '';
+      emptyMsg.style.display = 'block';
+      return;
+    }
+    emptyMsg.style.display = 'none';
+
+    const rows = recent.items.map(r => {
+      const mc = methodClass(r.method);
+      const sc = statusClass(r.statusCode);
+      const path = extractPath(r.url || '');
+      return `<tr>
+        <td><span class="method ${mc}">${r.method}</span></td>
+        <td><span class="status ${sc}">${r.statusCode || '-'}</span></td>
+        <td>${r.host || '-'}</td>
+        <td title="${path}">${path}</td>
+        <td>${fmtSize(r.respSize)}</td>
+        <td>${fmtDuration(r.durationMs)}</td>
+      </tr>`;
+    });
+    tbody.innerHTML = rows.join('');
+  }
+
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+
+</body>
+</html>

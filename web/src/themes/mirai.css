@@ -1,0 +1,34 @@
+[data-theme="mirai"] {
+  color-scheme: dark;
+
+  --color-surface-body: #0F1720;
+  --color-surface-card: #1F2933;
+  --color-surface-input: #2A3644;
+  --color-surface-hover: #354458;
+  --color-surface-terminal: #080C12;
+
+  --color-border: #3D4D62;
+  --color-border-subtle: #1F2933;
+
+  --color-content-primary: #F7F9FC;
+  --color-content-secondary: #B0BECE;
+  --color-content-muted: #6A7682;
+
+  --color-accent: #3A86FF;
+  --color-accent-hover: #5C9EFF;
+  --color-accent-secondary: #00F5D4;
+  --color-accent-secondary-hover: #33F7DB;
+  --color-accent-tertiary: #8338EC;
+  --color-accent-tertiary-hover: #9855EF;
+
+  --color-semantic-success: #00F5D4;
+  --color-semantic-error: #E63946;
+  --color-semantic-error-bg: #C02A36;
+  --color-semantic-error-hover: #EE5B66;
+  --color-semantic-info: #3A86FF;
+  --color-semantic-warning: #F2C94C;
+  --color-semantic-special: #8338EC;
+
+  --color-selection: rgba(58, 134, 255, 0.40);
+  --color-active-line: rgba(53, 68, 88, 0.75);
+}

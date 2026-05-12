@@ -1,0 +1,34 @@
+[data-theme="earth"] {
+  color-scheme: dark;
+
+  --color-surface-body: #1A1E14;
+  --color-surface-card: #232820;
+  --color-surface-input: #2E3428;
+  --color-surface-hover: #3A4232;
+  --color-surface-terminal: #151912;
+
+  --color-border: #3E4636;
+  --color-border-subtle: #2A3024;
+
+  --color-content-primary: #D4D1C4;
+  --color-content-secondary: #A8A392;
+  --color-content-muted: #706B5E;
+
+  --color-accent: #B87333;
+  --color-accent-hover: #CC8844;
+  --color-accent-secondary: #7A9A6D;
+  --color-accent-secondary-hover: #8DAF7E;
+  --color-accent-tertiary: #C4A84E;
+  --color-accent-tertiary-hover: #D4BB66;
+
+  --color-semantic-success: #7A9A6D;
+  --color-semantic-error: #C45A4A;
+  --color-semantic-error-bg: #8B3A2E;
+  --color-semantic-error-hover: #A04838;
+  --color-semantic-info: #7A9A6D;
+  --color-semantic-warning: #C4A84E;
+  --color-semantic-special: #9B7A5B;
+
+  --color-selection: rgba(184, 115, 51, 0.40);
+  --color-active-line: rgba(58, 66, 50, 0.75);
+}

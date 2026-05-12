@@ -1,0 +1,34 @@
+[data-theme="osaka"] {
+  color-scheme: dark;
+
+  --color-surface-body: #1A1412;
+  --color-surface-card: #261E1A;
+  --color-surface-input: #3A2E2A;
+  --color-surface-hover: #4A3C36;
+  --color-surface-terminal: #0F0A08;
+
+  --color-border: #5A4A42;
+  --color-border-subtle: #261E1A;
+
+  --color-content-primary: #FFF6E9;
+  --color-content-secondary: #D4C8B6;
+  --color-content-muted: #8A7E72;
+
+  --color-accent: #FF7A00;
+  --color-accent-hover: #FF9933;
+  --color-accent-secondary: #FFD166;
+  --color-accent-secondary-hover: #FFDC8C;
+  --color-accent-tertiary: #EF476F;
+  --color-accent-tertiary-hover: #F36C8B;
+
+  --color-semantic-success: #FFD166;
+  --color-semantic-error: #EF476F;
+  --color-semantic-error-bg: #C43A5E;
+  --color-semantic-error-hover: #F36C8B;
+  --color-semantic-info: #FF7A00;
+  --color-semantic-warning: #FFD166;
+  --color-semantic-special: #EF476F;
+
+  --color-selection: rgba(255, 122, 0, 0.40);
+  --color-active-line: rgba(74, 60, 54, 0.75);
+}

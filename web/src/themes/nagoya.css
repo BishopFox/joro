@@ -1,0 +1,34 @@
+[data-theme="nagoya"] {
+  color-scheme: dark;
+
+  --color-surface-body: #13100B;
+  --color-surface-card: #1C1812;
+  --color-surface-input: #26211A;
+  --color-surface-hover: #322B22;
+  --color-surface-terminal: #08070A;
+
+  --color-border: #463A26;
+  --color-border-subtle: #26211A;
+
+  --color-content-primary: #F0DCA0;
+  --color-content-secondary: #D4B262;
+  --color-content-muted: #847357;
+
+  --color-accent: #F0C244;
+  --color-accent-hover: #F7D367;
+  --color-accent-secondary: #B12E32;
+  --color-accent-secondary-hover: #C94448;
+  --color-accent-tertiary: #7A8A5A;
+  --color-accent-tertiary-hover: #8FA070;
+
+  --color-semantic-success: #A8BB5F;
+  --color-semantic-error: #B12E32;
+  --color-semantic-error-bg: #8C2025;
+  --color-semantic-error-hover: #C94448;
+  --color-semantic-info: #7B9BB5;
+  --color-semantic-warning: #F0C244;
+  --color-semantic-special: #8B5FA3;
+
+  --color-selection: rgba(240, 194, 68, 0.35);
+  --color-active-line: rgba(50, 43, 34, 0.75);
+}
