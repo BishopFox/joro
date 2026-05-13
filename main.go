@@ -30,7 +30,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.0.6"
+var version = "v1.1.0"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -45,6 +45,8 @@ func main() {
 	flag.IntVar(&cfg.CallbackDNSPort, "dns-port", cfg.CallbackDNSPort, "DNS listener port (listener mode)")
 	flag.IntVar(&cfg.CallbackHTTPPort, "http-port", cfg.CallbackHTTPPort, "HTTP callback listener port (listener mode)")
 	flag.IntVar(&cfg.CallbackHTTPSPort, "https-port", cfg.CallbackHTTPSPort, "HTTPS callback listener port (listener mode, 0 to disable)")
+	flag.StringVar(&cfg.TLSCertFile, "tls-cert", cfg.TLSCertFile, "Path to PEM-encoded TLS certificate for HTTPS callback listener (listener mode). If set, replaces the auto-generated self-signed cert. Must be set together with --tls-key.")
+	flag.StringVar(&cfg.TLSKeyFile, "tls-key", cfg.TLSKeyFile, "Path to PEM-encoded TLS private key for HTTPS callback listener (listener mode). Must be set together with --tls-cert.")
 	flag.StringVar(&cfg.CallbackDomain, "domain", cfg.CallbackDomain, "Callback domain (listener mode)")
 	flag.StringVar(&cfg.CallbackResponseIP, "response-ip", cfg.CallbackResponseIP, "IP address returned in DNS A responses (listener mode)")
 	flag.StringVar(&cfg.BindAddr, "bind", cfg.BindAddr, "Address to bind servers to")
@@ -134,21 +136,33 @@ func runListenerMode(ctx context.Context, cfg config.Config) {
 
 	// Configure HTTPS if enabled.
 	if cfg.CallbackHTTPSPort > 0 {
-		ca, err := cert.LoadOrCreate(cfg.DataDir)
-		if err != nil {
-			log.Fatalf("CA init: %v", err)
+		var tlsCfg *tls.Config
+		switch {
+		case cfg.TLSCertFile != "" && cfg.TLSKeyFile != "":
+			extCert, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
+			if err != nil {
+				log.Fatalf("load external TLS cert: %v", err)
+			}
+			tlsCfg = &tls.Config{Certificates: []tls.Certificate{extCert}}
+			fmt.Printf("Using external TLS cert: %s\n", cfg.TLSCertFile)
+		case cfg.TLSCertFile != "" || cfg.TLSKeyFile != "":
+			log.Fatalf("--tls-cert and --tls-key must be set together")
+		default:
+			ca, err := cert.LoadOrCreate(cfg.DataDir)
+			if err != nil {
+				log.Fatalf("CA init: %v", err)
+			}
+			names := []string{"localhost"}
+			if cfg.CallbackDomain != "" {
+				names = []string{cfg.CallbackDomain, "*." + cfg.CallbackDomain}
+			}
+			leafCert, err := cert.GenerateLeafMulti(ca, names)
+			if err != nil {
+				log.Fatalf("callback TLS cert: %v", err)
+			}
+			tlsCfg = &tls.Config{Certificates: []tls.Certificate{*leafCert}}
 		}
-		names := []string{"localhost"}
-		if cfg.CallbackDomain != "" {
-			names = []string{cfg.CallbackDomain, "*." + cfg.CallbackDomain}
-		}
-		leafCert, err := cert.GenerateLeafMulti(ca, names)
-		if err != nil {
-			log.Fatalf("callback TLS cert: %v", err)
-		}
-		httpSrv.WithTLS(&tls.Config{
-			Certificates: []tls.Certificate{*leafCert},
-		}, cfg.CallbackHTTPSPort)
+		httpSrv.WithTLS(tlsCfg, cfg.CallbackHTTPSPort)
 	}
 
 	go func() {
