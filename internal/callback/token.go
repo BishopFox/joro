@@ -48,3 +48,32 @@ func Correlate(store *Store, hostname, domain string) (*Token, error) {
 
 	return store.FindTokenByHex(tokenHex)
 }
+
+// CorrelateSMTP extracts a token from an SMTP recipient address. It first
+// tries the local-part (token@anything), then falls back to subdomain-style
+// correlation on the domain part (anything@token.callback-domain).
+func CorrelateSMTP(store *Store, rcpt, callbackDomain string) (*Token, error) {
+	rcpt = strings.TrimSpace(rcpt)
+	rcpt = strings.TrimPrefix(rcpt, "<")
+	rcpt = strings.TrimSuffix(rcpt, ">")
+
+	at := strings.LastIndex(rcpt, "@")
+	if at < 0 {
+		return nil, sql.ErrNoRows
+	}
+	local, domain := rcpt[:at], rcpt[at+1:]
+
+	if len(local) >= 16 {
+		tokenHex := strings.ToLower(local[:16])
+		if _, err := hex.DecodeString(tokenHex); err == nil {
+			if tok, err := store.FindTokenByHex(tokenHex); err == nil {
+				return tok, nil
+			}
+		}
+	}
+
+	if callbackDomain != "" {
+		return Correlate(store, domain, callbackDomain)
+	}
+	return nil, sql.ErrNoRows
+}
