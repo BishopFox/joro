@@ -18,7 +18,7 @@ Three modes:
 Ports & paths:
 - Proxy `:8080` (`--proxy-port`), UI/API `:9090` (`--ui-port`)
 - Data dir `~/.joro/` — CA cert/key + `callbacks.db`
-- Listener: DNS `:53` (`--dns-port`), HTTP `:80` (`--http-port`), HTTPS `:443` (`--https-port`, `0` to disable), domain via `--domain` or UI
+- Listener: DNS `:53` (`--dns-port`), HTTP `:80` (`--http-port`), HTTPS `:443` (`--https-port`, `0` to disable), domain via `--domain` or UI, optional external TLS cert via `--tls-cert` + `--tls-key` (both required; replaces the auto-generated self-signed leaf)
 
 ---
 
