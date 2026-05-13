@@ -244,7 +244,7 @@ Tracked via `go.mod` / `go.sum` only — repo does **not** vendor (see "no vendo
 - **No `os.Exit` in packages.** Only `main.go` exits. Internal packages return errors.
 - **Intercept uses per-request channels.** `InterceptQueue.Pause()` blocks the proxy goroutine until `Resolve()` or timeout (default 60s). Don't change to polling.
 - **CA cert reused across restarts.** `cert.LoadOrCreate()` only regenerates when missing.
-- **`web/dist/` embedded** via `//go:embed dist`. Placeholder `index.html` exists so `go build` works before `npm run build`.
+- **`web/dist/` embedded** via `//go:embed dist`. Populated by `npm run build` before Go compiles — `make build` runs the frontend first, and the goreleaser `before:` hook does the same. Bare `go build ./...` requires `npm run build` to have run.
 - **Noise filter is separate from scope.** Silently tunnels common browser background traffic (captive portal, telemetry, OCSP, safe browsing) without capture. Enabled by default. Checked **before** scope — noisy hosts never MITM'd regardless of scope rules.
 - **Two-level scope filtering.** L1 (CONNECT): host pattern only — out-of-scope hosts tunneled raw without MITM. L2 (request): host + method + path after TLS termination — out-of-scope requests forwarded without capture/intercept. Disabled by default; enabled with no rules blocks everything (safe default). Exclude rules override include rules.
 - **Listener mode is mutually exclusive with proxy mode.** `--listener` starts DNS + HTTP callback servers + reduced API/UI. No CA, proxy, or intercept. Data in `~/.joro/callbacks.db`.
