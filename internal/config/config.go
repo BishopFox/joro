@@ -19,6 +19,8 @@ type Config struct {
 	CallbackHTTPSPort  int
 	CallbackDomain      string
 	CallbackResponseIP  string
+	TLSCertFile         string
+	TLSKeyFile          string
 	TeamServer          bool
 	DisableUpdateChecks bool
 }
