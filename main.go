@@ -30,7 +30,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.0.6"
+var version = "v1.1.0"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -45,6 +45,10 @@ func main() {
 	flag.IntVar(&cfg.CallbackDNSPort, "dns-port", cfg.CallbackDNSPort, "DNS listener port (listener mode)")
 	flag.IntVar(&cfg.CallbackHTTPPort, "http-port", cfg.CallbackHTTPPort, "HTTP callback listener port (listener mode)")
 	flag.IntVar(&cfg.CallbackHTTPSPort, "https-port", cfg.CallbackHTTPSPort, "HTTPS callback listener port (listener mode, 0 to disable)")
+	flag.IntVar(&cfg.CallbackSMTPPort, "smtp-port", cfg.CallbackSMTPPort, "SMTP callback listener port (listener mode, 0 to disable)")
+	flag.IntVar(&cfg.CallbackSMTPSPort, "smtps-port", cfg.CallbackSMTPSPort, "SMTPS (implicit TLS) callback listener port (listener mode, 0 to disable)")
+	flag.StringVar(&cfg.TLSCertFile, "tls-cert", cfg.TLSCertFile, "Path to PEM-encoded TLS certificate for HTTPS/SMTPS callback listeners (listener mode). If set, replaces the auto-generated self-signed cert. Must be set together with --tls-key.")
+	flag.StringVar(&cfg.TLSKeyFile, "tls-key", cfg.TLSKeyFile, "Path to PEM-encoded TLS private key for HTTPS/SMTPS callback listeners (listener mode). Must be set together with --tls-cert.")
 	flag.StringVar(&cfg.CallbackDomain, "domain", cfg.CallbackDomain, "Callback domain (listener mode)")
 	flag.StringVar(&cfg.CallbackResponseIP, "response-ip", cfg.CallbackResponseIP, "IP address returned in DNS A responses (listener mode)")
 	flag.StringVar(&cfg.BindAddr, "bind", cfg.BindAddr, "Address to bind servers to")
@@ -129,26 +133,21 @@ func runListenerMode(ctx context.Context, cfg config.Config) {
 		}
 	}()
 
+	// Build shared TLS config if any TLS-capable listener is enabled.
+	needsTLS := cfg.CallbackHTTPSPort > 0 || cfg.CallbackSMTPSPort > 0 ||
+		cfg.TLSCertFile != "" || cfg.TLSKeyFile != ""
+	var tlsCfg *tls.Config
+	if needsTLS {
+		tlsCfg = buildCallbackTLSConfig(cfg)
+	}
+	if cfg.CallbackSMTPSPort > 0 && tlsCfg == nil {
+		log.Fatalf("--smtps-port requires TLS — supply --tls-cert/--tls-key or enable --https-port")
+	}
+
 	// Start HTTP callback server.
 	httpSrv := callback.NewHTTPServer(cbStore, xssStore, hub.Broadcast(), cfg.BindAddr, cfg.CallbackHTTPPort)
-
-	// Configure HTTPS if enabled.
 	if cfg.CallbackHTTPSPort > 0 {
-		ca, err := cert.LoadOrCreate(cfg.DataDir)
-		if err != nil {
-			log.Fatalf("CA init: %v", err)
-		}
-		names := []string{"localhost"}
-		if cfg.CallbackDomain != "" {
-			names = []string{cfg.CallbackDomain, "*." + cfg.CallbackDomain}
-		}
-		leafCert, err := cert.GenerateLeafMulti(ca, names)
-		if err != nil {
-			log.Fatalf("callback TLS cert: %v", err)
-		}
-		httpSrv.WithTLS(&tls.Config{
-			Certificates: []tls.Certificate{*leafCert},
-		}, cfg.CallbackHTTPSPort)
+		httpSrv.WithTLS(tlsCfg, cfg.CallbackHTTPSPort)
 	}
 
 	go func() {
@@ -160,6 +159,23 @@ func runListenerMode(ctx context.Context, cfg config.Config) {
 			log.Printf("HTTP(S) callback server: %v", err)
 		}
 	}()
+
+	// Start SMTP callback server.
+	if cfg.CallbackSMTPPort > 0 || cfg.CallbackSMTPSPort > 0 {
+		smtpSrv := callback.NewSMTPServer(cbStore, hub.Broadcast(), cfg.BindAddr,
+			cfg.CallbackSMTPPort, cfg.CallbackSMTPSPort, tlsCfg)
+		go func() {
+			if cfg.CallbackSMTPPort > 0 {
+				fmt.Printf("SMTP callback listener on %s:%d\n", cfg.BindAddr, cfg.CallbackSMTPPort)
+			}
+			if cfg.CallbackSMTPSPort > 0 {
+				fmt.Printf("SMTPS callback listener on %s:%d\n", cfg.BindAddr, cfg.CallbackSMTPSPort)
+			}
+			if err := smtpSrv.Start(ctx); err != nil {
+				log.Printf("SMTP server: %v", err)
+			}
+		}()
+	}
 
 	// Generate auth token for listener API access.
 	tokenBytes := make([]byte, 16)
@@ -184,6 +200,38 @@ func runListenerMode(ctx context.Context, cfg config.Config) {
 	fmt.Printf("Callback API available at http://%s:%d\n", cfg.BindAddr, cfg.UIPort)
 	if err := apiSrv.Start(ctx); err != nil {
 		log.Fatalf("API server: %v", err)
+	}
+}
+
+// buildCallbackTLSConfig returns the TLS config shared by all callback
+// listeners (HTTPS, SMTPS, STARTTLS). External cert+key via --tls-cert/--tls-key
+// takes precedence; otherwise a leaf is generated from Joro's CA.
+func buildCallbackTLSConfig(cfg config.Config) *tls.Config {
+	switch {
+	case cfg.TLSCertFile != "" && cfg.TLSKeyFile != "":
+		extCert, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
+		if err != nil {
+			log.Fatalf("load external TLS cert: %v", err)
+		}
+		fmt.Printf("Using external TLS cert: %s\n", cfg.TLSCertFile)
+		return &tls.Config{Certificates: []tls.Certificate{extCert}}
+	case cfg.TLSCertFile != "" || cfg.TLSKeyFile != "":
+		log.Fatalf("--tls-cert and --tls-key must be set together")
+		return nil
+	default:
+		ca, err := cert.LoadOrCreate(cfg.DataDir)
+		if err != nil {
+			log.Fatalf("CA init: %v", err)
+		}
+		names := []string{"localhost"}
+		if cfg.CallbackDomain != "" {
+			names = []string{cfg.CallbackDomain, "*." + cfg.CallbackDomain}
+		}
+		leafCert, err := cert.GenerateLeafMulti(ca, names)
+		if err != nil {
+			log.Fatalf("callback TLS cert: %v", err)
+		}
+		return &tls.Config{Certificates: []tls.Certificate{*leafCert}}
 	}
 }
 

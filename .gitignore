@@ -2,7 +2,6 @@ joro
 test/
 dist/
 web/node_modules/
-!web/dist/.gitkeep
 
 # plugins
 *.dylib

@@ -17,8 +17,12 @@ type Config struct {
 	CallbackDNSPort    int
 	CallbackHTTPPort   int
 	CallbackHTTPSPort  int
+	CallbackSMTPPort   int
+	CallbackSMTPSPort  int
 	CallbackDomain      string
 	CallbackResponseIP  string
+	TLSCertFile         string
+	TLSKeyFile          string
 	TeamServer          bool
 	DisableUpdateChecks bool
 }
@@ -35,5 +39,7 @@ func Default() Config {
 		CallbackDNSPort:   53,
 		CallbackHTTPPort:  80,
 		CallbackHTTPSPort: 443,
+		CallbackSMTPPort:  25,
+		CallbackSMTPSPort: 465,
 	}
 }

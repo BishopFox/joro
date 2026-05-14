@@ -12,13 +12,13 @@ Joro is an intercepting HTTP/HTTPS proxy and web shell toolkit for penetration t
 
 Three modes:
 - **Proxy mode** (default): intercepting proxy + web UI
-- **Listener mode** (`--listener`): out-of-band callback server (DNS + HTTP) for blind vuln detection
+- **Listener mode** (`--listener`): out-of-band callback server (DNS + HTTP + SMTP) for blind vuln detection
 - **Team Server mode** (`--listener --teamserver`): listener + authenticated team collaboration (chat, notes)
 
 Ports & paths:
 - Proxy `:8080` (`--proxy-port`), UI/API `:9090` (`--ui-port`)
 - Data dir `~/.joro/` — CA cert/key + `callbacks.db`
-- Listener: DNS `:53` (`--dns-port`), HTTP `:80` (`--http-port`), HTTPS `:443` (`--https-port`, `0` to disable), domain via `--domain` or UI
+- Listener: DNS `:53` (`--dns-port`), HTTP `:80` (`--http-port`), HTTPS `:443` (`--https-port`, `0` to disable), SMTP `:25` (`--smtp-port`, `0` to disable), SMTPS `:465` (`--smtps-port`, `0` to disable), domain via `--domain` or UI, optional external TLS cert via `--tls-cert` + `--tls-key` (both required; replaces the auto-generated self-signed leaf, shared by HTTPS and SMTPS/STARTTLS)
 
 ---
 
@@ -244,12 +244,12 @@ Tracked via `go.mod` / `go.sum` only — repo does **not** vendor (see "no vendo
 - **No `os.Exit` in packages.** Only `main.go` exits. Internal packages return errors.
 - **Intercept uses per-request channels.** `InterceptQueue.Pause()` blocks the proxy goroutine until `Resolve()` or timeout (default 60s). Don't change to polling.
 - **CA cert reused across restarts.** `cert.LoadOrCreate()` only regenerates when missing.
-- **`web/dist/` embedded** via `//go:embed dist`. Placeholder `index.html` exists so `go build` works before `npm run build`.
+- **`web/dist/` embedded** via `//go:embed dist`. Populated by `npm run build` before Go compiles — `make build` runs the frontend first, and the goreleaser `before:` hook does the same. Bare `go build ./...` requires `npm run build` to have run.
 - **Noise filter is separate from scope.** Silently tunnels common browser background traffic (captive portal, telemetry, OCSP, safe browsing) without capture. Enabled by default. Checked **before** scope — noisy hosts never MITM'd regardless of scope rules.
 - **Two-level scope filtering.** L1 (CONNECT): host pattern only — out-of-scope hosts tunneled raw without MITM. L2 (request): host + method + path after TLS termination — out-of-scope requests forwarded without capture/intercept. Disabled by default; enabled with no rules blocks everything (safe default). Exclude rules override include rules.
 - **Listener mode is mutually exclusive with proxy mode.** `--listener` starts DNS + HTTP callback servers + reduced API/UI. No CA, proxy, or intercept. Data in `~/.joro/callbacks.db`.
 - **Token entropy:** 12 hex chars = 48 bits. Correlated by leftmost subdomain label.
-- **Port 53 needs root/capabilities on Linux.** `setcap cap_net_bind_service=+ep ./joro` or iptables redirect.
+- **Privileged ports need root/capabilities on Linux.** DNS `:53`, SMTP `:25`, HTTP `:80`, HTTPS `:443`, SMTPS `:465` are all <1024. `setcap cap_net_bind_service=+ep ./joro` or iptables redirect; or use the `--{dns,http,https,smtp,smtps}-port` flags to pick unprivileged ports.
 - **`internal/event` package** holds shared `WSEvent` to avoid proxy↔callback import cycle.
 - **Match & Replace operates on raw bytes.** Splits raw dump at `\r\n\r\n`, applies header/body rules independently, then reparses. Cumulative in order. Supports `string` and `regex`. Targets: `request_header`, `request_body`, `response_header`, `response_body`, `ws_message`.
 - **WebSocket MITM uses custom frame reader/writer** on raw `net.Conn` (not gorilla). Detected via `Upgrade: websocket`. After 101, two goroutines relay bidirectionally. Control frames forwarded immediately; data frames accumulated until FIN, match/replace applied on complete messages, forwarded as single frame. 16MB payload limit.
