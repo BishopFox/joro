@@ -164,7 +164,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={
             dashboardPlugin
-              ? <iframe src={`/plugin/${dashboardPlugin}/?theme=${currentTheme()}`} className="w-full h-full border-0" sandbox="allow-scripts allow-forms" title="Dashboard" />
+              ? <iframe src={`/plugin/${dashboardPlugin}/?theme=${currentTheme()}`} className="w-full h-full border-0" sandbox="allow-scripts allow-forms allow-same-origin" title="Dashboard" />
               : <Dashboard teamMode={teamMode} />
           } />
           <Route path="/map" element={<Map />} />

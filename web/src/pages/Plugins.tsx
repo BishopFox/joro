@@ -63,7 +63,7 @@ export default function Plugins() {
         <iframe
           src={`/plugin/${activeTab}/?theme=${currentTheme()}`}
           className="flex-1 border-0"
-          sandbox="allow-scripts allow-forms"
+          sandbox="allow-scripts allow-forms allow-same-origin"
           title={activeTab}
         />
       )}

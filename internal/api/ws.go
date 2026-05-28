@@ -6,13 +6,30 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
 )
 
+// upgrader allows non-browser clients (no Origin) and same-origin browser
+// handshakes; cross-origin handshakes are rejected.
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		if origin == "null" {
+			return false
+		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		return strings.EqualFold(reqHostname(u.Host), reqHostname(r.Host))
+	},
 }
 
 // errNicknameInUse is returned by Hub.Rename when the target nickname is already taken.
