@@ -30,7 +30,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.1.0"
+var version = "v1.1.1"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 	flag.StringVar(&cfg.TLSKeyFile, "tls-key", cfg.TLSKeyFile, "Path to PEM-encoded TLS private key for HTTPS/SMTPS callback listeners (listener mode). Must be set together with --tls-cert.")
 	flag.StringVar(&cfg.CallbackDomain, "domain", cfg.CallbackDomain, "Callback domain (listener mode)")
 	flag.StringVar(&cfg.CallbackResponseIP, "response-ip", cfg.CallbackResponseIP, "IP address returned in DNS A responses (listener mode)")
-	flag.StringVar(&cfg.BindAddr, "bind", cfg.BindAddr, "Address to bind servers to")
+	flag.StringVar(&cfg.BindAddr, "bind", cfg.BindAddr, "Address to bind servers to (in proxy mode this governs the proxy port only; the UI/API is always loopback-only)")
 	flag.BoolVar(&cfg.TeamServer, "teamserver", false, "Enable team server mode (requires --listener)")
 	flag.BoolVar(&cfg.DisableUpdateChecks, "disable-update-checks", false, "Disable automatic update checks at startup and in the background (can also be toggled in Settings)")
 
@@ -67,7 +67,12 @@ func main() {
 	}
 
 	if cfg.BindAddr != "127.0.0.1" && cfg.BindAddr != "localhost" && cfg.BindAddr != "::1" {
-		fmt.Fprintf(os.Stderr, "WARNING: Binding to %s — servers will be accessible from the network.\n", cfg.BindAddr)
+		what := "servers"
+		if !cfg.Listener {
+			// Proxy mode forces the UI/API to loopback; only the proxy port honors --bind.
+			what = "the proxy port"
+		}
+		fmt.Fprintf(os.Stderr, "WARNING: Binding to %s — %s will be accessible from the network.\n", cfg.BindAddr, what)
 	}
 
 	if *showVersion {
@@ -337,7 +342,8 @@ func runProxyMode(ctx context.Context, cfg config.Config) {
 	}()
 
 	// Start API + UI server (blocks).
-	fmt.Printf("UI available at http://%s:%d\n", cfg.BindAddr, cfg.UIPort)
+	// The proxy-mode UI/API always binds to loopback regardless of --bind.
+	fmt.Printf("UI available at http://127.0.0.1:%d\n", cfg.UIPort)
 	fmt.Printf("CA cert: %s/ca.crt  (import into browser/OS trust store)\n", cfg.DataDir)
 	if err := apiSrv.Start(ctx); err != nil {
 		log.Fatalf("API server: %v", err)
