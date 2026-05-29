@@ -286,17 +286,24 @@ func (s *APIServer) Start(ctx context.Context) error {
 		}
 	}
 
+	// In proxy mode the UI/API binds to loopback only: --bind governs the proxy
+	// port, and remote collaboration is listener/teamserver mode (bearer-token auth).
+	uiBind := s.cfg.BindAddr
+	if !s.listenerMode {
+		uiBind = "127.0.0.1"
+	}
+
 	var handler http.Handler = mux
 	if s.listenerMode {
 		// Listener/teamserver: bearer-token auth.
 		handler = team.AuthMiddleware(s.teamToken, handler)
 	} else {
 		// Proxy mode: restrict the API to same-origin browser requests.
-		handler = originGuard(s.cfg, handler)
+		handler = originGuard(uiBind, handler)
 	}
 
 	s.srv = &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", s.cfg.BindAddr, s.cfg.UIPort),
+		Addr:              fmt.Sprintf("%s:%d", uiBind, s.cfg.UIPort),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,

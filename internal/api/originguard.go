@@ -5,22 +5,19 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/BishopFox/joro/internal/config"
 )
 
 // originGuard restricts the proxy-mode API to same-origin browser requests.
 //
 // State-changing requests and the WebSocket upgrade must carry a same-origin (or
 // none) Sec-Fetch-Site and a matching Origin; every request must target a loopback
-// or configured --bind Host. Requests without these browser headers (non-browser
-// local tooling) are allowed. Proxy mode only — listener/teamserver mode uses
+// or the exact bind Host. Requests without these browser headers (non-browser local
+// tooling) are allowed. Proxy mode only — listener/teamserver mode uses
 // team.AuthMiddleware's bearer token.
-func originGuard(cfg config.Config, next http.Handler) http.Handler {
+func originGuard(bindAddr string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Host must be loopback or the configured bind address. Wildcard binds
-		// aren't restricted here.
-		if !hostAllowed(r.Host, cfg.BindAddr) {
+		// Host must be loopback or the exact bind address.
+		if !hostAllowed(r.Host, bindAddr) {
 			writeError(w, http.StatusForbidden, "forbidden: unexpected Host header")
 			return
 		}
@@ -73,8 +70,8 @@ func sameOrigin(r *http.Request) bool {
 	return true
 }
 
-// hostAllowed reports whether the request Host is loopback or the configured bind
-// address. Empty/wildcard binds are not restricted (relying on sameOrigin).
+// hostAllowed reports whether the request Host is loopback or the exact configured
+// bind address. A request whose Host matches neither is rejected.
 func hostAllowed(reqHost, bindAddr string) bool {
 	h := reqHostname(reqHost)
 	if h == "" {
@@ -82,10 +79,6 @@ func hostAllowed(reqHost, bindAddr string) bool {
 	}
 	switch h {
 	case "localhost", "127.0.0.1", "::1":
-		return true
-	}
-	switch bindAddr {
-	case "", "0.0.0.0", "::":
 		return true
 	}
 	return strings.EqualFold(h, reqHostname(bindAddr))
