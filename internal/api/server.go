@@ -286,14 +286,24 @@ func (s *APIServer) Start(ctx context.Context) error {
 		}
 	}
 
+	// In proxy mode the UI/API binds to loopback only: --bind governs the proxy
+	// port, and remote collaboration is listener/teamserver mode (bearer-token auth).
+	uiBind := s.cfg.BindAddr
+	if !s.listenerMode {
+		uiBind = "127.0.0.1"
+	}
+
 	var handler http.Handler = mux
 	if s.listenerMode {
+		// Listener/teamserver: bearer-token auth.
 		handler = team.AuthMiddleware(s.teamToken, handler)
+	} else {
+		// Proxy mode: restrict the API to same-origin browser requests.
+		handler = originGuard(uiBind, handler)
 	}
-	handler = corsMiddleware(handler)
 
 	s.srv = &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", s.cfg.BindAddr, s.cfg.UIPort),
+		Addr:              fmt.Sprintf("%s:%d", uiBind, s.cfg.UIPort),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -343,20 +353,6 @@ func (s *spaFS) Open(name string) (fs.File, error) {
 		return s.fs.Open("index.html")
 	}
 	return nil, err
-}
-
-// corsMiddleware adds permissive CORS headers for dev usage.
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Joro-Nickname")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // writeJSON encodes data as JSON and writes it with the given status code.

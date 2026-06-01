@@ -16,7 +16,7 @@ export default function PluginTabPage() {
     <iframe
       src={`/plugin/${extName}/?theme=${currentTheme()}`}
       className="w-full h-full border-0"
-      sandbox="allow-scripts allow-forms"
+      sandbox="allow-scripts allow-forms allow-same-origin"
       title={extName}
     />
   )

@@ -18,9 +18,11 @@ Joro is a **local security tool**, not a production service. The primary user is
 
 The proxy's upstream HTTP client sets `InsecureSkipVerify: true` to skip TLS certificate verification. This is required for MITM proxy functionality: the proxy terminates TLS with its own CA certificate and re-establishes connections to upstream servers. Without this, the proxy could not intercept traffic to servers with self-signed, expired, or otherwise invalid certificates, which is a common scenario during penetration tests.
 
-### Permissive CORS
+### Cross-Origin Request Protection (Proxy Mode)
 
-The API server uses permissive CORS headers to support the development workflow (Vite dev server on a different port) and local tooling integration. Since proxy mode binds to localhost by default, this limits exposure to the local machine.
+Proxy mode sets no `Access-Control-Allow-Origin` header. State-changing requests (`POST`/`PUT`/`DELETE`/`PATCH`) and the WebSocket upgrade are accepted only from same-origin contexts (validated via `Sec-Fetch-Site`/`Origin`), and the `Host` header must be loopback or the configured `--bind` address. Non-browser local tooling is unaffected.
+
+If you bind proxy mode to a non-loopback address, the API is reachable and unauthenticated to anyone who can reach the port — use a firewall, or use listener/team-server mode for shared deployments. Listener and team-server mode require a bearer token (`Authorization: Bearer <token>`) on every request.
 
 ### Arbitrary HTTP Requests
 
