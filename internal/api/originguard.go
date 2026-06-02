@@ -10,14 +10,15 @@ import (
 // originGuard restricts the proxy-mode API to same-origin browser requests.
 //
 // State-changing requests and the WebSocket upgrade must carry a same-origin (or
-// none) Sec-Fetch-Site and a matching Origin; every request must target a loopback
-// or the exact bind Host. Requests without these browser headers (non-browser local
+// none) Sec-Fetch-Site and a matching Origin; every request must target a loopback,
+// the exact bind Host, or an operator-whitelisted Host (--allowed-host, e.g. an SSH
+// tunnel entry address). Requests without these browser headers (non-browser local
 // tooling) are allowed. Proxy mode only — listener/teamserver mode uses
 // team.AuthMiddleware's bearer token.
-func originGuard(bindAddr string, next http.Handler) http.Handler {
+func originGuard(bindAddr string, allowedHosts []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Host must be loopback or the exact bind address.
-		if !hostAllowed(r.Host, bindAddr) {
+		// Host must be loopback, the bind address, or a whitelisted host.
+		if !hostAllowed(r.Host, bindAddr, allowedHosts) {
 			writeError(w, http.StatusForbidden, "forbidden: unexpected Host header")
 			return
 		}
@@ -70,9 +71,11 @@ func sameOrigin(r *http.Request) bool {
 	return true
 }
 
-// hostAllowed reports whether the request Host is loopback or the exact configured
-// bind address. A request whose Host matches neither is rejected.
-func hostAllowed(reqHost, bindAddr string) bool {
+// hostAllowed reports whether the request Host is loopback, the configured bind
+// address, or one of the operator-whitelisted hosts (--allowed-host). Comparison is
+// hostname-only (port stripped), matching how bindAddr is treated. A request whose
+// Host matches none is rejected.
+func hostAllowed(reqHost, bindAddr string, allowedHosts []string) bool {
 	h := reqHostname(reqHost)
 	if h == "" {
 		return false
@@ -81,7 +84,15 @@ func hostAllowed(reqHost, bindAddr string) bool {
 	case "localhost", "127.0.0.1", "::1":
 		return true
 	}
-	return strings.EqualFold(h, reqHostname(bindAddr))
+	if strings.EqualFold(h, reqHostname(bindAddr)) {
+		return true
+	}
+	for _, allowed := range allowedHosts {
+		if strings.EqualFold(h, reqHostname(allowed)) {
+			return true
+		}
+	}
+	return false
 }
 
 // reqHostname strips an optional :port from a host[:port] value, tolerating

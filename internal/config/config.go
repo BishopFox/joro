@@ -25,6 +25,7 @@ type Config struct {
 	TLSKeyFile          string
 	TeamServer          bool
 	DisableUpdateChecks bool
+	AllowedHosts        []string
 }
 
 // Default returns a Config populated with sensible defaults.

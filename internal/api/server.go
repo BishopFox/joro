@@ -299,7 +299,7 @@ func (s *APIServer) Start(ctx context.Context) error {
 		handler = team.AuthMiddleware(s.teamToken, handler)
 	} else {
 		// Proxy mode: restrict the API to same-origin browser requests.
-		handler = originGuard(uiBind, handler)
+		handler = originGuard(uiBind, s.cfg.AllowedHosts, handler)
 	}
 
 	s.srv = &http.Server{
