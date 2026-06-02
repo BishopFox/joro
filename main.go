@@ -30,7 +30,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.1.1"
+var version = "v1.1.2"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -52,6 +52,7 @@ func main() {
 	flag.StringVar(&cfg.CallbackDomain, "domain", cfg.CallbackDomain, "Callback domain (listener mode)")
 	flag.StringVar(&cfg.CallbackResponseIP, "response-ip", cfg.CallbackResponseIP, "IP address returned in DNS A responses (listener mode)")
 	flag.StringVar(&cfg.BindAddr, "bind", cfg.BindAddr, "Address to bind servers to (in proxy mode this governs the proxy port only; the UI/API is always loopback-only)")
+	flag.StringSliceVar(&cfg.AllowedHosts, "allowed-host", cfg.AllowedHosts, "Additional Host header value(s) accepted by the proxy-mode UI/API origin guard, beyond loopback (e.g. an SSH tunnel entry address). Comma-separated or repeatable. Same-origin CSRF checks still apply.")
 	flag.BoolVar(&cfg.TeamServer, "teamserver", false, "Enable team server mode (requires --listener)")
 	flag.BoolVar(&cfg.DisableUpdateChecks, "disable-update-checks", false, "Disable automatic update checks at startup and in the background (can also be toggled in Settings)")
 
