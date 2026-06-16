@@ -4,7 +4,7 @@
 
 A web exploitation framework for offensive security professionals. Intercepting proxy, blind vulnerability detection, web shell generation, C2 integration, and collaboration tools in a single binary with an embedded web UI.
 
-> Warning This tool is intended for authorized penetration testing and security research only. You must only use Joro against systems you own or have explicit written permission to test. Unauthorized access to computer systems is illegal. Bishop Fox assumes no liability and is not responsible for any misuse or damage caused by this tool. Use responsibly.
+> Warning: This tool is intended for authorized penetration testing and security research only. You must only use Joro against systems you own or have explicit written permission to test. Unauthorized access to computer systems is illegal. Bishop Fox assumes no liability and is not responsible for any misuse or damage caused by this tool. Use responsibly.
 
 ## Features
 
