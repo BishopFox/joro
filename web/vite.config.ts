@@ -15,15 +15,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          codemirror: [
-            '@uiw/react-codemirror',
-            '@codemirror/lang-javascript',
-            '@codemirror/lang-html',
-            '@codemirror/lang-json',
-            '@codemirror/lang-css',
-            '@codemirror/theme-one-dark',
-          ],
+        manualChunks: (id) => {
+          if (id.includes('@uiw/react-codemirror') || id.includes('@codemirror/')) {
+            return 'codemirror'
+          }
         },
       },
     },
