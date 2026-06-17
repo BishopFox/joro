@@ -133,10 +133,7 @@ func (h *Handler) handleWSUpgradeMITM(tlsConn net.Conn, req *http.Request, hostn
 		return
 	}
 
-	upstream := tls.Client(rawUpstream, &tls.Config{
-		ServerName:         hostname,
-		InsecureSkipVerify: true, //nolint:gosec
-	})
+	upstream := tls.Client(rawUpstream, newUpstreamTLSConfig(hostname, nil))
 	if err := upstream.Handshake(); err != nil {
 		rawUpstream.Close()
 		writeSimpleResponse(tlsConn, http.StatusBadGateway, "upstream TLS error: "+err.Error())

@@ -273,11 +273,7 @@ func dialH1Conn(ctx context.Context, scheme, host string, tc *TransportConfig) (
 	}
 
 	serverName, _, _ := net.SplitHostPort(host)
-	tlsConn := tls.Client(raw, &tls.Config{
-		ServerName:         serverName,
-		InsecureSkipVerify: true, //nolint:gosec
-		NextProtos:         []string{"http/1.1"},
-	})
+	tlsConn := tls.Client(raw, newUpstreamTLSConfig(serverName, []string{"http/1.1"}))
 	if err := tlsConn.HandshakeContext(dialCtx); err != nil {
 		raw.Close()
 		return nil, fmt.Errorf("tls handshake: %w", err)
@@ -292,11 +288,8 @@ func dialH1Conn(ctx context.Context, scheme, host string, tc *TransportConfig) (
 // returns errH2NotSupported and the caller falls back to the H1 sender.
 func newH2Transport(tc *TransportConfig) *http2.Transport {
 	t := &http2.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec
-			NextProtos:         []string{"h2", "http/1.1"},
-		},
-		AllowHTTP: false,
+		TLSClientConfig: newUpstreamTLSConfig("", []string{"h2", "http/1.1"}),
+		AllowHTTP:       false,
 	}
 
 	t.DialTLSContext = func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
@@ -319,11 +312,7 @@ func newH2Transport(tc *TransportConfig) *http2.Transport {
 		}
 
 		serverName, _, _ := net.SplitHostPort(addr)
-		tlsConn := tls.Client(rawConn, &tls.Config{
-			ServerName:         serverName,
-			InsecureSkipVerify: true, //nolint:gosec
-			NextProtos:         []string{"h2", "http/1.1"},
-		})
+		tlsConn := tls.Client(rawConn, newUpstreamTLSConfig(serverName, []string{"h2", "http/1.1"}))
 		if err := tlsConn.HandshakeContext(dialCtx); err != nil {
 			rawConn.Close()
 			return nil, err

@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -160,7 +159,7 @@ func (tc *TransportConfig) buildTransport() *http.Transport {
 		ForceAttemptHTTP2:     tc.http2Enabled,
 		DisableKeepAlives:     !tc.keepAlive,
 		DisableCompression:    true,
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		TLSClientConfig:       newUpstreamTLSConfig("", nil),
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		IdleConnTimeout:       90 * time.Second,

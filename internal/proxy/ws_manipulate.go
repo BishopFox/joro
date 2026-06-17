@@ -296,10 +296,7 @@ func (m *ManipulateWSManager) dialConn(scheme, host string) (net.Conn, error) {
 	}
 
 	serverName, _, _ := net.SplitHostPort(host)
-	tlsConn := tls.Client(raw, &tls.Config{
-		ServerName:         serverName,
-		InsecureSkipVerify: true, //nolint:gosec
-	})
+	tlsConn := tls.Client(raw, newUpstreamTLSConfig(serverName, nil))
 	if err := tlsConn.Handshake(); err != nil {
 		raw.Close()
 		return nil, fmt.Errorf("tls handshake: %w", err)

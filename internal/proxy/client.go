@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"crypto/tls"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,13 +18,13 @@ func NewHTTPClient(proxyURL string, tc *TransportConfig) http.Client {
 		transport = &http.Transport{
 			ForceAttemptHTTP2: tc.HTTP2(),
 			DisableKeepAlives: !tc.KeepAlive(),
-			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-			DialContext:        tc.SOCKSDialContext(),
+			TLSClientConfig:   newUpstreamTLSConfig("", nil),
+			DialContext:       tc.SOCKSDialContext(),
 		}
 	} else {
 		transport = &http.Transport{
 			ForceAttemptHTTP2: true,
-			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+			TLSClientConfig:   newUpstreamTLSConfig("", nil),
 		}
 	}
 
