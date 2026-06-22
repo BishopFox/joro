@@ -132,6 +132,24 @@ func (mr *MatchReplace) Apply(target string, data []byte) []byte {
 	return data
 }
 
+// stripBlankHeaderLines removes empty lines from a header block. A header rule
+// that replaces a header with an empty string leaves the surrounding CRLF
+// behind, producing a blank line; since a blank line marks the end of the
+// header section, the request/response would be truncated. Collapsing empty
+// lines makes "replace with empty" delete the header line entirely. Valid
+// header blocks never contain blank lines, so this is a no-op otherwise.
+func stripBlankHeaderLines(header []byte) []byte {
+	lines := bytes.Split(header, []byte("\r\n"))
+	out := lines[:0]
+	for _, ln := range lines {
+		if len(ln) == 0 {
+			continue
+		}
+		out = append(out, ln)
+	}
+	return bytes.Join(out, []byte("\r\n"))
+}
+
 // applyRequestReplace applies request_header and request_body rules to an *http.Request.
 func applyRequestReplace(mr *MatchReplace, r *http.Request) *http.Request {
 	raw, err := dumpRequest(r, true)
@@ -141,7 +159,7 @@ func applyRequestReplace(mr *MatchReplace, r *http.Request) *http.Request {
 
 	sep := []byte("\r\n\r\n")
 	parts := bytes.SplitN(raw, sep, 2)
-	headerBytes := mr.Apply("request_header", parts[0])
+	headerBytes := stripBlankHeaderLines(mr.Apply("request_header", parts[0]))
 	var bodyBytes []byte
 	if len(parts) > 1 {
 		bodyBytes = mr.Apply("request_body", parts[1])
@@ -180,7 +198,7 @@ func applyResponseReplace(mr *MatchReplace, resp *http.Response) *http.Response 
 
 	sep := []byte("\r\n\r\n")
 	parts := bytes.SplitN(raw, sep, 2)
-	headerBytes := mr.Apply("response_header", parts[0])
+	headerBytes := stripBlankHeaderLines(mr.Apply("response_header", parts[0]))
 	var bodyBytes []byte
 	if len(parts) > 1 {
 		bodyBytes = mr.Apply("response_body", parts[1])
