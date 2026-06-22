@@ -236,7 +236,7 @@ func applyRequestReplaceRaw(mr *MatchReplace, raw []byte) []byte {
 			return raw
 		}
 	}
-	headers := mr.Apply("request_header", raw[:idx])
+	headers := stripBlankHeaderLines(mr.Apply("request_header", raw[:idx]))
 	body := mr.Apply("request_body", raw[idx+len(sep):])
 	out := make([]byte, 0, len(headers)+4+len(body))
 	out = append(out, headers...)

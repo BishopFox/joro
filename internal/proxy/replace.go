@@ -132,17 +132,28 @@ func (mr *MatchReplace) Apply(target string, data []byte) []byte {
 	return data
 }
 
-// stripBlankHeaderLines removes empty lines from a header block. A header rule
-// that replaces a header with an empty string leaves the surrounding CRLF
-// behind, producing a blank line; since a blank line marks the end of the
-// header section, the request/response would be truncated. Collapsing empty
-// lines makes "replace with empty" delete the header line entirely. Valid
-// header blocks never contain blank lines, so this is a no-op otherwise.
+// stripBlankHeaderLines removes empty and orphaned/malformed lines from a header
+// block. A header rule that replaces a header with an empty string leaves the
+// surrounding CRLF behind, producing a blank line; since a blank line marks the
+// end of the header section, the request/response would be truncated. A rule
+// that matches only a header's name (e.g. the regex "Accept-Language: *", which
+// matches the name plus zero-or-more spaces) leaves the value as a colon-less
+// orphan line that would fail re-parsing. Dropping both makes "replace with
+// empty" delete the header line entirely. Valid header blocks never contain
+// blank or colon-less lines (past the request/status line), so this is a no-op
+// otherwise.
 func stripBlankHeaderLines(header []byte) []byte {
 	lines := bytes.Split(header, []byte("\r\n"))
 	out := lines[:0]
-	for _, ln := range lines {
+	for i, ln := range lines {
 		if len(ln) == 0 {
+			continue
+		}
+		// Drop orphaned, malformed header lines: anything past the first line
+		// (the request/status line) that is not a folded continuation (leading
+		// space/tab) and has no colon — e.g. the value left behind when a rule
+		// strips a header name.
+		if i > 0 && ln[0] != ' ' && ln[0] != '\t' && bytes.IndexByte(ln, ':') < 0 {
 			continue
 		}
 		out = append(out, ln)
