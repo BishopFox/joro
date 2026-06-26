@@ -19,6 +19,10 @@ type Config struct {
 	CallbackHTTPSPort  int
 	CallbackSMTPPort   int
 	CallbackSMTPSPort  int
+	CallbackFTPPort    int
+	CallbackFTPSPort   int
+	CallbackLDAPPort   int
+	CallbackLDAPSPort  int
 	CallbackDomain      string
 	CallbackResponseIP  string
 	TLSCertFile         string
@@ -42,5 +46,8 @@ func Default() Config {
 		CallbackHTTPSPort: 443,
 		CallbackSMTPPort:  25,
 		CallbackSMTPSPort: 465,
+		CallbackFTPPort:   21,
+		CallbackLDAPPort:  389,
+		// FTPS (990) and LDAPS (636) default to 0 (disabled).
 	}
 }

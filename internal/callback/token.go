@@ -4,8 +4,14 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"regexp"
 	"strings"
 )
+
+// hexRunRe matches runs of at least 16 hex characters. Callback tokens are a
+// 16-char hex value, so any candidate string carrying a token contains such a
+// run; we only ever use its first 16 chars.
+var hexRunRe = regexp.MustCompile("[0-9a-fA-F]{16,}")
 
 // GenerateToken creates a new token with a random 16-char hex identifier.
 func GenerateToken(store *Store, name string) (*Token, error) {
@@ -74,6 +80,35 @@ func CorrelateSMTP(store *Store, rcpt, callbackDomain string) (*Token, error) {
 
 	if callbackDomain != "" {
 		return Correlate(store, domain, callbackDomain)
+	}
+	return nil, sql.ErrNoRows
+}
+
+// CorrelateAny scans arbitrary captured strings for hex runs that may be a
+// callback token. For each [0-9a-fA-F]{16,} run it takes the first 16 chars
+// and tries FindTokenByHex; the first match wins. Candidates are scanned in
+// the order given (and left-to-right within each), so callers should pass the
+// most specific fields (a DN, a username, a path) first and fall back to a
+// full transcript or hex dump last.
+//
+// This correlates protocols whose payload embeds the token (e.g. an LDAP base
+// DN, an FTP path or username). It cannot correlate a connection whose token
+// appears only in the hostname used to reach this listener — but that hostname
+// was resolved via DNS, so the existing DNS listener records that interaction
+// under the "dns" type. This matches interactsh's behavior.
+func CorrelateAny(store *Store, candidates ...string) (*Token, error) {
+	seen := make(map[string]struct{})
+	for _, cand := range candidates {
+		for _, run := range hexRunRe.FindAllString(cand, -1) {
+			tokenHex := strings.ToLower(run[:16])
+			if _, dup := seen[tokenHex]; dup {
+				continue
+			}
+			seen[tokenHex] = struct{}{}
+			if tok, err := store.FindTokenByHex(tokenHex); err == nil {
+				return tok, nil
+			}
+		}
 	}
 	return nil, sql.ErrNoRows
 }

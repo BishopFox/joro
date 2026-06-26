@@ -30,7 +30,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.1.6"
+var version = "v1.2.0"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -47,8 +47,12 @@ func main() {
 	flag.IntVar(&cfg.CallbackHTTPSPort, "https-port", cfg.CallbackHTTPSPort, "HTTPS callback listener port (listener mode, 0 to disable)")
 	flag.IntVar(&cfg.CallbackSMTPPort, "smtp-port", cfg.CallbackSMTPPort, "SMTP callback listener port (listener mode, 0 to disable)")
 	flag.IntVar(&cfg.CallbackSMTPSPort, "smtps-port", cfg.CallbackSMTPSPort, "SMTPS (implicit TLS) callback listener port (listener mode, 0 to disable)")
-	flag.StringVar(&cfg.TLSCertFile, "tls-cert", cfg.TLSCertFile, "Path to PEM-encoded TLS certificate for HTTPS/SMTPS callback listeners (listener mode). If set, replaces the auto-generated self-signed cert. Must be set together with --tls-key.")
-	flag.StringVar(&cfg.TLSKeyFile, "tls-key", cfg.TLSKeyFile, "Path to PEM-encoded TLS private key for HTTPS/SMTPS callback listeners (listener mode). Must be set together with --tls-cert.")
+	flag.IntVar(&cfg.CallbackFTPPort, "ftp-port", cfg.CallbackFTPPort, "FTP callback listener port (listener mode, 0 to disable)")
+	flag.IntVar(&cfg.CallbackFTPSPort, "ftps-port", cfg.CallbackFTPSPort, "FTPS (implicit TLS) callback listener port (listener mode, 0 to disable)")
+	flag.IntVar(&cfg.CallbackLDAPPort, "ldap-port", cfg.CallbackLDAPPort, "LDAP callback listener port (listener mode, 0 to disable)")
+	flag.IntVar(&cfg.CallbackLDAPSPort, "ldaps-port", cfg.CallbackLDAPSPort, "LDAPS (implicit TLS) callback listener port (listener mode, 0 to disable)")
+	flag.StringVar(&cfg.TLSCertFile, "tls-cert", cfg.TLSCertFile, "Path to PEM-encoded TLS certificate for the HTTPS/SMTPS/FTPS/LDAPS callback listeners (listener mode). If set, replaces the auto-generated self-signed cert. Must be set together with --tls-key.")
+	flag.StringVar(&cfg.TLSKeyFile, "tls-key", cfg.TLSKeyFile, "Path to PEM-encoded TLS private key for the HTTPS/SMTPS/FTPS/LDAPS callback listeners (listener mode). Must be set together with --tls-cert.")
 	flag.StringVar(&cfg.CallbackDomain, "domain", cfg.CallbackDomain, "Callback domain (listener mode)")
 	flag.StringVar(&cfg.CallbackResponseIP, "response-ip", cfg.CallbackResponseIP, "IP address returned in DNS A responses (listener mode)")
 	flag.StringVar(&cfg.BindAddr, "bind", cfg.BindAddr, "Address to bind servers to (in proxy mode this governs the proxy port only; the UI/API is always loopback-only)")
@@ -141,6 +145,7 @@ func runListenerMode(ctx context.Context, cfg config.Config) {
 
 	// Build shared TLS config if any TLS-capable listener is enabled.
 	needsTLS := cfg.CallbackHTTPSPort > 0 || cfg.CallbackSMTPSPort > 0 ||
+		cfg.CallbackFTPSPort > 0 || cfg.CallbackLDAPSPort > 0 ||
 		cfg.TLSCertFile != "" || cfg.TLSKeyFile != ""
 	var tlsCfg *tls.Config
 	if needsTLS {
@@ -148,6 +153,12 @@ func runListenerMode(ctx context.Context, cfg config.Config) {
 	}
 	if cfg.CallbackSMTPSPort > 0 && tlsCfg == nil {
 		log.Fatalf("--smtps-port requires TLS — supply --tls-cert/--tls-key or enable --https-port")
+	}
+	if cfg.CallbackFTPSPort > 0 && tlsCfg == nil {
+		log.Fatalf("--ftps-port requires TLS — supply --tls-cert/--tls-key or enable --https-port")
+	}
+	if cfg.CallbackLDAPSPort > 0 && tlsCfg == nil {
+		log.Fatalf("--ldaps-port requires TLS — supply --tls-cert/--tls-key or enable --https-port")
 	}
 
 	// Start HTTP callback server.
@@ -179,6 +190,40 @@ func runListenerMode(ctx context.Context, cfg config.Config) {
 			}
 			if err := smtpSrv.Start(ctx); err != nil {
 				log.Printf("SMTP server: %v", err)
+			}
+		}()
+	}
+
+	// Start FTP callback server.
+	if cfg.CallbackFTPPort > 0 || cfg.CallbackFTPSPort > 0 {
+		ftpSrv := callback.NewFTPServer(cbStore, hub.Broadcast(), cfg.BindAddr,
+			cfg.CallbackFTPPort, cfg.CallbackFTPSPort, tlsCfg)
+		go func() {
+			if cfg.CallbackFTPPort > 0 {
+				fmt.Printf("FTP callback listener on %s:%d\n", cfg.BindAddr, cfg.CallbackFTPPort)
+			}
+			if cfg.CallbackFTPSPort > 0 {
+				fmt.Printf("FTPS callback listener on %s:%d\n", cfg.BindAddr, cfg.CallbackFTPSPort)
+			}
+			if err := ftpSrv.Start(ctx); err != nil {
+				log.Printf("FTP server: %v", err)
+			}
+		}()
+	}
+
+	// Start LDAP callback server.
+	if cfg.CallbackLDAPPort > 0 || cfg.CallbackLDAPSPort > 0 {
+		ldapSrv := callback.NewLDAPServer(cbStore, hub.Broadcast(), cfg.BindAddr,
+			cfg.CallbackLDAPPort, cfg.CallbackLDAPSPort, tlsCfg)
+		go func() {
+			if cfg.CallbackLDAPPort > 0 {
+				fmt.Printf("LDAP callback listener on %s:%d\n", cfg.BindAddr, cfg.CallbackLDAPPort)
+			}
+			if cfg.CallbackLDAPSPort > 0 {
+				fmt.Printf("LDAPS callback listener on %s:%d\n", cfg.BindAddr, cfg.CallbackLDAPSPort)
+			}
+			if err := ldapSrv.Start(ctx); err != nil {
+				log.Printf("LDAP server: %v", err)
 			}
 		}()
 	}
