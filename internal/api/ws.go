@@ -40,10 +40,11 @@ type OnConnectFunc func(nickname, ip string)
 
 // Hub manages WebSocket clients and broadcasts events to all of them.
 type Hub struct {
-	mu        sync.RWMutex
-	clients   map[*websocket.Conn]string // conn -> nickname ("" for non-team connections)
-	broadcast chan any
-	onConnect OnConnectFunc
+	mu           sync.RWMutex
+	clients      map[*websocket.Conn]string // conn -> nickname ("" for non-team connections)
+	broadcast    chan any
+	onConnect    OnConnectFunc
+	onDisconnect OnConnectFunc
 }
 
 // NewHub creates a Hub. Call Run() in a goroutine before accepting connections.
@@ -57,6 +58,11 @@ func NewHub() *Hub {
 // SetOnConnect sets a callback invoked when a named user connects.
 func (h *Hub) SetOnConnect(fn OnConnectFunc) {
 	h.onConnect = fn
+}
+
+// SetOnDisconnect sets a callback invoked when a named user disconnects.
+func (h *Hub) SetOnDisconnect(fn OnConnectFunc) {
+	h.onDisconnect = fn
 }
 
 // Run reads from the broadcast channel and fans out to all connected clients.
@@ -206,6 +212,13 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 		if nickname != "" {
 			h.broadcastPresence()
+			if h.onDisconnect != nil {
+				ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+				if ip == "" {
+					ip = r.RemoteAddr
+				}
+				h.onDisconnect(nickname, ip)
+			}
 		}
 		conn.Close()
 	}()

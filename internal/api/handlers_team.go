@@ -11,6 +11,23 @@ import (
 	"github.com/hashicorp/go-uuid"
 )
 
+// postSystemChat persists a system chat message (author "*") and broadcasts it,
+// so connection/rename events become part of the durable session log.
+func (s *APIServer) postSystemChat(text string) {
+	if s.teamStore == nil {
+		return
+	}
+	id, err := uuid.GenerateUUID()
+	if err != nil {
+		return
+	}
+	msg, err := s.teamStore.CreateMessage(id, "*", text, "", "")
+	if err != nil {
+		return
+	}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.chat", Data: msg}
+}
+
 // --- Teamserver-side handlers (direct DB access) ---
 
 func (s *APIServer) handleListChatMessages(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +122,7 @@ func (s *APIServer) handleTeamRename(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not connected")
 		return
 	}
+	s.postSystemChat(body.OldNickname + " changed nickname to " + body.NewNickname)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "renamed"})
 }
 

@@ -84,6 +84,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const teamMessages = useTeamStore((s) => s.messages)
   const activeUsers = useTeamStore((s) => s.activeUsers)
   const setActiveUsers = useTeamStore((s) => s.setActiveUsers)
+  const setMessages = useTeamStore((s) => s.setMessages)
 
   const flaggedItems = useTeamFlaggedStore((s) => s.items)
   const setFlaggedItems = useTeamFlaggedStore((s) => s.setItems)
@@ -214,13 +215,17 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
     }
   }, [teamMode, setFlaggedItems])
 
-  // Chat history is deliberately NOT fetched: clients show only messages arriving after launch.
+  // On join, load the persisted session log (chat + connect/disconnect/rename)
+  // and the current active-user list.
   useEffect(() => {
     if (!teamMode) return
+    api.listChatMessages({ limit: 200 })
+      .then((res) => setMessages([...(res.items || [])].reverse())) // endpoint returns newest-first
+      .catch(() => {})
     api.listActiveUsers()
       .then((users) => setActiveUsers(users || []))
       .catch(() => {})
-  }, [teamMode, setActiveUsers])
+  }, [teamMode, setActiveUsers, setMessages])
 
   useEffect(() => {
     fetchData()

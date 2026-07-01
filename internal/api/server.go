@@ -202,12 +202,7 @@ func NewListenerMode(cfg config.Config, cbStore *callback.Store, xssStore *xsshu
 
 // NewTeamServerMode creates an APIServer in team server mode (listener + team features, no frontend).
 func NewTeamServerMode(cfg config.Config, cbStore *callback.Store, xssStore *xsshunter.Store, hub *Hub, teamStore *team.Store, token string) *APIServer {
-	hub.SetOnConnect(func(nickname, ip string) {
-		if err := teamStore.RecordConnection(nickname, ip); err != nil {
-			log.Printf("team: failed to record connection for %s: %v", nickname, err)
-		}
-	})
-	return &APIServer{
+	s := &APIServer{
 		cfg:            cfg,
 		hub:            hub,
 		cbStore:        cbStore,
@@ -221,6 +216,16 @@ func NewTeamServerMode(cfg config.Config, cbStore *callback.Store, xssStore *xss
 			UIPort: cfg.UIPort,
 		},
 	}
+	hub.SetOnConnect(func(nickname, ip string) {
+		if err := teamStore.RecordConnection(nickname, ip); err != nil {
+			log.Printf("team: failed to record connection for %s: %v", nickname, err)
+		}
+		s.postSystemChat(nickname + " connected")
+	})
+	hub.SetOnDisconnect(func(nickname, ip string) {
+		s.postSystemChat(nickname + " disconnected")
+	})
+	return s
 }
 
 // startUpdateChecker runs a background goroutine that checks for updates every
