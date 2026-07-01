@@ -11,6 +11,7 @@ import { RequestDetail, RequestSummary, SortColumn, useRequestStore } from '../s
 import { useWSStore } from '../stores/wsStore'
 import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
+import ConfirmModal from '../components/ConfirmModal'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
@@ -128,6 +129,7 @@ function WSHistory() {
   const { items, total, loading, selectedConnectionId, selectedMessage, setItems, setSelectedConnectionId, setSelectedMessage, setLoading, clear } = useWSStore()
   const [hostFilter, setHostFilter] = useState('')
   const [msgMenu, setMsgMenu] = useState<{ x: number; y: number; msg: CapturedWSMessage } | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
   const vSplit = useResizable('vertical', 0.4)
   const navigate = useNavigate()
 
@@ -220,10 +222,7 @@ function WSHistory() {
             />
           </label>
           <button
-            onClick={async () => {
-              if (!confirm('Are you sure you want to delete all WebSocket history?')) return
-              await api.clearWSMessages(); clear()
-            }}
+            onClick={() => setConfirmClear(true)}
             className="text-xs px-3 py-1 rounded-sm bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary font-semibold shrink-0"
           >
             Clear
@@ -357,6 +356,19 @@ function WSHistory() {
           ]}
         />
       )}
+      {confirmClear && (
+        <ConfirmModal
+          title="Clear WebSocket history"
+          message="Are you sure you want to delete all WebSocket history? This cannot be undone."
+          confirmLabel="Clear"
+          onConfirm={async () => {
+            setConfirmClear(false)
+            await api.clearWSMessages()
+            clear()
+          }}
+          onClose={() => setConfirmClear(false)}
+        />
+      )}
     </div>
   )
 }
@@ -365,6 +377,7 @@ function HTTPHistory() {
   const { items, total, filter, loading, selectedDetail, highlights, reloadCounter, sortColumn, sortDir, setSort, setFilter, setItems, setSelectedDetail, setLoading, clear, loadHighlights, setHighlight, removeHighlight } =
     useRequestStore()
   const navigate = useNavigate()
+  const [confirmClearAll, setConfirmClearAll] = useState(false)
 
   const toggleSort = (col: SortColumn) => {
     if (sortColumn === col) {
@@ -536,10 +549,8 @@ function HTTPHistory() {
     setSelectedDetail(detail as RequestDetail)
   }
 
-  async function clearAll() {
-    if (!confirm('Are you sure you want to delete all request history?')) return
-    await api.clearRequests()
-    clear()
+  function clearAll() {
+    setConfirmClearAll(true)
   }
 
   return (
@@ -916,6 +927,19 @@ function HTTPHistory() {
             { label: 'Copy Raw Request', onClick: () => copyRaw('request') },
             { label: 'Copy Raw Response', onClick: () => copyRaw('response') },
           ]}
+        />
+      )}
+      {confirmClearAll && (
+        <ConfirmModal
+          title="Clear request history"
+          message="Are you sure you want to delete all request history? This cannot be undone."
+          confirmLabel="Clear"
+          onConfirm={async () => {
+            setConfirmClearAll(false)
+            await api.clearRequests()
+            clear()
+          }}
+          onClose={() => setConfirmClearAll(false)}
         />
       )}
     </div>

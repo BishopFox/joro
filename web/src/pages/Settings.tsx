@@ -5,6 +5,7 @@ import { Settings, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useHiddenTabsStore } from '../stores/hiddenTabsStore'
 import { useTeamSharedConfigStore } from '../stores/teamSharedConfigStore'
+import ConfirmModal from '../components/ConfirmModal'
 import { NAV } from '../lib/nav'
 
 const THEMES = [
@@ -1114,6 +1115,12 @@ function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
+  const [confirmState, setConfirmState] = useState<{
+    message: string
+    confirmLabel: string
+    danger: boolean
+    onConfirm: () => void
+  } | null>(null)
 
   return (
     <div className="flex-1 space-y-2">
@@ -1149,32 +1156,40 @@ function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
         </button>
         <button
           disabled={!selected || saving}
-          onClick={async () => {
-            if (!confirm(`Are you sure you want to overwrite "${selected}"?`)) return
-            setSaving(true)
-            setMsg('')
-            try {
-              await onSave(selected)
-              setMsg('Saved!')
-              window.setTimeout(() => setMsg(''), 3000)
-            } catch (e) { setMsg(String(e)) }
-            finally { setSaving(false) }
-          }}
+          onClick={() => setConfirmState({
+            message: `Are you sure you want to overwrite "${selected}"?`,
+            confirmLabel: 'Overwrite',
+            danger: false,
+            onConfirm: async () => {
+              setSaving(true)
+              setMsg('')
+              try {
+                await onSave(selected)
+                setMsg('Saved!')
+                window.setTimeout(() => setMsg(''), 3000)
+              } catch (e) { setMsg(String(e)) }
+              finally { setSaving(false) }
+            },
+          })}
           className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold disabled:opacity-50"
         >
           {saving ? '...' : 'Save'}
         </button>
         <button
           disabled={!selected}
-          onClick={async () => {
-            if (!confirm(`Delete config "${selected}"?`)) return
-            try {
-              await onDelete(selected)
-              setSelected('')
-              setMsg('Deleted')
-              window.setTimeout(() => setMsg(''), 3000)
-            } catch (e) { setMsg(String(e)) }
-          }}
+          onClick={() => setConfirmState({
+            message: `Delete config "${selected}"?`,
+            confirmLabel: 'Delete',
+            danger: true,
+            onConfirm: async () => {
+              try {
+                await onDelete(selected)
+                setSelected('')
+                setMsg('Deleted')
+                window.setTimeout(() => setMsg(''), 3000)
+              } catch (e) { setMsg(String(e)) }
+            },
+          })}
           className="px-3 py-1.5 rounded-sm bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary text-xs font-semibold disabled:opacity-50"
         >
           Delete
@@ -1210,6 +1225,20 @@ function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
       </div>
 
       {msg && <p className={`text-xs ${msg.startsWith('Error') || msg.startsWith('config') ? 'text-semantic-error' : 'text-semantic-success'}`}>{msg}</p>}
+
+      {confirmState && (
+        <ConfirmModal
+          message={confirmState.message}
+          confirmLabel={confirmState.confirmLabel}
+          danger={confirmState.danger}
+          onConfirm={() => {
+            const fn = confirmState.onConfirm
+            setConfirmState(null)
+            fn()
+          }}
+          onClose={() => setConfirmState(null)}
+        />
+      )}
     </div>
   )
 }
