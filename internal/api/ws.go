@@ -38,10 +38,24 @@ var errNicknameInUse = errors.New("nickname already in use")
 // OnConnectFunc is called when a named user connects with their nickname and IP.
 type OnConnectFunc func(nickname, ip string)
 
+// presenceInfo holds a user's opt-in presence metadata, keyed by nickname.
+type presenceInfo struct {
+	Status    string // online | away | dnd | offline
+	ProjectID string // "" unless the operator shares it
+}
+
+// presenceUser is a single entry in a team.presence broadcast.
+type presenceUser struct {
+	Nickname  string `json:"nickname"`
+	Status    string `json:"status"`
+	ProjectID string `json:"projectId"`
+}
+
 // Hub manages WebSocket clients and broadcasts events to all of them.
 type Hub struct {
 	mu           sync.RWMutex
 	clients      map[*websocket.Conn]string // conn -> nickname ("" for non-team connections)
+	presenceMeta map[string]presenceInfo    // nickname -> presence metadata
 	broadcast    chan any
 	onConnect    OnConnectFunc
 	onDisconnect OnConnectFunc
@@ -50,8 +64,9 @@ type Hub struct {
 // NewHub creates a Hub. Call Run() in a goroutine before accepting connections.
 func NewHub() *Hub {
 	return &Hub{
-		clients:   make(map[*websocket.Conn]string),
-		broadcast: make(chan any, 512),
+		clients:      make(map[*websocket.Conn]string),
+		presenceMeta: make(map[string]presenceInfo),
+		broadcast:    make(chan any, 512),
 	}
 }
 
@@ -120,15 +135,52 @@ func (h *Hub) ActiveUsers() []string {
 	return users
 }
 
+// ActiveUsersDetailed returns connected users with their presence metadata,
+// deduplicated by nickname. Users who set "appear offline" are omitted.
+func (h *Hub) ActiveUsersDetailed() []presenceUser {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	users := []presenceUser{}
+	for _, nick := range h.clients {
+		if nick == "" {
+			continue
+		}
+		if _, exists := seen[nick]; exists {
+			continue
+		}
+		seen[nick] = struct{}{}
+
+		meta, ok := h.presenceMeta[nick]
+		status := meta.Status
+		if !ok || status == "" {
+			status = "online"
+		}
+		if status == "offline" {
+			continue // appear offline: hidden from the roster
+		}
+		users = append(users, presenceUser{Nickname: nick, Status: status, ProjectID: meta.ProjectID})
+	}
+	return users
+}
+
+// SetPresenceMeta updates a user's presence metadata and rebroadcasts presence.
+func (h *Hub) SetPresenceMeta(nickname, status, projectID string) {
+	if nickname == "" {
+		return
+	}
+	h.mu.Lock()
+	h.presenceMeta[nickname] = presenceInfo{Status: status, ProjectID: projectID}
+	h.mu.Unlock()
+	h.broadcastPresence()
+}
+
 // broadcastPresence sends a team.presence event with the current active user list.
 func (h *Hub) broadcastPresence() {
-	users := h.ActiveUsers()
-	if users == nil {
-		users = []string{}
-	}
 	h.broadcast <- map[string]any{
 		"type": "team.presence",
-		"data": map[string]any{"users": users},
+		"data": map[string]any{"users": h.ActiveUsersDetailed()},
 	}
 }
 
@@ -150,6 +202,10 @@ func (h *Hub) Rename(oldNick, newNick string) (bool, error) {
 		return false, nil
 	}
 	h.clients[oldConn] = newNick
+	if meta, ok := h.presenceMeta[oldNick]; ok {
+		h.presenceMeta[newNick] = meta
+		delete(h.presenceMeta, oldNick)
+	}
 	h.mu.Unlock()
 
 	h.broadcast <- map[string]any{

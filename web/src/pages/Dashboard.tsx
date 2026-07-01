@@ -5,7 +5,7 @@ import type { XSSFire, XSSProbe } from '../stores/xssHunterStore'
 import { useTeamStore } from '../stores/teamStore'
 import { useTeamFlaggedStore, type FlaggedRequest } from '../stores/teamFlaggedStore'
 import { useRequestStore, type RequestDetail } from '../stores/requestStore'
-import { useSettingsStore } from '../stores/settingsStore'
+import { useSettingsStore, type Settings } from '../stores/settingsStore'
 import NetworkGraph from '../components/NetworkGraph'
 import FlaggedRequestModal from '../components/FlaggedRequestModal'
 import CollabSwapModal from '../components/CollabSwapModal'
@@ -37,6 +37,26 @@ function timeAgo(ts: string): string {
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs}h ago`
   return `${Math.floor(hrs / 24)}d ago`
+}
+
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'online', label: 'Online' },
+  { value: 'away', label: 'Away' },
+  { value: 'dnd', label: 'Do not disturb' },
+  { value: 'offline', label: 'Appear offline' },
+]
+
+function statusDotClass(status: string): string {
+  switch (status) {
+    case 'away':
+      return 'bg-semantic-warning'
+    case 'dnd':
+      return 'bg-semantic-error'
+    case 'offline':
+      return 'bg-content-muted'
+    default:
+      return 'bg-semantic-success'
+  }
 }
 
 const CHAT_HEIGHT_KEY = 'joro-chat-height'
@@ -80,6 +100,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const [pluginGraphs, setPluginGraphs] = useState<Record<string, PluginGraphData>>({})
 
   const settings = useSettingsStore((s) => s.settings)
+  const setSettings = useSettingsStore((s) => s.setSettings)
 
   const teamMessages = useTeamStore((s) => s.messages)
   const activeUsers = useTeamStore((s) => s.activeUsers)
@@ -226,6 +247,28 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
       .then((users) => setActiveUsers(users || []))
       .catch(() => {})
   }, [teamMode, setActiveUsers, setMessages])
+
+  // Push our presence (status + optionally shared Project ID) on join and
+  // whenever the relevant settings change. No relay reconnect involved.
+  useEffect(() => {
+    if (!teamMode) return
+    const projectId = settings?.shareProjectId ? (settings?.projectId || '') : ''
+    api.updatePresence({ status: settings?.teamStatus || 'online', projectId }).catch(() => {})
+  }, [teamMode, settings?.teamStatus, settings?.shareProjectId, settings?.projectId])
+
+  const changeStatus = async (status: string) => {
+    try {
+      const updated = await api.updateSettings({ teamStatus: status })
+      setSettings(updated as Settings)
+    } catch { /* ignore */ }
+  }
+
+  const toggleShareProject = async (share: boolean) => {
+    try {
+      const updated = await api.updateSettings({ shareProjectId: share })
+      setSettings(updated as Settings)
+    } catch { /* ignore */ }
+  }
 
   useEffect(() => {
     fetchData()
@@ -604,21 +647,53 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
         </div>
 
         {/* Active Users sidebar */}
-        <div className="w-36 shrink-0 border-l border-border flex flex-col">
+        <div className="w-52 shrink-0 border-l border-border flex flex-col">
           <div className="shrink-0 px-3 py-2 border-b border-border">
             <span className="text-xs font-semibold text-content-terminal uppercase tracking-wide">
               Active Users
             </span>
           </div>
+          {/* My presence controls (team mode) */}
+          {teamMode && (
+            <div className="shrink-0 px-3 py-2 border-b border-border space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${statusDotClass(settings?.teamStatus || 'online')}`} />
+                <select
+                  value={settings?.teamStatus || 'online'}
+                  onChange={(e) => changeStatus(e.target.value)}
+                  className="flex-1 min-w-0 bg-surface-input text-content-primary text-xs px-1.5 py-1 rounded border border-border focus:outline-none focus:border-accent-secondary"
+                >
+                  {STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <label className="flex items-center gap-1.5 text-xs text-content-terminal cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!settings?.shareProjectId}
+                  onChange={(e) => toggleShareProject(e.target.checked)}
+                />
+                Share Project ID
+              </label>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
             {teamMode ? (
               activeUsers.length === 0 ? (
                 <p className="text-[10px] text-content-muted italic">No users connected</p>
               ) : (
                 activeUsers.map((user) => (
-                  <div key={user} className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-semantic-success shrink-0" />
-                    <span className="text-xs text-content-terminal truncate">{user}</span>
+                  <div key={user.nickname} className="flex items-start gap-1.5">
+                    <span className={`w-2 h-2 mt-1 rounded-full shrink-0 ${statusDotClass(user.status)}`} />
+                    <div className="min-w-0">
+                      <div className="text-xs text-content-terminal truncate">{user.nickname}</div>
+                      {user.projectId && (
+                        <div className="text-[10px] text-content-muted truncate" title={user.projectId}>
+                          {user.projectId}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))
               )

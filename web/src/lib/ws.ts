@@ -4,7 +4,7 @@ import { useToastStore } from '../stores/toastStore'
 import { useInterceptStore } from '../stores/interceptStore'
 import { useManipulateWSStore, type WSFrameEntry } from '../stores/manipulateWSStore'
 import { useRequestStore, type RequestSummary } from '../stores/requestStore'
-import { useTeamStore, type ChatMessage } from '../stores/teamStore'
+import { useTeamStore, type ChatMessage, type ActiveUser } from '../stores/teamStore'
 import { useTeamFlaggedStore, type FlaggedSummary } from '../stores/teamFlaggedStore'
 import { useTeamSharedConfigStore, type SharedConfigSummary } from '../stores/teamSharedConfigStore'
 import { useUpdateStore } from '../stores/updateStore'
@@ -175,7 +175,7 @@ function handleMessage(msg: WSMessage) {
       break
     }
     case 'team.presence': {
-      const presence = msg.data as { users: string[] }
+      const presence = msg.data as { users: ActiveUser[] }
       useTeamStore.getState().setActiveUsers(presence.users || [])
       break
     }

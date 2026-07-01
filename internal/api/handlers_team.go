@@ -85,8 +85,26 @@ func (s *APIServer) handleCreateChatMessage(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *APIServer) handleListActiveUsers(w http.ResponseWriter, r *http.Request) {
-	users := s.hub.ActiveUsers()
-	writeJSON(w, http.StatusOK, users)
+	writeJSON(w, http.StatusOK, s.hub.ActiveUsersDetailed())
+}
+
+var validPresenceStatus = map[string]bool{"online": true, "away": true, "dnd": true, "offline": true}
+
+func (s *APIServer) handleTeamPresence(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Status    string `json:"status"`
+		ProjectID string `json:"projectId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if !validPresenceStatus[body.Status] {
+		body.Status = "online"
+	}
+	nickname := team.NicknameFromContext(r.Context())
+	s.hub.SetPresenceMeta(nickname, body.Status, body.ProjectID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *APIServer) handleTeamRename(w http.ResponseWriter, r *http.Request) {
@@ -551,6 +569,10 @@ func (s *APIServer) handleProxyTeamChat(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *APIServer) handleProxyTeamUsers(w http.ResponseWriter, r *http.Request) {
+	s.proxyToListener(w, r)
+}
+
+func (s *APIServer) handleProxyTeamPresence(w http.ResponseWriter, r *http.Request) {
 	s.proxyToListener(w, r)
 }
 

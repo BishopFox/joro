@@ -43,6 +43,8 @@ func (s *APIServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request)
 		InterceptTimeout *int    `json:"interceptTimeout"`
 		ListenerURL      *string `json:"listenerUrl"`
 		ProjectID        *string `json:"projectId"`
+		TeamStatus       *string `json:"teamStatus"`
+		ShareProjectID   *bool   `json:"shareProjectId"`
 		HTTP2Enabled     *bool   `json:"http2Enabled"`
 		KeepAliveEnabled *bool   `json:"keepAliveEnabled"`
 		SOCKSHost        *string `json:"socksHost"`
@@ -137,6 +139,12 @@ func (s *APIServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request)
 	}
 	if body.ProjectID != nil {
 		s.settings.ProjectID = *body.ProjectID
+	}
+	if body.TeamStatus != nil {
+		s.settings.TeamStatus = *body.TeamStatus
+	}
+	if body.ShareProjectID != nil {
+		s.settings.ShareProjectID = *body.ShareProjectID
 	}
 
 	settings := s.settings

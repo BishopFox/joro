@@ -39,6 +39,8 @@ type Settings struct {
 	InterceptTimeout int    `json:"interceptTimeout"` // seconds
 	ListenerURL      string `json:"listenerUrl"`
 	ProjectID        string `json:"projectId"`
+	TeamStatus       string `json:"teamStatus"`
+	ShareProjectID   bool   `json:"shareProjectId"`
 	HTTP2Enabled     bool   `json:"http2Enabled"`
 	KeepAliveEnabled bool   `json:"keepAliveEnabled"`
 	SOCKSHost        string `json:"socksHost"`

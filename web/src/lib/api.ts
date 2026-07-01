@@ -1,5 +1,5 @@
 import type { CallbackInteraction, CallbackToken } from '../stores/callbackStore'
-import type { ChatMessage } from '../stores/teamStore'
+import type { ChatMessage, ActiveUser } from '../stores/teamStore'
 import type { FlaggedSummary, FlaggedRequest } from '../stores/teamFlaggedStore'
 import type { SharedConfigSummary, SharedConfig, SharedConfigPayload } from '../stores/teamSharedConfigStore'
 
@@ -458,7 +458,9 @@ export const api = {
   },
   sendChatMessage: (text: string) =>
     req<ChatMessage>('POST', '/team/chat', { text }),
-  listActiveUsers: () => req<string[]>('GET', '/team/users'),
+  listActiveUsers: () => req<ActiveUser[]>('GET', '/team/users'),
+  updatePresence: (payload: { status: string; projectId: string }) =>
+    req<{ status: string }>('POST', '/team/presence', payload),
   listTeamNoteHosts: () => req<string[]>('GET', '/team/notes/hosts'),
   listTeamNotes: (params: Record<string, string | number>) => {
     const qs = new URLSearchParams(

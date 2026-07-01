@@ -8,6 +8,8 @@ export interface Settings {
   interceptTimeout: number
   listenerUrl: string
   projectId: string
+  teamStatus: string
+  shareProjectId: boolean
   http2Enabled: boolean
   keepAliveEnabled: boolean
   socksHost: string

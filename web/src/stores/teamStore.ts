@@ -9,12 +9,18 @@ export interface ChatMessage {
   createdAt: string
 }
 
+export interface ActiveUser {
+  nickname: string
+  status: string // online | away | dnd
+  projectId: string // "" unless shared
+}
+
 interface TeamState {
   messages: ChatMessage[]
-  activeUsers: string[]
+  activeUsers: ActiveUser[]
   setMessages: (msgs: ChatMessage[]) => void
   addMessage: (msg: ChatMessage) => void
-  setActiveUsers: (users: string[]) => void
+  setActiveUsers: (users: ActiveUser[]) => void
   handleNicknameChange: (oldNick: string, newNick: string) => void
 }
 
@@ -45,6 +51,10 @@ export const useTeamStore = create<TeamState>((set) => ({
   handleNicknameChange: (oldNick, newNick) =>
     set((state) => {
       if (oldNick === newNick) return state
-      return { activeUsers: state.activeUsers.map((u) => (u === oldNick ? newNick : u)) }
+      return {
+        activeUsers: state.activeUsers.map((u) =>
+          u.nickname === oldNick ? { ...u, nickname: newNick } : u
+        ),
+      }
     }),
 }))
