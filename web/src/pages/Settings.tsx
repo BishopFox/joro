@@ -4,6 +4,7 @@ import { useRequestStore } from '../stores/requestStore'
 import { Settings, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useHiddenTabsStore } from '../stores/hiddenTabsStore'
+import { useTeamSharedConfigStore } from '../stores/teamSharedConfigStore'
 import { NAV } from '../lib/nav'
 
 const THEMES = [
@@ -59,6 +60,10 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
   const [teamSaved, setTeamSaved] = useState(false)
   const [teamError, setTeamError] = useState('')
   const [teamLoading, setTeamLoading] = useState(false)
+
+  // Project ID + shared configs
+  const [projectId, setProjectId] = useState('')
+  const [projectIdSaved, setProjectIdSaved] = useState(false)
 
   // Local draft for editable fields
   const [interceptTimeout, setInterceptTimeout] = useState(60)
@@ -116,6 +121,7 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
       setListenerUrl(st.listenerUrl || '')
       setTeamToken(st.teamToken || '')
       setTeamNickname(st.teamNickname || '')
+      setProjectId(st.projectId || '')
     })
     api.getNoise().then((n) => {
       setNoiseEnabled(n.enabled)
@@ -152,6 +158,36 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
     } catch (e) {
       setError(String(e))
     }
+  }
+
+  // Apply a loaded/imported project config response to the live UI state.
+  const applyProjectResp = (p: unknown) => {
+    const proj = p as {
+      listenerUrl?: string; teamToken?: string; teamNickname?: string; projectId?: string
+      scopeEnabled: boolean; scopeRules: ScopeRule[]
+      noiseEnabled: boolean; noisePatterns: NoisePattern[]
+      replaceEnabled: boolean; replaceRules: MatchReplaceRule[]
+      customDataEnabled: boolean; customDataItems: CustomAddition[]
+      unknownPluginStates?: string[]
+    }
+    setScopeEnabled(proj.scopeEnabled)
+    setScopeRules(proj.scopeRules || [])
+    setNoiseEnabled(proj.noiseEnabled)
+    setNoisePatterns(proj.noisePatterns || [])
+    setReplaceEnabled(proj.replaceEnabled)
+    setReplaceRules(proj.replaceRules || [])
+    setCustomDataEnabled(proj.customDataEnabled)
+    setCustomDataItems(proj.customDataItems || [])
+    if (proj.listenerUrl !== undefined) {
+      setListenerUrl(proj.listenerUrl || '')
+      setTeamToken(proj.teamToken || '')
+      setTeamNickname(proj.teamNickname || '')
+    }
+    if (proj.projectId !== undefined) setProjectId(proj.projectId || '')
+    setUnknownPluginStatesNotice(proj.unknownPluginStates || [])
+    useRequestStore.getState().invalidate()
+    api.getSettings().then((s) => setSettings(s as Settings))
+    if (onTeamSettingsChanged) onTeamSettingsChanged()
   }
 
   return (
@@ -464,35 +500,7 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
               useHiddenTabsStore.getState().setHiddenTabs(st.hiddenTabs)
             }
             setUnknownPluginStatesNotice(st.unknownPluginStates || [])
-          }} onProjectLoaded={(p) => {
-            const proj = p as {
-              listenerUrl?: string; teamToken?: string; teamNickname?: string
-              scopeEnabled: boolean; scopeRules: ScopeRule[]
-              noiseEnabled: boolean; noisePatterns: NoisePattern[]
-              replaceEnabled: boolean; replaceRules: MatchReplaceRule[]
-              customDataEnabled: boolean; customDataItems: CustomAddition[]
-              unknownPluginStates?: string[]
-            }
-            setScopeEnabled(proj.scopeEnabled)
-            setScopeRules(proj.scopeRules || [])
-            setNoiseEnabled(proj.noiseEnabled)
-            setNoisePatterns(proj.noisePatterns || [])
-            setReplaceEnabled(proj.replaceEnabled)
-            setReplaceRules(proj.replaceRules || [])
-            setCustomDataEnabled(proj.customDataEnabled)
-            setCustomDataItems(proj.customDataItems || [])
-            if (proj.listenerUrl !== undefined) {
-              setListenerUrl(proj.listenerUrl || '')
-              setTeamToken(proj.teamToken || '')
-              setTeamNickname(proj.teamNickname || '')
-            }
-            setUnknownPluginStatesNotice(proj.unknownPluginStates || [])
-            // Reload request history if it was restored from the project config.
-            useRequestStore.getState().invalidate()
-            // Re-fetch settings to get updated team server state
-            api.getSettings().then((s) => setSettings(s as Settings))
-            if (onTeamSettingsChanged) onTeamSettingsChanged()
-          }} />
+          }} onProjectLoaded={applyProjectResp} />
 
           {/* Team Server */}
           <div className="bg-surface-card rounded border border-border p-3 space-y-2">
@@ -597,6 +605,43 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
               {teamSaved && <span className="text-semantic-success text-xs">Saved!</span>}
             </div>
           </div>
+
+          {/* Project */}
+          <div className="bg-surface-card rounded border border-border p-3 space-y-2">
+            <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">Project</h3>
+            <div>
+              <label className="block text-[10px] text-content-muted mb-0.5">Project ID (optional)</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. acme-q3-external"
+                  value={projectId}
+                  onChange={(e) => setProjectId(e.target.value)}
+                  className="flex-1 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                />
+                <button
+                  onClick={async () => {
+                    try {
+                      const updated = await api.updateSettings({ projectId })
+                      setSettings(updated as Settings)
+                      setProjectIdSaved(true)
+                      window.setTimeout(() => setProjectIdSaved(false), 3000)
+                    } catch { /* ignore */ }
+                  }}
+                  className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold"
+                >
+                  Save
+                </button>
+                {projectIdSaved && <span className="text-semantic-success text-xs self-center">Saved!</span>}
+              </div>
+              <p className="text-[10px] text-content-muted mt-1">Labels this engagement; shared in published configs and collaboration requests.</p>
+            </div>
+          </div>
+
+          {/* Team Configs (shared project configs) — team mode only */}
+          {listenerUrl.trim() && (
+            <TeamConfigsPanel projectId={projectId} onImported={applyProjectResp} />
+          )}
 
           {/* Filtering - tabbed card */}
           <div className="bg-surface-card rounded border border-border">
@@ -1245,6 +1290,110 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between text-sm">
       <span className="text-content-secondary">{label}</span>
       <code className="text-content-primary">{value}</code>
+    </div>
+  )
+}
+
+function TeamConfigsPanel({ projectId, onImported }: { projectId: string; onImported: (p: unknown) => void }) {
+  const items = useTeamSharedConfigStore((s) => s.items)
+  const setItems = useTeamSharedConfigStore((s) => s.setItems)
+  const removeItem = useTeamSharedConfigStore((s) => s.removeItem)
+  const [publishName, setPublishName] = useState('')
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    api.listSharedConfigs().then((r) => setItems(r.items || [])).catch(() => {})
+  }, [setItems])
+
+  async function publish() {
+    if (!publishName.trim()) return
+    setBusy(true)
+    setMsg('')
+    try {
+      const exported = await api.exportProjectConfig()
+      await api.publishConfig({ name: publishName.trim(), projectId, config: exported.config })
+      setPublishName('')
+      setMsg('Published!')
+      window.setTimeout(() => setMsg(''), 3000)
+    } catch (e) {
+      setMsg(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function load(id: string, name: string) {
+    setMsg('')
+    try {
+      const cfg = await api.getSharedConfig(id)
+      const resp = await api.importProjectConfig(name, cfg.config)
+      onImported(resp)
+      setMsg(`Loaded "${name}"`)
+      window.setTimeout(() => setMsg(''), 3000)
+    } catch (e) {
+      setMsg(String(e))
+    }
+  }
+
+  async function del(id: string) {
+    removeItem(id)
+    try {
+      await api.deleteSharedConfig(id)
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="bg-surface-card rounded border border-border p-3 space-y-2">
+      <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">Team Configs</h3>
+      <p className="text-xs text-content-muted mb-2">
+        Publish your current project config to the team, or load one a teammate shared.
+      </p>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="Name to publish current config as"
+          value={publishName}
+          onChange={(e) => setPublishName(e.target.value)}
+          className="flex-1 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+        />
+        <button
+          disabled={busy || !publishName.trim()}
+          onClick={publish}
+          className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold disabled:opacity-50"
+        >
+          Publish to team
+        </button>
+      </div>
+      {msg && <p className="text-xs text-content-secondary">{msg}</p>}
+      {items.length === 0 ? (
+        <p className="text-[10px] text-content-muted italic">No published configs yet</p>
+      ) : (
+        <div className="divide-y divide-border-subtle">
+          {items.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 py-1.5 text-xs">
+              <span className="text-content-primary font-medium truncate">{c.name}</span>
+              {c.projectId && <span className="text-content-muted">[{c.projectId}]</span>}
+              <span className="text-content-muted truncate">by {c.author}</span>
+              <div className="ml-auto flex gap-2">
+                <button
+                  onClick={() => load(c.id, c.name)}
+                  className="text-accent-secondary hover:underline font-medium"
+                >
+                  Load
+                </button>
+                <button
+                  onClick={() => del(c.id)}
+                  className="text-content-muted hover:text-semantic-error"
+                  title="Delete published config"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

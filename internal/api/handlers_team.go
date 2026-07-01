@@ -57,7 +57,7 @@ func (s *APIServer) handleCreateChatMessage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	msg, err := s.teamStore.CreateMessage(id, author, body.Text, "")
+	msg, err := s.teamStore.CreateMessage(id, author, body.Text, "", "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -275,7 +275,7 @@ func (s *APIServer) handleCreateFlagged(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	chatMsg, err := s.teamStore.CreateMessage(chatID, author, text, artifact.ID)
+	chatMsg, err := s.teamStore.CreateMessage(chatID, author, text, artifact.ID, "flagged")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -318,6 +318,171 @@ func (s *APIServer) handleDeleteFlagged(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
 }
 
+// --- Shared configs (Feature A) ---
+
+func (s *APIServer) handleListSharedConfigs(w http.ResponseWriter, r *http.Request) {
+	items, err := s.teamStore.ListSharedConfigs()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if items == nil {
+		items = []team.SharedConfig{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *APIServer) handleCreateSharedConfig(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name      string `json:"name"`
+		ProjectID string `json:"projectId"`
+		Config    string `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.Name == "" || body.Config == "" {
+		writeError(w, http.StatusBadRequest, "name and config are required")
+		return
+	}
+
+	author := team.NicknameFromContext(r.Context())
+	id, err := uuid.GenerateUUID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	cfg, err := s.teamStore.CreateSharedConfig(id, body.Name, body.ProjectID, author, body.Config)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	chatID, err := uuid.GenerateUUID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	chatMsg, err := s.teamStore.CreateMessage(chatID, author, "📦 published config '"+body.Name+"'", cfg.ID, "config")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	summary := team.SharedConfig{ID: cfg.ID, Name: cfg.Name, ProjectID: cfg.ProjectID, Author: cfg.Author, CreatedAt: cfg.CreatedAt}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.config", Data: summary}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.chat", Data: chatMsg}
+	writeJSON(w, http.StatusCreated, summary)
+}
+
+func (s *APIServer) handleGetSharedConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.teamStore.GetSharedConfig(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "shared config not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *APIServer) handleDeleteSharedConfig(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.teamStore.DeleteSharedConfig(id); err != nil {
+		writeError(w, http.StatusNotFound, "shared config not found")
+		return
+	}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.config.deleted", Data: map[string]string{"id": id}}
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+}
+
+// --- Collaboration requests (Feature B) ---
+
+func (s *APIServer) handleCreateCollab(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ProjectID string `json:"projectId"`
+		Note      string `json:"note"`
+		Config    string `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.Config == "" {
+		writeError(w, http.StatusBadRequest, "config is required")
+		return
+	}
+
+	requestor := team.NicknameFromContext(r.Context())
+	id, err := uuid.GenerateUUID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	req, err := s.teamStore.CreateCollabRequest(id, requestor, body.ProjectID, body.Note, body.Config)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	text := "🤝 " + requestor + " is requesting collaboration"
+	if body.ProjectID != "" {
+		text += " on " + body.ProjectID
+	}
+	if body.Note != "" {
+		text += ": " + body.Note
+	}
+	chatID, err := uuid.GenerateUUID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	chatMsg, err := s.teamStore.CreateMessage(chatID, requestor, text, req.ID, "collab")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	summary := team.CollabRequest{ID: req.ID, Requestor: req.Requestor, ProjectID: req.ProjectID, Note: req.Note, Status: req.Status, CreatedAt: req.CreatedAt}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.collab.request", Data: summary}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.chat", Data: chatMsg}
+	writeJSON(w, http.StatusCreated, summary)
+}
+
+func (s *APIServer) handleGetCollab(w http.ResponseWriter, r *http.Request) {
+	req, err := s.teamStore.GetCollabRequest(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "collaboration request not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, req)
+}
+
+func (s *APIServer) handleAcceptCollab(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	req, err := s.teamStore.GetCollabRequest(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "collaboration request not found")
+		return
+	}
+	acceptor := team.NicknameFromContext(r.Context())
+
+	chatID, err := uuid.GenerateUUID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	chatMsg, err := s.teamStore.CreateMessage(chatID, acceptor, acceptor+" joined "+req.Requestor+"'s collaboration", "", "")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.collab.accepted", Data: map[string]string{"id": id, "acceptedBy": acceptor}}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.chat", Data: chatMsg}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+}
+
 // --- Proxy-side handlers (forward to teamserver via proxyToListener) ---
 
 func (s *APIServer) handleProxyTeamChat(w http.ResponseWriter, r *http.Request) {
@@ -333,5 +498,13 @@ func (s *APIServer) handleProxyTeamNotes(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *APIServer) handleProxyTeamFlagged(w http.ResponseWriter, r *http.Request) {
+	s.proxyToListener(w, r)
+}
+
+func (s *APIServer) handleProxyTeamConfigs(w http.ResponseWriter, r *http.Request) {
+	s.proxyToListener(w, r)
+}
+
+func (s *APIServer) handleProxyTeamCollab(w http.ResponseWriter, r *http.Request) {
 	s.proxyToListener(w, r)
 }

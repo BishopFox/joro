@@ -38,6 +38,7 @@ type Settings struct {
 	InterceptEnabled bool   `json:"interceptEnabled"`
 	InterceptTimeout int    `json:"interceptTimeout"` // seconds
 	ListenerURL      string `json:"listenerUrl"`
+	ProjectID        string `json:"projectId"`
 	HTTP2Enabled     bool   `json:"http2Enabled"`
 	KeepAliveEnabled bool   `json:"keepAliveEnabled"`
 	SOCKSHost        string `json:"socksHost"`

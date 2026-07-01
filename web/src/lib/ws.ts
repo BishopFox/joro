@@ -6,6 +6,7 @@ import { useManipulateWSStore, type WSFrameEntry } from '../stores/manipulateWSS
 import { useRequestStore, type RequestSummary } from '../stores/requestStore'
 import { useTeamStore, type ChatMessage } from '../stores/teamStore'
 import { useTeamFlaggedStore, type FlaggedSummary } from '../stores/teamFlaggedStore'
+import { useTeamSharedConfigStore, type SharedConfigSummary } from '../stores/teamSharedConfigStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useWSStore } from '../stores/wsStore'
 import { useXSSHunterStore, type XSSFire } from '../stores/xssHunterStore'
@@ -161,6 +162,16 @@ function handleMessage(msg: WSMessage) {
     case 'team.flagged.deleted': {
       const d = msg.data as { id: string }
       useTeamFlaggedStore.getState().removeItem(d.id)
+      break
+    }
+    case 'team.config': {
+      const c = msg.data as SharedConfigSummary
+      useTeamSharedConfigStore.getState().addItem(c)
+      break
+    }
+    case 'team.config.deleted': {
+      const d = msg.data as { id: string }
+      useTeamSharedConfigStore.getState().removeItem(d.id)
       break
     }
     case 'team.presence': {

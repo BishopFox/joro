@@ -10,7 +10,31 @@ type ChatMessage struct {
 	ID        string    `json:"id"`
 	Author    string    `json:"author"`
 	Text      string    `json:"text"`
-	RefID     string    `json:"refId,omitempty"` // optional flagged-request reference
+	RefID     string    `json:"refId,omitempty"`   // optional referenced artifact id
+	RefType   string    `json:"refType,omitempty"` // "flagged" | "collab" | "config"
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// SharedConfig is a published project config artifact (Feature A). The Config
+// blob is opaque to the team server (base64 of a gzipped projectConfigFile).
+type SharedConfig struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	ProjectID string    `json:"projectId"`
+	Author    string    `json:"author"`
+	Config    string    `json:"config,omitempty"` // omitted in list responses
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// CollabRequest is a collaboration request (Feature B). The Config blob is a
+// JSON SharedConfig payload (scope/replace/customdata only), opaque here.
+type CollabRequest struct {
+	ID        string    `json:"id"`
+	Requestor string    `json:"requestor"`
+	ProjectID string    `json:"projectId"`
+	Note      string    `json:"note"`
+	Config    string    `json:"config,omitempty"` // omitted in summaries
+	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -54,22 +78,25 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// CreateMessage inserts a new chat message. refID is optional (pass "" for a
-// plain message); when set it references a flagged request.
-func (s *Store) CreateMessage(id, author, text, refID string) (*ChatMessage, error) {
+// CreateMessage inserts a new chat message. refID/refType are optional (pass ""
+// for a plain message); when set they reference an artifact (flagged/collab/config).
+func (s *Store) CreateMessage(id, author, text, refID, refType string) (*ChatMessage, error) {
 	now := time.Now().UTC()
-	var ref any
+	var ref, rtype any
 	if refID != "" {
 		ref = refID
 	}
+	if refType != "" {
+		rtype = refType
+	}
 	_, err := s.db.Exec(
-		"INSERT INTO team_chat (id, author, text, ref_id, created_at) VALUES (?, ?, ?, ?, ?)",
-		id, author, text, ref, now,
+		"INSERT INTO team_chat (id, author, text, ref_id, ref_type, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+		id, author, text, ref, rtype, now,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &ChatMessage{ID: id, Author: author, Text: text, RefID: refID, CreatedAt: now}, nil
+	return &ChatMessage{ID: id, Author: author, Text: text, RefID: refID, RefType: refType, CreatedAt: now}, nil
 }
 
 // ListMessages returns chat messages, paginated, newest first.
@@ -80,7 +107,7 @@ func (s *Store) ListMessages(offset, limit int) ([]ChatMessage, int, error) {
 	}
 
 	rows, err := s.db.Query(
-		"SELECT id, author, text, ref_id, created_at FROM team_chat ORDER BY created_at DESC LIMIT ? OFFSET ?",
+		"SELECT id, author, text, ref_id, ref_type, created_at FROM team_chat ORDER BY created_at DESC LIMIT ? OFFSET ?",
 		limit, offset,
 	)
 	if err != nil {
@@ -91,11 +118,12 @@ func (s *Store) ListMessages(offset, limit int) ([]ChatMessage, int, error) {
 	var items []ChatMessage
 	for rows.Next() {
 		var m ChatMessage
-		var refID sql.NullString
-		if err := rows.Scan(&m.ID, &m.Author, &m.Text, &refID, &m.CreatedAt); err != nil {
+		var refID, refType sql.NullString
+		if err := rows.Scan(&m.ID, &m.Author, &m.Text, &refID, &refType, &m.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		m.RefID = refID.String
+		m.RefType = refType.String
 		items = append(items, m)
 	}
 	return items, total, rows.Err()
@@ -235,6 +263,96 @@ func (s *Store) DeleteFlagged(id string) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// --- Shared configs (Feature A) ---
+
+// CreateSharedConfig stores a published project config blob.
+func (s *Store) CreateSharedConfig(id, name, projectID, author, config string) (*SharedConfig, error) {
+	now := time.Now().UTC()
+	_, err := s.db.Exec(
+		"INSERT INTO team_shared_configs (id, name, project_id, author, config, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+		id, name, projectID, author, config, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &SharedConfig{ID: id, Name: name, ProjectID: projectID, Author: author, Config: config, CreatedAt: now}, nil
+}
+
+// ListSharedConfigs returns published config summaries (no blob), newest first.
+func (s *Store) ListSharedConfigs() ([]SharedConfig, error) {
+	rows, err := s.db.Query(
+		"SELECT id, name, project_id, author, created_at FROM team_shared_configs ORDER BY created_at DESC",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []SharedConfig
+	for rows.Next() {
+		var c SharedConfig
+		if err := rows.Scan(&c.ID, &c.Name, &c.ProjectID, &c.Author, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, c)
+	}
+	return items, rows.Err()
+}
+
+// GetSharedConfig returns a single published config including its blob.
+func (s *Store) GetSharedConfig(id string) (*SharedConfig, error) {
+	var c SharedConfig
+	err := s.db.QueryRow(
+		"SELECT id, name, project_id, author, config, created_at FROM team_shared_configs WHERE id = ?",
+		id,
+	).Scan(&c.ID, &c.Name, &c.ProjectID, &c.Author, &c.Config, &c.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// DeleteSharedConfig deletes a published config by ID.
+func (s *Store) DeleteSharedConfig(id string) error {
+	res, err := s.db.Exec("DELETE FROM team_shared_configs WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// --- Collaboration requests (Feature B) ---
+
+// CreateCollabRequest stores a collaboration request with its 3-field config blob.
+func (s *Store) CreateCollabRequest(id, requestor, projectID, note, config string) (*CollabRequest, error) {
+	now := time.Now().UTC()
+	_, err := s.db.Exec(
+		"INSERT INTO team_collab_requests (id, requestor, project_id, note, config, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)",
+		id, requestor, projectID, note, config, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &CollabRequest{ID: id, Requestor: requestor, ProjectID: projectID, Note: note, Config: config, Status: "open", CreatedAt: now}, nil
+}
+
+// GetCollabRequest returns a collaboration request including its config blob.
+func (s *Store) GetCollabRequest(id string) (*CollabRequest, error) {
+	var c CollabRequest
+	err := s.db.QueryRow(
+		"SELECT id, requestor, project_id, note, config, status, created_at FROM team_collab_requests WHERE id = ?",
+		id,
+	).Scan(&c.ID, &c.Requestor, &c.ProjectID, &c.Note, &c.Config, &c.Status, &c.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
 
 // ListHosts returns all distinct hosts that have team notes.

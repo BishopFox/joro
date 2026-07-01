@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -82,6 +83,7 @@ type projectCapturedRequest struct {
 
 type projectConfigFile struct {
 	Version           int                      `json:"version"`
+	ProjectID         string                   `json:"projectId,omitempty"`
 	ListenerURL       string                   `json:"listenerUrl"`
 	TeamToken         string                   `json:"teamToken"`
 	TeamNickname      string                   `json:"teamNickname"`
@@ -146,6 +148,271 @@ func mergePluginStates(ghost, fresh map[string][]byte) map[string][]byte {
 		out[name] = data
 	}
 	return out
+}
+
+// buildProjectConfig snapshots the current live state into a projectConfigFile
+// (shared by save and export).
+func (s *APIServer) buildProjectConfig() projectConfigFile {
+	s.mu.RLock()
+	listenerURL := s.settings.ListenerURL
+	teamToken := s.settings.TeamToken
+	teamNickname := s.settings.TeamNickname
+	projectID := s.settings.ProjectID
+	s.mu.RUnlock()
+
+	scopeRules := s.scope.Rules()
+	pScopeRules := make([]projectScopeRule, len(scopeRules))
+	for i, r := range scopeRules {
+		pScopeRules[i] = projectScopeRule{Pattern: r.Pattern, Methods: r.Methods, Path: r.Path, Include: r.Include}
+	}
+
+	noisePatterns := s.noise.Patterns()
+	pNoisePatterns := make([]projectNoisePattern, len(noisePatterns))
+	for i, p := range noisePatterns {
+		pNoisePatterns[i] = projectNoisePattern{Pattern: p.Pattern}
+	}
+
+	replaceRules := s.replace.Rules()
+	pReplaceRules := make([]projectReplaceRule, len(replaceRules))
+	for i, r := range replaceRules {
+		pReplaceRules[i] = projectReplaceRule{Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace}
+	}
+
+	customItems := s.customData.Items()
+	pCustomItems := make([]projectCustomItem, len(customItems))
+	for i, item := range customItems {
+		pCustomItems[i] = projectCustomItem{Type: item.Type, Name: item.Name, Value: item.Value}
+	}
+
+	var pNotes []projectNote
+	if s.noteStore != nil {
+		if allNotes, err := s.noteStore.LoadAll(); err == nil {
+			pNotes = make([]projectNote, len(allNotes))
+			for i, n := range allNotes {
+				pNotes[i] = projectNote{Host: n.Host, Content: n.Content, Author: n.Author}
+			}
+		}
+	}
+
+	s.mu.RLock()
+	pHighlights := make(map[string]string, len(s.highlights))
+	for k, v := range s.highlights {
+		pHighlights[k] = v
+	}
+	projectGhost := s.pendingProjectPluginStates
+	s.mu.RUnlock()
+
+	allReqs := s.store.All()
+	pReqs := make([]projectCapturedRequest, len(allReqs))
+	for i, r := range allReqs {
+		pReqs[i] = projectCapturedRequest{
+			ID: r.ID, Seq: r.Seq, Timestamp: r.Timestamp.Format(time.RFC3339Nano),
+			Method: r.Method, URL: r.URL, Host: r.Host,
+			StatusCode: r.StatusCode, ContentType: r.ContentType,
+			DurationNs: int64(r.Duration), ReqRaw: r.ReqRaw, RespRaw: r.RespRaw,
+		}
+	}
+
+	var projectFresh map[string][]byte
+	if s.pluginManager != nil {
+		projectFresh = s.pluginManager.ExportProjectStates()
+	}
+
+	return projectConfigFile{
+		Version:           3,
+		ProjectID:         projectID,
+		ListenerURL:       listenerURL,
+		TeamToken:         teamToken,
+		TeamNickname:      teamNickname,
+		ScopeEnabled:      s.scope.IsEnabled(),
+		ScopeRules:        pScopeRules,
+		NoiseEnabled:      s.noise.IsEnabled(),
+		NoisePatterns:     pNoisePatterns,
+		ReplaceEnabled:    s.replace.IsEnabled(),
+		ReplaceRules:      pReplaceRules,
+		CustomDataEnabled: s.customData.IsEnabled(),
+		CustomDataItems:   pCustomItems,
+		Notes:             pNotes,
+		Highlights:        pHighlights,
+		RequestHistory:    pReqs,
+		PluginStates:      encodePluginStates(mergePluginStates(projectGhost, projectFresh)),
+	}
+}
+
+// gzipJSON marshals v to JSON and gzip-compresses it.
+func gzipJSON(v any) ([]byte, error) {
+	jsonData, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(jsonData); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// gunzipIfNeeded decompresses data when it carries the gzip magic bytes,
+// capping the decompressed size to guard against gzip bombs. Returns the
+// (possibly unchanged) bytes and whether the input was plain (legacy) JSON.
+func gunzipIfNeeded(data []byte) (out []byte, legacy bool, err error) {
+	const maxDecompressedSize = 2 << 30
+	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
+		gz, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, false, err
+		}
+		defer gz.Close()
+		out, err = io.ReadAll(io.LimitReader(gz, maxDecompressedSize+1))
+		if err != nil {
+			return nil, false, err
+		}
+		if len(out) > maxDecompressedSize {
+			return nil, false, fmt.Errorf("config file exceeds maximum size")
+		}
+		return out, false, nil
+	}
+	return data, true, nil
+}
+
+// applyProjectConfig applies a parsed project config to live state and returns
+// the response map. When preserveNickname is true the caller's current team
+// nickname is kept (used when importing someone else's shared project).
+func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, preserveNickname bool) map[string]any {
+	// Cap request history to the store's capacity.
+	maxHistory := s.store.MaxSize()
+	if len(cfg.RequestHistory) > maxHistory {
+		cfg.RequestHistory = cfg.RequestHistory[len(cfg.RequestHistory)-maxHistory:]
+	}
+
+	decodedPluginStates := decodePluginStates(cfg.PluginStates)
+
+	// Apply team server settings.
+	s.mu.Lock()
+	nickname := cfg.TeamNickname
+	if preserveNickname {
+		nickname = s.settings.TeamNickname
+	}
+	teamSettingsChanged := cfg.ListenerURL != s.settings.ListenerURL ||
+		cfg.TeamToken != s.settings.TeamToken || nickname != s.settings.TeamNickname
+	s.settings.ListenerURL = cfg.ListenerURL
+	s.settings.TeamToken = cfg.TeamToken
+	s.settings.TeamNickname = nickname
+	s.settings.ProjectID = cfg.ProjectID
+	s.activeProjectConfig = name
+	s.pendingProjectPluginStates = decodedPluginStates
+	settings := s.settings
+	s.mu.Unlock()
+
+	if teamSettingsChanged && s.listenerRelay != nil {
+		s.listenerRelay.Update(settings.ListenerURL, settings.TeamToken, settings.TeamNickname)
+	}
+
+	scopeRules := make([]proxy.ScopeRule, len(cfg.ScopeRules))
+	for i, r := range cfg.ScopeRules {
+		scopeRules[i] = proxy.ScopeRule{ID: proxy.GenerateID(), Pattern: r.Pattern, Methods: r.Methods, Path: r.Path, Include: r.Include}
+	}
+	s.scope.SetEnabled(cfg.ScopeEnabled)
+	s.scope.SetRules(scopeRules)
+
+	noisePatterns := make([]proxy.NoisePattern, len(cfg.NoisePatterns))
+	for i, p := range cfg.NoisePatterns {
+		noisePatterns[i] = proxy.NoisePattern{ID: proxy.GenerateID(), Pattern: p.Pattern}
+	}
+	s.noise.SetEnabled(cfg.NoiseEnabled)
+	s.noise.SetPatterns(noisePatterns)
+
+	replaceRules := make([]proxy.MatchReplaceRule, len(cfg.ReplaceRules))
+	for i, r := range cfg.ReplaceRules {
+		replaceRules[i] = proxy.MatchReplaceRule{ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace}
+	}
+	s.replace.SetEnabled(cfg.ReplaceEnabled)
+	s.replace.SetRules(replaceRules)
+
+	customItems := make([]proxy.CustomAddition, len(cfg.CustomDataItems))
+	for i, item := range cfg.CustomDataItems {
+		customItems[i] = proxy.CustomAddition{ID: proxy.GenerateID(), Type: item.Type, Name: item.Name, Value: item.Value}
+	}
+	s.customData.SetEnabled(cfg.CustomDataEnabled)
+	s.customData.SetItems(customItems)
+
+	// Apply notes: clear existing, then insert from config with validation.
+	if s.noteStore != nil {
+		_ = s.noteStore.ClearAll()
+		for _, n := range cfg.Notes {
+			host, content, author := n.Host, n.Content, n.Author
+			if len(host) > 253 {
+				host = host[:253]
+			}
+			if len(content) > 65536 {
+				content = content[:65536]
+			}
+			if len(author) > 64 {
+				author = author[:64]
+			}
+			if host == "" || content == "" {
+				continue
+			}
+			id, err := uuid.GenerateUUID()
+			if err != nil {
+				continue
+			}
+			_, _ = s.noteStore.CreateNote(id, host, content, author)
+		}
+	}
+
+	s.mu.Lock()
+	s.highlights = make(map[string]string)
+	for k, v := range cfg.Highlights {
+		s.highlights[k] = v
+	}
+	s.mu.Unlock()
+
+	if len(cfg.RequestHistory) > 0 {
+		items := make([]*proxy.CapturedRequest, len(cfg.RequestHistory))
+		for i, r := range cfg.RequestHistory {
+			ts, _ := time.Parse(time.RFC3339Nano, r.Timestamp)
+			items[i] = &proxy.CapturedRequest{
+				ID: r.ID, Seq: r.Seq, Timestamp: ts,
+				Method: r.Method, URL: r.URL, Host: r.Host,
+				StatusCode: r.StatusCode, ContentType: r.ContentType,
+				Duration: time.Duration(r.DurationNs),
+				ReqRaw:   r.ReqRaw, RespRaw: r.RespRaw,
+			}
+		}
+		s.store.LoadItems(items)
+	} else {
+		s.store.Clear()
+	}
+
+	var unknownPluginStates []string
+	if s.pluginManager != nil {
+		unknownPluginStates = s.pluginManager.ApplyProjectStates(decodedPluginStates)
+	}
+
+	resp := map[string]any{
+		"listenerUrl":       cfg.ListenerURL,
+		"teamToken":         cfg.TeamToken,
+		"teamNickname":      nickname,
+		"projectId":         cfg.ProjectID,
+		"scopeEnabled":      cfg.ScopeEnabled,
+		"scopeRules":        scopeRules,
+		"noiseEnabled":      cfg.NoiseEnabled,
+		"noisePatterns":     noisePatterns,
+		"replaceEnabled":    cfg.ReplaceEnabled,
+		"replaceRules":      replaceRules,
+		"customDataEnabled": cfg.CustomDataEnabled,
+		"customDataItems":   customItems,
+		"historyRestored":   true,
+	}
+	if len(unknownPluginStates) > 0 {
+		resp["unknownPluginStates"] = unknownPluginStates
+	}
+	return resp
 }
 
 // ---- Handlers ----
@@ -323,118 +590,13 @@ func (s *APIServer) handleSaveProjectConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Read team server settings.
-	s.mu.RLock()
-	listenerURL := s.settings.ListenerURL
-	teamToken := s.settings.TeamToken
-	teamNickname := s.settings.TeamNickname
-	s.mu.RUnlock()
-
-	// Read scope rules (strip IDs).
-	scopeRules := s.scope.Rules()
-	pScopeRules := make([]projectScopeRule, len(scopeRules))
-	for i, r := range scopeRules {
-		pScopeRules[i] = projectScopeRule{
-			Pattern: r.Pattern, Methods: r.Methods, Path: r.Path, Include: r.Include,
-		}
-	}
-
-	// Read noise patterns (strip IDs).
-	noisePatterns := s.noise.Patterns()
-	pNoisePatterns := make([]projectNoisePattern, len(noisePatterns))
-	for i, p := range noisePatterns {
-		pNoisePatterns[i] = projectNoisePattern{Pattern: p.Pattern}
-	}
-
-	// Read match/replace rules (strip IDs).
-	replaceRules := s.replace.Rules()
-	pReplaceRules := make([]projectReplaceRule, len(replaceRules))
-	for i, r := range replaceRules {
-		pReplaceRules[i] = projectReplaceRule{
-			Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace,
-		}
-	}
-
-	// Read custom data items (strip IDs).
-	customItems := s.customData.Items()
-	pCustomItems := make([]projectCustomItem, len(customItems))
-	for i, item := range customItems {
-		pCustomItems[i] = projectCustomItem{Type: item.Type, Name: item.Name, Value: item.Value}
-	}
-
-	// Read notes from the in-memory store.
-	var pNotes []projectNote
-	if s.noteStore != nil {
-		allNotes, err := s.noteStore.LoadAll()
-		if err == nil {
-			pNotes = make([]projectNote, len(allNotes))
-			for i, n := range allNotes {
-				pNotes[i] = projectNote{Host: n.Host, Content: n.Content, Author: n.Author}
-			}
-		}
-	}
-
-	// Read highlights.
-	s.mu.RLock()
-	pHighlights := make(map[string]string, len(s.highlights))
-	for k, v := range s.highlights {
-		pHighlights[k] = v
-	}
-	s.mu.RUnlock()
-
-	// Export request history.
-	allReqs := s.store.All()
-	pReqs := make([]projectCapturedRequest, len(allReqs))
-	for i, r := range allReqs {
-		pReqs[i] = projectCapturedRequest{
-			ID: r.ID, Seq: r.Seq, Timestamp: r.Timestamp.Format(time.RFC3339Nano),
-			Method: r.Method, URL: r.URL, Host: r.Host,
-			StatusCode: r.StatusCode, ContentType: r.ContentType,
-			DurationNs: int64(r.Duration), ReqRaw: r.ReqRaw, RespRaw: r.RespRaw,
-		}
-	}
-
-	s.mu.RLock()
-	projectGhost := s.pendingProjectPluginStates
-	s.mu.RUnlock()
-
-	var projectFresh map[string][]byte
-	if s.pluginManager != nil {
-		projectFresh = s.pluginManager.ExportProjectStates()
-	}
-
-	cfg := projectConfigFile{
-		Version:           3,
-		ListenerURL:       listenerURL,
-		TeamToken:         teamToken,
-		TeamNickname:      teamNickname,
-		ScopeEnabled:      s.scope.IsEnabled(),
-		ScopeRules:        pScopeRules,
-		NoiseEnabled:      s.noise.IsEnabled(),
-		NoisePatterns:     pNoisePatterns,
-		ReplaceEnabled:    s.replace.IsEnabled(),
-		ReplaceRules:      pReplaceRules,
-		CustomDataEnabled: s.customData.IsEnabled(),
-		CustomDataItems:   pCustomItems,
-		Notes:             pNotes,
-		Highlights:        pHighlights,
-		RequestHistory:    pReqs,
-		PluginStates:      encodePluginStates(mergePluginStates(projectGhost, projectFresh)),
-	}
-
-	jsonData, _ := json.Marshal(cfg)
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	if _, err := gz.Write(jsonData); err != nil {
+	cfg := s.buildProjectConfig()
+	gzBytes, err := gzipJSON(cfg)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := gz.Close(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if err := s.configStore.SaveGzip("project", body.Name, buf.Bytes()); err != nil {
+	if err := s.configStore.SaveGzip("project", body.Name, gzBytes); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -454,26 +616,10 @@ func (s *APIServer) handleLoadProjectConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Decompress if gzip (magic bytes 0x1f 0x8b).
-	// Limit decompressed size to 2GB to prevent gzip bombs.
-	const maxDecompressedSize = 2 << 30
-	isLegacy := !(len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b)
-	if !isLegacy {
-		gz, err := gzip.NewReader(bytes.NewReader(data))
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to decompress config")
-			return
-		}
-		data, err = io.ReadAll(io.LimitReader(gz, maxDecompressedSize+1))
-		gz.Close()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to decompress config")
-			return
-		}
-		if len(data) > maxDecompressedSize {
-			writeError(w, http.StatusBadRequest, "config file exceeds maximum size")
-			return
-		}
+	data, isLegacy, err := gunzipIfNeeded(data)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to decompress config")
+		return
 	}
 
 	var cfg projectConfigFile
@@ -482,157 +628,14 @@ func (s *APIServer) handleLoadProjectConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Cap request history to the store's capacity to prevent memory exhaustion.
-	maxHistory := s.store.MaxSize()
-	if len(cfg.RequestHistory) > maxHistory {
-		cfg.RequestHistory = cfg.RequestHistory[len(cfg.RequestHistory)-maxHistory:]
-	}
-
 	// Convert legacy .json config to .joro format.
 	if isLegacy {
-		converted, _ := json.Marshal(cfg)
-		var buf bytes.Buffer
-		gz := gzip.NewWriter(&buf)
-		gz.Write(converted)
-		gz.Close()
-		_ = s.configStore.SaveGzip("project", name, buf.Bytes())
-	}
-
-	decodedPluginStates := decodePluginStates(cfg.PluginStates)
-
-	// Apply team server settings.
-	teamSettingsChanged := false
-	s.mu.Lock()
-	if cfg.ListenerURL != s.settings.ListenerURL || cfg.TeamToken != s.settings.TeamToken || cfg.TeamNickname != s.settings.TeamNickname {
-		teamSettingsChanged = true
-	}
-	s.settings.ListenerURL = cfg.ListenerURL
-	s.settings.TeamToken = cfg.TeamToken
-	s.settings.TeamNickname = cfg.TeamNickname
-	s.activeProjectConfig = name
-	s.pendingProjectPluginStates = decodedPluginStates
-	settings := s.settings
-	s.mu.Unlock()
-
-	if teamSettingsChanged && s.listenerRelay != nil {
-		s.listenerRelay.Update(settings.ListenerURL, settings.TeamToken, settings.TeamNickname)
-	}
-
-	// Apply scope.
-	scopeRules := make([]proxy.ScopeRule, len(cfg.ScopeRules))
-	for i, r := range cfg.ScopeRules {
-		scopeRules[i] = proxy.ScopeRule{
-			ID: proxy.GenerateID(), Pattern: r.Pattern, Methods: r.Methods, Path: r.Path, Include: r.Include,
-		}
-	}
-	s.scope.SetEnabled(cfg.ScopeEnabled)
-	s.scope.SetRules(scopeRules)
-
-	// Apply noise patterns.
-	noisePatterns := make([]proxy.NoisePattern, len(cfg.NoisePatterns))
-	for i, p := range cfg.NoisePatterns {
-		noisePatterns[i] = proxy.NoisePattern{ID: proxy.GenerateID(), Pattern: p.Pattern}
-	}
-	s.noise.SetEnabled(cfg.NoiseEnabled)
-	s.noise.SetPatterns(noisePatterns)
-
-	// Apply match/replace rules.
-	replaceRules := make([]proxy.MatchReplaceRule, len(cfg.ReplaceRules))
-	for i, r := range cfg.ReplaceRules {
-		replaceRules[i] = proxy.MatchReplaceRule{
-			ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace,
-		}
-	}
-	s.replace.SetEnabled(cfg.ReplaceEnabled)
-	s.replace.SetRules(replaceRules)
-
-	// Apply custom data items.
-	customItems := make([]proxy.CustomAddition, len(cfg.CustomDataItems))
-	for i, item := range cfg.CustomDataItems {
-		customItems[i] = proxy.CustomAddition{
-			ID: proxy.GenerateID(), Type: item.Type, Name: item.Name, Value: item.Value,
-		}
-	}
-	s.customData.SetEnabled(cfg.CustomDataEnabled)
-	s.customData.SetItems(customItems)
-
-	// Apply notes: clear existing, then insert from config with validation.
-	if s.noteStore != nil {
-		_ = s.noteStore.ClearAll()
-		for _, n := range cfg.Notes {
-			host := n.Host
-			content := n.Content
-			author := n.Author
-			// Cap field lengths to prevent oversized data from crafted configs.
-			if len(host) > 253 {
-				host = host[:253]
-			}
-			if len(content) > 65536 {
-				content = content[:65536]
-			}
-			if len(author) > 64 {
-				author = author[:64]
-			}
-			if host == "" || content == "" {
-				continue
-			}
-			id, err := uuid.GenerateUUID()
-			if err != nil {
-				continue
-			}
-			_, _ = s.noteStore.CreateNote(id, host, content, author)
+		if gzBytes, err := gzipJSON(cfg); err == nil {
+			_ = s.configStore.SaveGzip("project", name, gzBytes)
 		}
 	}
 
-	// Apply highlights.
-	s.mu.Lock()
-	s.highlights = make(map[string]string)
-	for k, v := range cfg.Highlights {
-		s.highlights[k] = v
-	}
-	s.mu.Unlock()
-
-	// Restore request history.
-	if len(cfg.RequestHistory) > 0 {
-		items := make([]*proxy.CapturedRequest, len(cfg.RequestHistory))
-		for i, r := range cfg.RequestHistory {
-			ts, _ := time.Parse(time.RFC3339Nano, r.Timestamp)
-			items[i] = &proxy.CapturedRequest{
-				ID: r.ID, Seq: r.Seq, Timestamp: ts,
-				Method: r.Method, URL: r.URL, Host: r.Host,
-				StatusCode: r.StatusCode, ContentType: r.ContentType,
-				Duration: time.Duration(r.DurationNs),
-				ReqRaw: r.ReqRaw, RespRaw: r.RespRaw,
-			}
-		}
-		s.store.LoadItems(items)
-	} else {
-		s.store.Clear()
-	}
-
-	var unknownPluginStates []string
-	if s.pluginManager != nil {
-		unknownPluginStates = s.pluginManager.ApplyProjectStates(decodedPluginStates)
-	}
-
-	// Return full project state.
-	resp := map[string]any{
-		"listenerUrl":       cfg.ListenerURL,
-		"teamToken":         cfg.TeamToken,
-		"teamNickname":      cfg.TeamNickname,
-		"scopeEnabled":      cfg.ScopeEnabled,
-		"scopeRules":        scopeRules,
-		"noiseEnabled":      cfg.NoiseEnabled,
-		"noisePatterns":     noisePatterns,
-		"replaceEnabled":    cfg.ReplaceEnabled,
-		"replaceRules":      replaceRules,
-		"customDataEnabled": cfg.CustomDataEnabled,
-		"customDataItems":   customItems,
-		"historyRestored":   true,
-	}
-	if len(unknownPluginStates) > 0 {
-		resp["unknownPluginStates"] = unknownPluginStates
-	}
+	resp := s.applyProjectConfig(&cfg, name, false)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -648,4 +651,184 @@ func (s *APIServer) handleDeleteProjectConfig(w http.ResponseWriter, r *http.Req
 	}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// --- Shared project config export/import + collaboration apply ---
+
+// sharedConfigPayload is the 3-field unit exchanged by the collaboration flow
+// (Feature B): scope + match&replace + custom data only.
+type sharedConfigPayload struct {
+	ScopeEnabled      bool                 `json:"scopeEnabled"`
+	ScopeRules        []projectScopeRule   `json:"scopeRules"`
+	ReplaceEnabled    bool                 `json:"replaceEnabled"`
+	ReplaceRules      []projectReplaceRule `json:"replaceRules"`
+	CustomDataEnabled bool                 `json:"customDataEnabled"`
+	CustomDataItems   []projectCustomItem  `json:"customDataItems"`
+}
+
+// handleExportProjectConfig returns the current live project config as a
+// base64(gzipped) blob, ready to publish to the team server (Feature A).
+func (s *APIServer) handleExportProjectConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := s.buildProjectConfig()
+	gzBytes, err := gzipJSON(cfg)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"config":    base64.StdEncoding.EncodeToString(gzBytes),
+		"projectId": cfg.ProjectID,
+	})
+}
+
+// handleImportSharedConfig writes a published project config blob as a NEW local
+// project file and loads it (Feature A). It preserves the importer's own team
+// nickname and refuses to clobber an existing local project of the same name.
+func (s *APIServer) handleImportSharedConfig(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name   string `json:"name"`
+		Config string `json:"config"` // base64(gzipped projectConfigFile)
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if err := configstore.ValidateName(body.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Refuse to overwrite an existing local project.
+	if existing, err := s.configStore.List("project"); err == nil {
+		for _, n := range existing {
+			if n == body.Name {
+				writeError(w, http.StatusConflict, "a project named "+body.Name+" already exists; choose another name")
+				return
+			}
+		}
+	}
+
+	gzBytes, err := base64.StdEncoding.DecodeString(body.Config)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid config base64")
+		return
+	}
+	jsonData, _, err := gunzipIfNeeded(gzBytes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to decompress config")
+		return
+	}
+	var cfg projectConfigFile
+	if err := json.Unmarshal(jsonData, &cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "corrupt config blob")
+		return
+	}
+
+	if err := s.configStore.SaveGzip("project", body.Name, gzBytes); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := s.applyProjectConfig(&cfg, body.Name, true) // preserve importer's nickname
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleApplySharedConfig applies a 3-field shared config (scope/replace/custom
+// data) to live state in "replace" or "merge" mode (Feature B). It never touches
+// history, notes, highlights, team settings, or the project file.
+func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Config sharedConfigPayload `json:"config"`
+		Mode   string              `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	merge := body.Mode == "merge"
+
+	// Scope.
+	scopeRules := make([]proxy.ScopeRule, 0, len(body.Config.ScopeRules))
+	if merge {
+		scopeRules = append(scopeRules, s.scope.Rules()...)
+	}
+	for _, r := range body.Config.ScopeRules {
+		if merge && containsScopeRule(scopeRules, r) {
+			continue
+		}
+		scopeRules = append(scopeRules, proxy.ScopeRule{
+			ID: proxy.GenerateID(), Pattern: r.Pattern, Methods: r.Methods, Path: r.Path, Include: r.Include,
+		})
+	}
+	s.scope.SetRules(scopeRules)
+	s.scope.SetEnabled(body.Config.ScopeEnabled || (merge && s.scope.IsEnabled()))
+
+	// Match & replace.
+	replaceRules := make([]proxy.MatchReplaceRule, 0, len(body.Config.ReplaceRules))
+	if merge {
+		replaceRules = append(replaceRules, s.replace.Rules()...)
+	}
+	for _, r := range body.Config.ReplaceRules {
+		if merge && containsReplaceRule(replaceRules, r) {
+			continue
+		}
+		replaceRules = append(replaceRules, proxy.MatchReplaceRule{
+			ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace,
+		})
+	}
+	s.replace.SetRules(replaceRules)
+	s.replace.SetEnabled(body.Config.ReplaceEnabled || (merge && s.replace.IsEnabled()))
+
+	// Custom data.
+	customItems := make([]proxy.CustomAddition, 0, len(body.Config.CustomDataItems))
+	if merge {
+		customItems = append(customItems, s.customData.Items()...)
+	}
+	for _, it := range body.Config.CustomDataItems {
+		if merge && containsCustomItem(customItems, it) {
+			continue
+		}
+		customItems = append(customItems, proxy.CustomAddition{
+			ID: proxy.GenerateID(), Type: it.Type, Name: it.Name, Value: it.Value,
+		})
+	}
+	s.customData.SetItems(customItems)
+	s.customData.SetEnabled(body.Config.CustomDataEnabled || (merge && s.customData.IsEnabled()))
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"scopeEnabled":      s.scope.IsEnabled(),
+		"scopeRules":        s.scope.Rules(),
+		"replaceEnabled":    s.replace.IsEnabled(),
+		"replaceRules":      s.replace.Rules(),
+		"customDataEnabled": s.customData.IsEnabled(),
+		"customDataItems":   s.customData.Items(),
+	})
+}
+
+func containsScopeRule(rules []proxy.ScopeRule, r projectScopeRule) bool {
+	key := r.Pattern + "|" + r.Path + "|" + fmt.Sprint(r.Include) + "|" + fmt.Sprint(r.Methods)
+	for _, x := range rules {
+		if x.Pattern+"|"+x.Path+"|"+fmt.Sprint(x.Include)+"|"+fmt.Sprint(x.Methods) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func containsReplaceRule(rules []proxy.MatchReplaceRule, r projectReplaceRule) bool {
+	for _, x := range rules {
+		if x.Target == r.Target && x.MatchType == r.MatchType && x.Match == r.Match && x.Replace == r.Replace {
+			return true
+		}
+	}
+	return false
+}
+
+func containsCustomItem(items []proxy.CustomAddition, it projectCustomItem) bool {
+	for _, x := range items {
+		if x.Type == it.Type && x.Name == it.Name && x.Value == it.Value {
+			return true
+		}
+	}
+	return false
 }

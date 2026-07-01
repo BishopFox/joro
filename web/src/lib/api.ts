@@ -1,6 +1,17 @@
 import type { CallbackInteraction, CallbackToken } from '../stores/callbackStore'
 import type { ChatMessage } from '../stores/teamStore'
 import type { FlaggedSummary, FlaggedRequest } from '../stores/teamFlaggedStore'
+import type { SharedConfigSummary, SharedConfig, SharedConfigPayload } from '../stores/teamSharedConfigStore'
+
+export interface CollabRequest {
+  id: string
+  requestor: string
+  projectId: string
+  note: string
+  config?: string
+  status: string
+  createdAt: string
+}
 import type { XSSProbe, XSSFire, PayloadVariant, CollectedPage, CollectedPageSummary, XSSConfig } from '../stores/xssHunterStore'
 
 export interface VersionInfo {
@@ -482,6 +493,37 @@ export const api = {
   },
   getFlagged: (id: string) => req<FlaggedRequest>('GET', `/team/flagged/${id}`),
   deleteFlagged: (id: string) => req<unknown>('DELETE', `/team/flagged/${id}`),
+
+  // Shared project configs (Feature A) + collaboration (Feature B)
+  exportProjectConfig: () => req<{ config: string; projectId: string }>('GET', '/configs/export'),
+  importProjectConfig: (name: string, config: string) =>
+    req<Record<string, unknown>>('POST', '/configs/import', { name, config }),
+  applySharedConfig: (config: SharedConfigPayload, mode: 'replace' | 'merge') =>
+    req<Record<string, unknown>>('POST', '/configs/apply-shared', { config, mode }),
+  publishConfig: (payload: { name: string; projectId: string; config: string }) =>
+    req<SharedConfigSummary>('POST', '/team/configs', payload),
+  listSharedConfigs: () => req<{ items: SharedConfigSummary[] }>('GET', '/team/configs'),
+  getSharedConfig: (id: string) => req<SharedConfig>('GET', `/team/configs/${id}`),
+  deleteSharedConfig: (id: string) => req<unknown>('DELETE', `/team/configs/${id}`),
+  requestCollab: (payload: { projectId: string; note: string; config: string }) =>
+    req<CollabRequest>('POST', '/team/collab', payload),
+  getCollab: (id: string) => req<CollabRequest>('GET', `/team/collab/${id}`),
+  acceptCollab: (id: string) => req<{ status: string }>('POST', `/team/collab/${id}/accept`, {}),
+  gatherCurrentRules: async (): Promise<SharedConfigPayload> => {
+    const [scope, replace, custom] = await Promise.all([
+      api.getScope(),
+      api.getReplace(),
+      api.getCustomData(),
+    ])
+    return {
+      scopeEnabled: scope.enabled,
+      scopeRules: scope.rules.map(({ pattern, methods, path, include }) => ({ pattern, methods, path, include })),
+      replaceEnabled: replace.enabled,
+      replaceRules: replace.rules.map(({ target, matchType, match, replace }) => ({ target, matchType, match, replace })),
+      customDataEnabled: custom.enabled,
+      customDataItems: custom.items.map(({ type, name, value }) => ({ type, name, value })),
+    }
+  },
 
   // Interact plugins
   listInteractProviders: () => req<InteractProviderMeta[]>('GET', '/plugins/interact-providers'),

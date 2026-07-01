@@ -5,6 +5,7 @@ export interface ChatMessage {
   author: string
   text: string
   refId?: string
+  refType?: string // "flagged" | "collab" | "config"
   createdAt: string
 }
 

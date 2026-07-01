@@ -8,6 +8,7 @@ import { useRequestStore, type RequestDetail } from '../stores/requestStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import NetworkGraph from '../components/NetworkGraph'
 import FlaggedRequestModal from '../components/FlaggedRequestModal'
+import CollabSwapModal from '../components/CollabSwapModal'
 import type { SliverSession, PluginGraphData } from '../components/NetworkGraph'
 
 interface UnifiedEvent {
@@ -89,6 +90,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const removeFlaggedItem = useTeamFlaggedStore((s) => s.removeItem)
   const requestItems = useRequestStore((s) => s.items)
   const [flaggedModal, setFlaggedModal] = useState<FlaggedRequest | null>(null)
+  const [collabId, setCollabId] = useState<string | null>(null)
 
   const openFlagged = useCallback(async (id: string) => {
     try {
@@ -265,6 +267,31 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const sendMessage = async () => {
     const text = draft.trim()
     if (!text) return
+
+    // Slash commands require a team server; hint instead of posting literal text.
+    if (!teamMode && (text.startsWith('/collab') || text.startsWith('/flag'))) {
+      const cmd = text.startsWith('/collab') ? '/collab' : '/flag'
+      setFlagError(`Connect to a team server to use ${cmd}`)
+      return
+    }
+
+    // /collab <note> — request collaboration, sharing current scope/M&R/custom-data rules.
+    if (teamMode && text.startsWith('/collab')) {
+      const note = text.replace(/^\/collab\s*/, '').trim()
+      setDraft('')
+      setFlagError('')
+      try {
+        const config = await api.gatherCurrentRules()
+        await api.requestCollab({
+          projectId: settings?.projectId || '',
+          note,
+          config: JSON.stringify(config),
+        })
+      } catch {
+        setFlagError('Failed to request collaboration')
+      }
+      return
+    }
 
     // /flag <seq> [note] — flag a locally-captured request into the team.
     if (teamMode && text.startsWith('/flag')) {
@@ -504,11 +531,19 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
                         <span className="text-content-muted ml-1.5">
                           {new Date(m.createdAt).toLocaleTimeString('en-US', { timeZone: 'UTC' }) + ' UTC'}
                         </span>
-                        {m.refId ? (
+                        {m.refId && m.refType === 'flagged' ? (
                           <button
                             onClick={() => openFlagged(m.refId!)}
                             className="ml-2 text-accent-tertiary hover:underline font-medium text-left"
                             title="Review flagged request"
+                          >
+                            {m.text}
+                          </button>
+                        ) : m.refId && m.refType === 'collab' ? (
+                          <button
+                            onClick={() => setCollabId(m.refId!)}
+                            className="ml-2 text-accent-tertiary hover:underline font-medium text-left"
+                            title="Review collaboration request"
                           >
                             {m.text}
                           </button>
@@ -596,6 +631,15 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
 
       {flaggedModal && (
         <FlaggedRequestModal flagged={flaggedModal} onClose={() => setFlaggedModal(null)} />
+      )}
+      {collabId && (
+        <CollabSwapModal
+          collabId={collabId}
+          onClose={() => setCollabId(null)}
+          onApplied={() => {
+            useRequestStore.getState().invalidate()
+          }}
+        />
       )}
     </div>
   )

@@ -42,6 +42,7 @@ func (s *APIServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request)
 		InterceptEnabled *bool   `json:"interceptEnabled"`
 		InterceptTimeout *int    `json:"interceptTimeout"`
 		ListenerURL      *string `json:"listenerUrl"`
+		ProjectID        *string `json:"projectId"`
 		HTTP2Enabled     *bool   `json:"http2Enabled"`
 		KeepAliveEnabled *bool   `json:"keepAliveEnabled"`
 		SOCKSHost        *string `json:"socksHost"`
@@ -133,6 +134,9 @@ func (s *APIServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request)
 	}
 	if body.DisableUpdateChecks != nil {
 		s.settings.DisableUpdateChecks = *body.DisableUpdateChecks
+	}
+	if body.ProjectID != nil {
+		s.settings.ProjectID = *body.ProjectID
 	}
 
 	settings := s.settings

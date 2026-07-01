@@ -58,6 +58,13 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 			mux.HandleFunc("POST /api/v1/team/flagged", s.handleCreateFlagged)
 			mux.HandleFunc("GET /api/v1/team/flagged/{id}", s.handleGetFlagged)
 			mux.HandleFunc("DELETE /api/v1/team/flagged/{id}", s.handleDeleteFlagged)
+			mux.HandleFunc("GET /api/v1/team/configs", s.handleListSharedConfigs)
+			mux.HandleFunc("POST /api/v1/team/configs", s.handleCreateSharedConfig)
+			mux.HandleFunc("GET /api/v1/team/configs/{id}", s.handleGetSharedConfig)
+			mux.HandleFunc("DELETE /api/v1/team/configs/{id}", s.handleDeleteSharedConfig)
+			mux.HandleFunc("POST /api/v1/team/collab", s.handleCreateCollab)
+			mux.HandleFunc("GET /api/v1/team/collab/{id}", s.handleGetCollab)
+			mux.HandleFunc("POST /api/v1/team/collab/{id}/accept", s.handleAcceptCollab)
 		}
 		return
 	}
@@ -137,6 +144,9 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/configs/project", s.handleSaveProjectConfig)
 	mux.HandleFunc("PUT /api/v1/configs/project/{name}", s.handleLoadProjectConfig)
 	mux.HandleFunc("DELETE /api/v1/configs/project/{name}", s.handleDeleteProjectConfig)
+	mux.HandleFunc("GET /api/v1/configs/export", s.handleExportProjectConfig)
+	mux.HandleFunc("POST /api/v1/configs/import", s.handleImportSharedConfig)
+	mux.HandleFunc("POST /api/v1/configs/apply-shared", s.handleApplySharedConfig)
 
 	// Highlights
 	mux.HandleFunc("GET /api/v1/highlights", s.handleGetHighlights)
@@ -178,6 +188,13 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/team/flagged", s.handleProxyTeamFlagged)
 	mux.HandleFunc("GET /api/v1/team/flagged/{id}", s.handleProxyTeamFlagged)
 	mux.HandleFunc("DELETE /api/v1/team/flagged/{id}", s.handleProxyTeamFlagged)
+	mux.HandleFunc("GET /api/v1/team/configs", s.handleProxyTeamConfigs)
+	mux.HandleFunc("POST /api/v1/team/configs", s.handleProxyTeamConfigs)
+	mux.HandleFunc("GET /api/v1/team/configs/{id}", s.handleProxyTeamConfigs)
+	mux.HandleFunc("DELETE /api/v1/team/configs/{id}", s.handleProxyTeamConfigs)
+	mux.HandleFunc("POST /api/v1/team/collab", s.handleProxyTeamCollab)
+	mux.HandleFunc("GET /api/v1/team/collab/{id}", s.handleProxyTeamCollab)
+	mux.HandleFunc("POST /api/v1/team/collab/{id}/accept", s.handleProxyTeamCollab)
 
 	// Plugin routes (dynamic, based on loaded plugins).
 	registerPluginRoutes(s, mux)
