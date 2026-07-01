@@ -40,11 +40,7 @@ func (s *APIServer) handleListNoteHosts(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *APIServer) handleListNotes(w http.ResponseWriter, r *http.Request) {
-	host := r.URL.Query().Get("host")
-	if host == "" {
-		writeError(w, http.StatusBadRequest, "host parameter required")
-		return
-	}
+	host := r.URL.Query().Get("host") // empty host = general (host-less) notes
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
@@ -77,8 +73,8 @@ func (s *APIServer) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if body.Host == "" || body.Content == "" {
-		writeError(w, http.StatusBadRequest, "host and content are required")
+	if body.Content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
 		return
 	}
 	if body.Author == "" {
@@ -97,6 +93,27 @@ func (s *APIServer) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, note)
+}
+
+func (s *APIServer) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.Content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	note, err := s.noteStore.UpdateNote(id, body.Content)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "note not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, note)
 }
 
 func (s *APIServer) handleDeleteNote(w http.ResponseWriter, r *http.Request) {

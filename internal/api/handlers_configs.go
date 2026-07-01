@@ -354,8 +354,8 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 			if len(author) > 64 {
 				author = author[:64]
 			}
-			if host == "" || content == "" {
-				continue
+			if content == "" {
+				continue // host may be empty (general notes); content is required
 			}
 			id, err := uuid.GenerateUUID()
 			if err != nil {

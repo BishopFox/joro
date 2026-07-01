@@ -391,6 +391,7 @@ export const api = {
   },
   createNote: (host: string, content: string, author?: string) =>
     req<Note>('POST', '/notes', { host, content, ...(author ? { author } : {}) }),
+  updateNote: (id: string, content: string) => req<Note>('PUT', `/notes/${id}`, { content }),
   deleteNote: (id: string) => req<unknown>('DELETE', `/notes/${id}`),
 
   // Mode
@@ -471,6 +472,7 @@ export const api = {
   },
   createTeamNote: (host: string, content: string) =>
     req<Note>('POST', '/team/notes', { host, content }),
+  updateTeamNote: (id: string, content: string) => req<Note>('PUT', `/team/notes/${id}`, { content }),
   deleteTeamNote: (id: string) => req<unknown>('DELETE', `/team/notes/${id}`),
   flagRequest: (payload: {
     host: string

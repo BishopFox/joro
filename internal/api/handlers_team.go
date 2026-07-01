@@ -121,11 +121,7 @@ func (s *APIServer) handleListTeamNoteHosts(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *APIServer) handleListTeamNotes(w http.ResponseWriter, r *http.Request) {
-	host := r.URL.Query().Get("host")
-	if host == "" {
-		writeError(w, http.StatusBadRequest, "host parameter required")
-		return
-	}
+	host := r.URL.Query().Get("host") // empty host = general (host-less) notes
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
@@ -157,8 +153,8 @@ func (s *APIServer) handleCreateTeamNote(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if body.Host == "" || body.Content == "" {
-		writeError(w, http.StatusBadRequest, "host and content are required")
+	if body.Content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
 		return
 	}
 
@@ -180,12 +176,59 @@ func (s *APIServer) handleCreateTeamNote(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusCreated, note)
 }
 
+func (s *APIServer) handleUpdateTeamNote(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.Content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	note, err := s.teamStore.GetNote(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "note not found")
+		return
+	}
+	// Soft ownership: only the author may edit their note.
+	if note.Author != team.NicknameFromContext(r.Context()) {
+		writeError(w, http.StatusForbidden, "only the author can edit this note")
+		return
+	}
+
+	updated, err := s.teamStore.UpdateNote(id, body.Content)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.note", Data: updated}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (s *APIServer) handleDeleteTeamNote(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	note, err := s.teamStore.GetNote(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "note not found")
+		return
+	}
+	// Soft ownership: only the author may delete their note.
+	if note.Author != team.NicknameFromContext(r.Context()) {
+		writeError(w, http.StatusForbidden, "only the author can delete this note")
+		return
+	}
+
 	if err := s.teamStore.DeleteNote(id); err != nil {
 		writeError(w, http.StatusNotFound, "note not found")
 		return
 	}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.note.deleted", Data: map[string]string{"id": id}}
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
 }
 

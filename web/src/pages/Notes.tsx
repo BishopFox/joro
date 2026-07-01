@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import type { Note } from '../lib/api'
 import { Tooltip } from '../components/Tooltip'
+import ConfirmModal from '../components/ConfirmModal'
+import { useSettingsStore } from '../stores/settingsStore'
 
 function timeAgo(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime()
@@ -25,8 +27,15 @@ export default function Notes({ teamMode = false }: NotesProps) {
   const [noteDraft, setNoteDraft] = useState('')
   const [newHost, setNewHost] = useState('')
   const [tab, setTab] = useState<'local' | 'shared'>(teamMode ? 'shared' : 'local')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
+  const myNickname = useSettingsStore((s) => s.settings?.teamNickname || '')
   const isShared = teamMode && tab === 'shared'
+  // Soft ownership: on shared notes only the author may edit/delete; local notes
+  // are single-operator so always editable.
+  const canModify = (n: Note) => !isShared || n.author === myNickname
 
   const fetchHosts = useCallback(async () => {
     try {
@@ -59,7 +68,7 @@ export default function Notes({ teamMode = false }: NotesProps) {
   }, [isShared])
 
   useEffect(() => {
-    if (selectedHost) {
+    if (selectedHost !== null) {
       fetchNotes(selectedHost)
     } else {
       setNotes([])
@@ -74,7 +83,7 @@ export default function Notes({ teamMode = false }: NotesProps) {
 
   const addNote = async () => {
     const content = noteDraft.trim()
-    if (!content || !selectedHost) return
+    if (!content || selectedHost === null) return
     try {
       const note = isShared
         ? await api.createTeamNote(selectedHost, content)
@@ -94,6 +103,30 @@ export default function Notes({ teamMode = false }: NotesProps) {
         await api.deleteNote(id)
       }
       setNotes((prev) => prev.filter((n) => n.id !== id))
+    } catch {
+      // silently ignore
+    }
+  }
+
+  const startEdit = (n: Note) => {
+    setEditingId(n.id)
+    setEditDraft(n.content)
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditDraft('')
+  }
+
+  const saveEdit = async (id: string) => {
+    const content = editDraft.trim()
+    if (!content) return
+    try {
+      const updated = isShared
+        ? await api.updateTeamNote(id, content)
+        : await api.updateNote(id, content)
+      setNotes((prev) => prev.map((n) => (n.id === id ? updated : n)))
+      cancelEdit()
     } catch {
       // silently ignore
     }
@@ -167,23 +200,26 @@ export default function Notes({ teamMode = false }: NotesProps) {
             </div>
           )}
           <div className="flex-1 overflow-y-auto">
-            {noteHosts.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <span className="text-content-muted text-xs">No hosts yet</span>
-              </div>
-            ) : (
-              noteHosts.map((h) => (
-                <button
-                  key={h}
-                  onClick={() => setSelectedHost(selectedHost === h ? null : h)}
-                  className={`w-full text-left px-3 py-1.5 text-xs truncate border-b border-border-subtle hover:bg-surface-hover ${
-                    selectedHost === h ? 'bg-surface-hover text-accent' : 'text-content-primary'
-                  }`}
-                >
-                  {h}
-                </button>
-              ))
-            )}
+            {/* General (host-less) bucket — always available */}
+            <button
+              onClick={() => setSelectedHost(selectedHost === '' ? null : '')}
+              className={`w-full text-left px-3 py-1.5 text-xs truncate border-b border-border-subtle hover:bg-surface-hover ${
+                selectedHost === '' ? 'bg-surface-hover text-accent' : 'text-content-secondary italic'
+              }`}
+            >
+              General
+            </button>
+            {noteHosts.filter((h) => h !== '').map((h) => (
+              <button
+                key={h}
+                onClick={() => setSelectedHost(selectedHost === h ? null : h)}
+                className={`w-full text-left px-3 py-1.5 text-xs truncate border-b border-border-subtle hover:bg-surface-hover ${
+                  selectedHost === h ? 'bg-surface-hover text-accent' : 'text-content-primary'
+                }`}
+              >
+                {h}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -193,20 +229,20 @@ export default function Notes({ teamMode = false }: NotesProps) {
             <span className="text-xs font-semibold text-content-primary uppercase tracking-wide">
               Notes
             </span>
-            {selectedHost && (
-              <span className="ml-2 text-content-muted text-xs">{selectedHost}</span>
+            {selectedHost !== null && (
+              <span className="ml-2 text-content-muted text-xs">{selectedHost || 'General'}</span>
             )}
           </div>
-          {!selectedHost ? (
+          {selectedHost === null ? (
             <div className="flex-1 flex items-center justify-center">
-              <span className="text-content-muted text-xs">Select a host to view notes</span>
+              <span className="text-content-muted text-xs">Select a host or General to view notes</span>
             </div>
           ) : (
             <>
               <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
                 {notes.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
-                    <span className="text-content-muted text-xs">No notes for this host</span>
+                    <span className="text-content-muted text-xs">{selectedHost === '' ? 'No general notes yet' : 'No notes for this host'}</span>
                   </div>
                 ) : (
                   notes.map((n) => (
@@ -214,16 +250,61 @@ export default function Notes({ teamMode = false }: NotesProps) {
                       <div className="flex-1 min-w-0">
                         <span className="text-accent-secondary font-medium">{n.author}</span>
                         <span className="text-content-muted ml-1.5">{timeAgo(n.createdAt)}</span>
-                        <p className="text-content-primary mt-0.5 whitespace-pre-wrap break-words">{n.content}</p>
+                        {n.updatedAt && n.updatedAt !== n.createdAt && (
+                          <span className="text-content-muted ml-1.5 italic">(edited)</span>
+                        )}
+                        {editingId === n.id ? (
+                          <div className="mt-1 flex flex-col gap-1">
+                            <textarea
+                              value={editDraft}
+                              onChange={(e) => setEditDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveEdit(n.id)
+                                if (e.key === 'Escape') cancelEdit()
+                              }}
+                              rows={3}
+                              autoFocus
+                              className="w-full bg-surface-input text-content-primary text-xs px-2 py-1 rounded border border-border focus:outline-none focus:border-accent-secondary resize-y"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => saveEdit(n.id)}
+                                className="px-2 py-0.5 bg-accent-secondary text-black text-xs font-medium rounded hover:bg-accent-secondary-hover"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={cancelEdit}
+                                className="px-2 py-0.5 text-content-secondary hover:text-content-primary text-xs"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-content-primary mt-0.5 whitespace-pre-wrap break-words">{n.content}</p>
+                        )}
                       </div>
-                      <Tooltip content="Delete note">
-                        <button
-                          onClick={() => deleteNote(n.id)}
-                          className="shrink-0 text-content-muted hover:text-semantic-error text-xs"
-                        >
-                          ✕
-                        </button>
-                      </Tooltip>
+                      {canModify(n) && editingId !== n.id && (
+                        <div className="shrink-0 flex gap-1">
+                          <Tooltip content="Edit note">
+                            <button
+                              onClick={() => startEdit(n)}
+                              className="w-7 h-7 flex items-center justify-center rounded text-sm text-content-muted hover:text-accent-secondary hover:bg-surface-hover"
+                            >
+                              ✎
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Delete note">
+                            <button
+                              onClick={() => setConfirmDeleteId(n.id)}
+                              className="w-7 h-7 flex items-center justify-center rounded text-sm text-content-muted hover:text-semantic-error hover:bg-surface-hover"
+                            >
+                              ✕
+                            </button>
+                          </Tooltip>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -248,6 +329,19 @@ export default function Notes({ teamMode = false }: NotesProps) {
           )}
         </div>
       </div>
+
+      {confirmDeleteId && (
+        <ConfirmModal
+          title="Delete note"
+          message="Are you sure you want to delete this note? This cannot be undone."
+          confirmLabel="Delete"
+          onConfirm={() => {
+            deleteNote(confirmDeleteId)
+            setConfirmDeleteId(null)
+          }}
+          onClose={() => setConfirmDeleteId(null)}
+        />
+      )}
     </div>
   )
 }

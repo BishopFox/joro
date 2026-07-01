@@ -53,6 +53,7 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 			mux.HandleFunc("GET /api/v1/team/notes/hosts", s.handleListTeamNoteHosts)
 			mux.HandleFunc("GET /api/v1/team/notes", s.handleListTeamNotes)
 			mux.HandleFunc("POST /api/v1/team/notes", s.handleCreateTeamNote)
+			mux.HandleFunc("PUT /api/v1/team/notes/{id}", s.handleUpdateTeamNote)
 			mux.HandleFunc("DELETE /api/v1/team/notes/{id}", s.handleDeleteTeamNote)
 			mux.HandleFunc("GET /api/v1/team/flagged", s.handleListFlagged)
 			mux.HandleFunc("POST /api/v1/team/flagged", s.handleCreateFlagged)
@@ -171,6 +172,7 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/notes/hosts", s.handleListNoteHosts)
 	mux.HandleFunc("GET /api/v1/notes", s.handleListNotes)
 	mux.HandleFunc("POST /api/v1/notes", s.handleCreateNote)
+	mux.HandleFunc("PUT /api/v1/notes/{id}", s.handleUpdateNote)
 	mux.HandleFunc("DELETE /api/v1/notes/{id}", s.handleDeleteNote)
 
 	// CA cert download
@@ -183,6 +185,7 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/team/notes/hosts", s.handleProxyTeamNotes)
 	mux.HandleFunc("GET /api/v1/team/notes", s.handleProxyTeamNotes)
 	mux.HandleFunc("POST /api/v1/team/notes", s.handleProxyTeamNotes)
+	mux.HandleFunc("PUT /api/v1/team/notes/{id}", s.handleProxyTeamNotes)
 	mux.HandleFunc("DELETE /api/v1/team/notes/{id}", s.handleProxyTeamNotes)
 	mux.HandleFunc("GET /api/v1/team/flagged", s.handleProxyTeamFlagged)
 	mux.HandleFunc("POST /api/v1/team/flagged", s.handleProxyTeamFlagged)
