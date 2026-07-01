@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -56,7 +57,7 @@ func (s *APIServer) handleCreateChatMessage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	msg, err := s.teamStore.CreateMessage(id, author, body.Text)
+	msg, err := s.teamStore.CreateMessage(id, author, body.Text, "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -188,6 +189,135 @@ func (s *APIServer) handleDeleteTeamNote(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
 }
 
+// maxFlaggedRespBytes caps the stored response of a flagged request to keep the
+// shared DB from bloating on large binary downloads.
+const maxFlaggedRespBytes = 256 * 1024
+
+func (s *APIServer) handleListFlagged(w http.ResponseWriter, r *http.Request) {
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+
+	items, total, err := s.teamStore.ListFlagged(offset, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if items == nil {
+		items = []team.FlaggedSummary{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":  items,
+		"total":  total,
+		"offset": offset,
+		"limit":  limit,
+	})
+}
+
+func (s *APIServer) handleCreateFlagged(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Host    string `json:"host"`
+		Method  string `json:"method"`
+		URL     string `json:"url"`
+		Status  int    `json:"status"`
+		ReqRaw  string `json:"reqRaw"`
+		RespRaw string `json:"respRaw"`
+		Note    string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.URL == "" {
+		writeError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	reqRaw, err := base64.StdEncoding.DecodeString(body.ReqRaw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid reqRaw base64")
+		return
+	}
+	respRaw, err := base64.StdEncoding.DecodeString(body.RespRaw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid respRaw base64")
+		return
+	}
+	truncated := false
+	if len(respRaw) > maxFlaggedRespBytes {
+		respRaw = respRaw[:maxFlaggedRespBytes]
+		truncated = true
+	}
+
+	author := team.NicknameFromContext(r.Context())
+
+	id, err := uuid.GenerateUUID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	artifact, err := s.teamStore.CreateFlagged(id, body.Host, body.Method, body.URL, body.Status, reqRaw, respRaw, truncated, body.Note, author)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Drop a referencing chat message so the flag surfaces in the conversation.
+	text := "🚩 " + body.Method + " " + body.URL
+	if body.Note != "" {
+		text = "🚩 " + body.Note
+	}
+	chatID, err := uuid.GenerateUUID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	chatMsg, err := s.teamStore.CreateMessage(chatID, author, text, artifact.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.flagged", Data: artifact.FlaggedSummary}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.chat", Data: chatMsg}
+	writeJSON(w, http.StatusCreated, artifact.FlaggedSummary)
+}
+
+func (s *APIServer) handleGetFlagged(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	f, err := s.teamStore.GetFlagged(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "flagged request not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":        f.ID,
+		"host":      f.Host,
+		"method":    f.Method,
+		"url":       f.URL,
+		"status":    f.Status,
+		"truncated": f.Truncated,
+		"note":      f.Note,
+		"author":    f.Author,
+		"createdAt": f.CreatedAt,
+		"reqRaw":    base64.StdEncoding.EncodeToString(f.ReqRaw),
+		"respRaw":   base64.StdEncoding.EncodeToString(f.RespRaw),
+	})
+}
+
+func (s *APIServer) handleDeleteFlagged(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.teamStore.DeleteFlagged(id); err != nil {
+		writeError(w, http.StatusNotFound, "flagged request not found")
+		return
+	}
+	s.hub.Broadcast() <- event.WSEvent{Type: "team.flagged.deleted", Data: map[string]string{"id": id}}
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+}
+
 // --- Proxy-side handlers (forward to teamserver via proxyToListener) ---
 
 func (s *APIServer) handleProxyTeamChat(w http.ResponseWriter, r *http.Request) {
@@ -199,5 +329,9 @@ func (s *APIServer) handleProxyTeamUsers(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *APIServer) handleProxyTeamNotes(w http.ResponseWriter, r *http.Request) {
+	s.proxyToListener(w, r)
+}
+
+func (s *APIServer) handleProxyTeamFlagged(w http.ResponseWriter, r *http.Request) {
 	s.proxyToListener(w, r)
 }

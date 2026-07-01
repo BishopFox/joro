@@ -5,6 +5,7 @@ import { useInterceptStore } from '../stores/interceptStore'
 import { useManipulateWSStore, type WSFrameEntry } from '../stores/manipulateWSStore'
 import { useRequestStore, type RequestSummary } from '../stores/requestStore'
 import { useTeamStore, type ChatMessage } from '../stores/teamStore'
+import { useTeamFlaggedStore, type FlaggedSummary } from '../stores/teamFlaggedStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useWSStore } from '../stores/wsStore'
 import { useXSSHunterStore, type XSSFire } from '../stores/xssHunterStore'
@@ -150,6 +151,16 @@ function handleMessage(msg: WSMessage) {
     case 'team.chat': {
       const chatMsg = msg.data as ChatMessage
       useTeamStore.getState().addMessage(chatMsg)
+      break
+    }
+    case 'team.flagged': {
+      const f = msg.data as FlaggedSummary
+      useTeamFlaggedStore.getState().addItem(f)
+      break
+    }
+    case 'team.flagged.deleted': {
+      const d = msg.data as { id: string }
+      useTeamFlaggedStore.getState().removeItem(d.id)
       break
     }
     case 'team.presence': {

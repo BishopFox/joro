@@ -14,6 +14,8 @@ import ContextMenu from '../components/ContextMenu'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
+import { useSettingsStore } from '../stores/settingsStore'
+import { useToastStore } from '../stores/toastStore'
 
 const HIGHLIGHT_COLORS: { key: string; label: string; swatch: string; bg: string }[] = [
   { key: 'red', label: 'Red', swatch: '#E53935', bg: 'rgba(229, 57, 53, 0.18)' },
@@ -400,6 +402,10 @@ function HTTPHistory() {
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; itemId: string } | null>(null)
   const [detailMenu, setDetailMenu] = useState<{ x: number; y: number } | null>(null)
 
+  const settings = useSettingsStore((s) => s.settings)
+  const teamMode = !!(settings?.listenerUrl && settings?.teamToken && settings?.teamNickname)
+  const addToast = useToastStore((s) => s.addToast)
+
   const tableRef = useRef<HTMLDivElement>(null)
   const selectedRowRef = useRef<HTMLTableRowElement>(null)
   const vSplit = useResizable('vertical', 0.5)
@@ -452,6 +458,23 @@ function HTTPHistory() {
       host = selectedDetail.host ?? ''
     }
     navigate('/manipulate', { state: { scheme, host, rawReq: selectedDetail.reqRaw } })
+  }
+
+  async function flagToTeam() {
+    if (!selectedDetail) return
+    try {
+      await api.flagRequest({
+        host: selectedDetail.host,
+        method: selectedDetail.method,
+        url: selectedDetail.url,
+        status: selectedDetail.statusCode,
+        reqRaw: selectedDetail.reqRaw,
+        respRaw: selectedDetail.respRaw,
+      })
+      addToast('Flagged to team', 'info')
+    } catch {
+      addToast('Failed to flag request')
+    }
   }
 
   function sendToFuzz() {
@@ -887,6 +910,7 @@ function HTTPHistory() {
             ...getSelectionMenuItems(navigate),
             { label: 'Manipulate', onClick: sendToManipulate },
             { label: 'Fuzz', onClick: sendToFuzz },
+            ...(teamMode ? [{ label: '🚩 Flag to team', onClick: flagToTeam }] : []),
             { label: 'Copy URL', onClick: copyUrl },
             { label: 'Copy as curl', onClick: copyCurl },
             { label: 'Copy Raw Request', onClick: () => copyRaw('request') },

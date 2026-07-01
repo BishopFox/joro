@@ -13,6 +13,8 @@ import ContextMenu from '../components/ContextMenu'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
+import { useSettingsStore } from '../stores/settingsStore'
+import { useToastStore } from '../stores/toastStore'
 
 function b64Encode(s: string) { try { return btoa(s) } catch { return s } }
 function b64Decode(s: string) { try { return atob(s) } catch { return s } }
@@ -127,6 +129,10 @@ export default function ManipulateHTTP() {
   const [respTab, setRespTab] = useState<'raw' | 'render'>('raw')
   const [prettyJson, setPrettyJson] = usePrettyJson()
 
+  const settings = useSettingsStore((s) => s.settings)
+  const teamMode = !!(settings?.listenerUrl && settings?.teamToken && settings?.teamNickname)
+  const addToast = useToastStore((s) => s.addToast)
+
   useEffect(() => {
     const state = location.state as { subTab?: string; scheme?: string; host?: string; rawReq?: string } | null
     if (state?.rawReq && state?.subTab !== 'ws') {
@@ -204,6 +210,22 @@ export default function ManipulateHTTP() {
     const firstLine = tab.rawReq.split('\n')[0] || ''
     const path = firstLine.split(/\s+/)[1] || '/'
     return `${tab.scheme}://${tab.host}${path}`
+  }
+
+  async function flagToTeam() {
+    try {
+      await api.flagRequest({
+        host: tab.host,
+        method: getMethod(tab.rawReq),
+        url: getRequestUrl(),
+        status: tab.status ?? 0,
+        reqRaw: b64Encode(tab.rawReq),
+        respRaw: b64Encode(tab.response || ''),
+      })
+      addToast('Flagged to team', 'info')
+    } catch {
+      addToast('Failed to flag request')
+    }
   }
 
   function copyUrl() { copyText(getRequestUrl()) }
@@ -312,6 +334,16 @@ export default function ManipulateHTTP() {
         >
           {tab.sending ? 'Sending...' : 'Send'}
         </button>
+        {teamMode && (
+          <Tooltip content="Flag this request to the team">
+            <button
+              onClick={flagToTeam}
+              className="text-xs px-2 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary font-semibold"
+            >
+              🚩 Flag
+            </button>
+          </Tooltip>
+        )}
         {tab.error && <span className="text-xs text-semantic-error">{tab.error}</span>}
       </div>
 

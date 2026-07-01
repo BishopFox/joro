@@ -54,6 +54,10 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 			mux.HandleFunc("GET /api/v1/team/notes", s.handleListTeamNotes)
 			mux.HandleFunc("POST /api/v1/team/notes", s.handleCreateTeamNote)
 			mux.HandleFunc("DELETE /api/v1/team/notes/{id}", s.handleDeleteTeamNote)
+			mux.HandleFunc("GET /api/v1/team/flagged", s.handleListFlagged)
+			mux.HandleFunc("POST /api/v1/team/flagged", s.handleCreateFlagged)
+			mux.HandleFunc("GET /api/v1/team/flagged/{id}", s.handleGetFlagged)
+			mux.HandleFunc("DELETE /api/v1/team/flagged/{id}", s.handleDeleteFlagged)
 		}
 		return
 	}
@@ -170,6 +174,10 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/team/notes", s.handleProxyTeamNotes)
 	mux.HandleFunc("POST /api/v1/team/notes", s.handleProxyTeamNotes)
 	mux.HandleFunc("DELETE /api/v1/team/notes/{id}", s.handleProxyTeamNotes)
+	mux.HandleFunc("GET /api/v1/team/flagged", s.handleProxyTeamFlagged)
+	mux.HandleFunc("POST /api/v1/team/flagged", s.handleProxyTeamFlagged)
+	mux.HandleFunc("GET /api/v1/team/flagged/{id}", s.handleProxyTeamFlagged)
+	mux.HandleFunc("DELETE /api/v1/team/flagged/{id}", s.handleProxyTeamFlagged)
 
 	// Plugin routes (dynamic, based on loaded plugins).
 	registerPluginRoutes(s, mux)

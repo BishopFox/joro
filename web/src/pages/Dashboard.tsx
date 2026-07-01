@@ -3,8 +3,11 @@ import { api } from '../lib/api'
 import type { CallbackInteraction, CallbackToken } from '../stores/callbackStore'
 import type { XSSFire, XSSProbe } from '../stores/xssHunterStore'
 import { useTeamStore } from '../stores/teamStore'
+import { useTeamFlaggedStore, type FlaggedRequest } from '../stores/teamFlaggedStore'
+import { useRequestStore, type RequestDetail } from '../stores/requestStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import NetworkGraph from '../components/NetworkGraph'
+import FlaggedRequestModal from '../components/FlaggedRequestModal'
 import type { SliverSession, PluginGraphData } from '../components/NetworkGraph'
 
 interface UnifiedEvent {
@@ -61,6 +64,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const [probes, setProbes] = useState<XSSProbe[]>([])
   const [localMessages, setLocalMessages] = useState<LocalChatMessage[]>([])
   const [draft, setDraft] = useState('')
+  const [flagError, setFlagError] = useState('')
   const [chatHeight, setChatHeight] = useState(loadChatHeight)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const nextId = useRef(1)
@@ -79,6 +83,30 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const teamMessages = useTeamStore((s) => s.messages)
   const activeUsers = useTeamStore((s) => s.activeUsers)
   const setActiveUsers = useTeamStore((s) => s.setActiveUsers)
+
+  const flaggedItems = useTeamFlaggedStore((s) => s.items)
+  const setFlaggedItems = useTeamFlaggedStore((s) => s.setItems)
+  const removeFlaggedItem = useTeamFlaggedStore((s) => s.removeItem)
+  const requestItems = useRequestStore((s) => s.items)
+  const [flaggedModal, setFlaggedModal] = useState<FlaggedRequest | null>(null)
+
+  const openFlagged = useCallback(async (id: string) => {
+    try {
+      const f = await api.getFlagged(id)
+      setFlaggedModal(f)
+    } catch {
+      // ignore — artifact may have been deleted
+    }
+  }, [])
+
+  const deleteFlagged = useCallback(async (id: string) => {
+    removeFlaggedItem(id)
+    try {
+      await api.deleteFlagged(id)
+    } catch {
+      // ignore
+    }
+  }, [removeFlaggedItem])
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -172,7 +200,17 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
     } catch {
       setPluginGraphs({})
     }
-  }, [])
+
+    // Flagged requests live on the team server; only fetch in team mode.
+    if (teamMode) {
+      try {
+        const flagged = await api.listFlagged({ limit: 50 })
+        setFlaggedItems(flagged.items || [])
+      } catch {
+        // ignore
+      }
+    }
+  }, [teamMode, setFlaggedItems])
 
   // Chat history is deliberately NOT fetched: clients show only messages arriving after launch.
   useEffect(() => {
@@ -227,6 +265,40 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const sendMessage = async () => {
     const text = draft.trim()
     if (!text) return
+
+    // /flag <seq> [note] — flag a locally-captured request into the team.
+    if (teamMode && text.startsWith('/flag')) {
+      const m = text.match(/^\/flag\s+(\d+)\s*(.*)$/)
+      if (!m) {
+        setFlagError('Usage: /flag <seq> [note]')
+        return
+      }
+      const seq = parseInt(m[1], 10)
+      const note = m[2].trim()
+      const summary = requestItems.find((r) => r.seq === seq)
+      if (!summary) {
+        setFlagError(`Request #${seq} not in local history`)
+        return
+      }
+      setDraft('')
+      setFlagError('')
+      try {
+        const detail = (await api.getRequest(summary.id)) as RequestDetail
+        await api.flagRequest({
+          host: detail.host,
+          method: detail.method,
+          url: detail.url,
+          status: detail.statusCode,
+          reqRaw: detail.reqRaw,
+          respRaw: detail.respRaw,
+          note,
+        })
+      } catch {
+        setFlagError('Failed to flag request')
+      }
+      return
+    }
+
     setDraft('')
     if (teamMode) {
       try {
@@ -270,8 +342,10 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
           </div>
         )}
 
+        {/* Right column: Recent Interactions (top) + Flagged Requests (bottom) */}
+        <div className="flex-1 min-w-0 flex flex-col gap-2">
         {/* Recent Interactions */}
-        <div className="flex-1 min-w-0 flex flex-col bg-surface-card border border-border rounded">
+        <div className="flex-1 min-h-0 flex flex-col bg-surface-card border border-border rounded">
           <div className="shrink-0 px-3 py-2 border-b border-border">
             <span className="text-xs font-semibold text-content-primary uppercase tracking-wide">
               Recent Interactions
@@ -325,6 +399,77 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
             )}
           </div>
         </div>
+
+        {/* Flagged Requests (team mode only) */}
+        {teamMode && (
+          <div className="flex-1 min-h-0 flex flex-col bg-surface-card border border-border rounded">
+            <div className="shrink-0 px-3 py-2 border-b border-border">
+              <span className="text-xs font-semibold text-content-primary uppercase tracking-wide">
+                Flagged Requests
+              </span>
+              {flaggedItems.length > 0 && (
+                <span className="ml-2 text-content-muted text-xs">{flaggedItems.length}</span>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {flaggedItems.length === 0 ? (
+                <div className="flex items-center justify-center h-full">
+                  <span className="text-content-muted text-xs">No flagged requests yet</span>
+                </div>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-surface-card">
+                    <tr className="text-content-secondary text-left">
+                      <th className="px-3 py-1.5 font-medium">Method</th>
+                      <th className="px-3 py-1.5 font-medium">URL</th>
+                      <th className="px-3 py-1.5 font-medium">Status</th>
+                      <th className="px-3 py-1.5 font-medium">By</th>
+                      <th className="px-3 py-1.5 font-medium">Time</th>
+                      <th className="px-3 py-1.5 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {flaggedItems.map((f) => (
+                      <tr
+                        key={f.id}
+                        onClick={() => openFlagged(f.id)}
+                        className="border-t border-border-subtle hover:bg-surface-hover cursor-pointer"
+                      >
+                        <td className="px-3 py-1.5 font-bold text-accent-secondary">{f.method}</td>
+                        <td className="px-3 py-1.5 text-content-primary truncate max-w-[240px]" title={f.note || f.url}>
+                          {f.url}
+                        </td>
+                        <td
+                          className={`px-3 py-1.5 ${
+                            f.status < 300
+                              ? 'text-semantic-success'
+                              : f.status < 400
+                              ? 'text-semantic-warning'
+                              : 'text-semantic-error'
+                          }`}
+                        >
+                          {f.status || '-'}
+                        </td>
+                        <td className="px-3 py-1.5 text-content-secondary">{f.author}</td>
+                        <td className="px-3 py-1.5 text-content-muted">{timeAgo(f.createdAt)}</td>
+                        <td className="px-3 py-1.5 text-right">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteFlagged(f.id) }}
+                            className="text-content-muted hover:text-semantic-error"
+                            title="Delete flagged request"
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+        </div>
       </div>
 
       {/* Drag handle */}
@@ -359,7 +504,17 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
                         <span className="text-content-muted ml-1.5">
                           {new Date(m.createdAt).toLocaleTimeString('en-US', { timeZone: 'UTC' }) + ' UTC'}
                         </span>
-                        <span className="text-content-terminal ml-2">{m.text}</span>
+                        {m.refId ? (
+                          <button
+                            onClick={() => openFlagged(m.refId!)}
+                            className="ml-2 text-accent-tertiary hover:underline font-medium text-left"
+                            title="Review flagged request"
+                          >
+                            {m.text}
+                          </button>
+                        ) : (
+                          <span className="text-content-terminal ml-2">{m.text}</span>
+                        )}
                       </>
                     )}
                   </div>
@@ -385,13 +540,18 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
             )}
             <div ref={chatEndRef} />
           </div>
+          {flagError && (
+            <div className="shrink-0 px-3 py-1 text-[10px] text-semantic-error border-t border-border">
+              {flagError}
+            </div>
+          )}
           <div className="shrink-0 flex gap-2 px-3 py-2 border-t border-border">
             <input
               type="text"
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => { setDraft(e.target.value); if (flagError) setFlagError('') }}
               onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder="Type a message..."
+              placeholder={teamMode ? 'Type a message… (/flag <seq> to flag a request)' : 'Type a message...'}
               className="flex-1 bg-surface-input text-content-primary text-xs px-2 py-1.5 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary"
             />
             <button
@@ -433,6 +593,10 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
           </div>
         </div>
       </div>
+
+      {flaggedModal && (
+        <FlaggedRequestModal flagged={flaggedModal} onClose={() => setFlaggedModal(null)} />
+      )}
     </div>
   )
 }

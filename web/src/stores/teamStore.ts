@@ -4,6 +4,7 @@ export interface ChatMessage {
   id: string
   author: string
   text: string
+  refId?: string
   createdAt: string
 }
 

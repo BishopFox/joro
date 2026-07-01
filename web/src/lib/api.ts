@@ -1,5 +1,6 @@
 import type { CallbackInteraction, CallbackToken } from '../stores/callbackStore'
 import type { ChatMessage } from '../stores/teamStore'
+import type { FlaggedSummary, FlaggedRequest } from '../stores/teamFlaggedStore'
 import type { XSSProbe, XSSFire, PayloadVariant, CollectedPage, CollectedPageSummary, XSSConfig } from '../stores/xssHunterStore'
 
 export interface VersionInfo {
@@ -460,6 +461,27 @@ export const api = {
   createTeamNote: (host: string, content: string) =>
     req<Note>('POST', '/team/notes', { host, content }),
   deleteTeamNote: (id: string) => req<unknown>('DELETE', `/team/notes/${id}`),
+  flagRequest: (payload: {
+    host: string
+    method: string
+    url: string
+    status: number
+    reqRaw: string
+    respRaw: string
+    note?: string
+  }) => req<FlaggedSummary>('POST', '/team/flagged', payload),
+  listFlagged: (params: Record<string, string | number>) => {
+    const qs = new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v !== '' && v !== 0)
+        .map(([k, v]) => [k, String(v)])
+    ).toString()
+    return req<{ items: FlaggedSummary[]; total: number; offset: number; limit: number }>(
+      'GET', `/team/flagged${qs ? `?${qs}` : ''}`
+    )
+  },
+  getFlagged: (id: string) => req<FlaggedRequest>('GET', `/team/flagged/${id}`),
+  deleteFlagged: (id: string) => req<unknown>('DELETE', `/team/flagged/${id}`),
 
   // Interact plugins
   listInteractProviders: () => req<InteractProviderMeta[]>('GET', '/plugins/interact-providers'),

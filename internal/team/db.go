@@ -1,6 +1,9 @@
 package team
 
-import "database/sql"
+import (
+	"database/sql"
+	"strings"
+)
 
 const schema = `
 CREATE TABLE IF NOT EXISTS team_chat (
@@ -32,10 +35,36 @@ CREATE TABLE IF NOT EXISTS team_connections (
 );
 
 CREATE INDEX IF NOT EXISTS idx_team_connections_time ON team_connections(connected_at DESC);
+
+CREATE TABLE IF NOT EXISTS team_flagged_requests (
+	id          TEXT PRIMARY KEY,
+	host        TEXT NOT NULL DEFAULT '',
+	method      TEXT NOT NULL DEFAULT '',
+	url         TEXT NOT NULL DEFAULT '',
+	status      INTEGER NOT NULL DEFAULT 0,
+	req_raw     BLOB,
+	resp_raw    BLOB,
+	truncated   INTEGER NOT NULL DEFAULT 0,
+	note        TEXT NOT NULL DEFAULT '',
+	author      TEXT NOT NULL,
+	created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_flagged_time ON team_flagged_requests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_team_flagged_host ON team_flagged_requests(host);
 `
 
 // MigrateDB creates team tables in an existing database.
 func MigrateDB(db *sql.DB) error {
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+	// team_chat.ref_id was added after the initial release; CREATE TABLE IF NOT
+	// EXISTS won't add it to a pre-existing table, so add it idempotently.
+	if _, err := db.Exec("ALTER TABLE team_chat ADD COLUMN ref_id TEXT"); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	return nil
 }
