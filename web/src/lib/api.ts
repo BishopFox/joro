@@ -456,8 +456,8 @@ export const api = {
       'GET', `/team/chat${qs ? `?${qs}` : ''}`
     )
   },
-  sendChatMessage: (text: string) =>
-    req<ChatMessage>('POST', '/team/chat', { text }),
+  sendChatMessage: (text: string, refType?: 'action') =>
+    req<ChatMessage>('POST', '/team/chat', { text, ...(refType ? { refType } : {}) }),
   listActiveUsers: () => req<ActiveUser[]>('GET', '/team/users'),
   updatePresence: (payload: { status: string; projectId: string }) =>
     req<{ status: string }>('POST', '/team/presence', payload),

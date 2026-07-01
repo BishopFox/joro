@@ -55,7 +55,8 @@ func (s *APIServer) handleListChatMessages(w http.ResponseWriter, r *http.Reques
 
 func (s *APIServer) handleCreateChatMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Text string `json:"text"`
+		Text    string `json:"text"`
+		RefType string `json:"refType"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -64,6 +65,11 @@ func (s *APIServer) handleCreateChatMessage(w http.ResponseWriter, r *http.Reque
 	if body.Text == "" {
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
+	}
+	// Only "action" (/me, /slap) may be set by clients; artifact chip types
+	// (flagged/collab/config) are set server-side and must not be forgeable.
+	if body.RefType != "" && body.RefType != "action" {
+		body.RefType = ""
 	}
 
 	author := team.NicknameFromContext(r.Context())
@@ -74,7 +80,7 @@ func (s *APIServer) handleCreateChatMessage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	msg, err := s.teamStore.CreateMessage(id, author, body.Text, "", "")
+	msg, err := s.teamStore.CreateMessage(id, author, body.Text, "", body.RefType)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

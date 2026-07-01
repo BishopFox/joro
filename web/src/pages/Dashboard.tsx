@@ -39,6 +39,16 @@ function timeAgo(ts: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+const SLASH_HELP = [
+  'Available slash commands:',
+  '/me <text> — send an action message',
+  '/slap <user> — slap someone with a large trout',
+  '/nick <name> — change your nickname',
+  '/flag <seq> [note] — flag a captured request (seq from History)',
+  '/collab <note> — request collaboration (share scope / M&R / custom data)',
+  '/help — show this help',
+].join('\n')
+
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'online', label: 'Online' },
   { value: 'away', label: 'Away' },
@@ -106,6 +116,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const activeUsers = useTeamStore((s) => s.activeUsers)
   const setActiveUsers = useTeamStore((s) => s.setActiveUsers)
   const setMessages = useTeamStore((s) => s.setMessages)
+  const addMessage = useTeamStore((s) => s.addMessage)
 
   const flaggedItems = useTeamFlaggedStore((s) => s.items)
   const setFlaggedItems = useTeamFlaggedStore((s) => s.setItems)
@@ -317,9 +328,62 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
     if (!text) return
 
     // Slash commands require a team server; hint instead of posting literal text.
-    if (!teamMode && (text.startsWith('/collab') || text.startsWith('/flag'))) {
-      const cmd = text.startsWith('/collab') ? '/collab' : '/flag'
-      setFlagError(`Connect to a team server to use ${cmd}`)
+    if (!teamMode && text.startsWith('/')) {
+      const cmd = text.split(/\s+/)[0]
+      if (['/collab', '/flag', '/slap', '/me', '/nick', '/help'].includes(cmd)) {
+        setFlagError(`Connect to a team server to use ${cmd}`)
+        return
+      }
+    }
+
+    // /help — show contextual help locally (not sent to the team).
+    if (teamMode && (text === '/help' || text.startsWith('/help '))) {
+      setDraft('')
+      setFlagError('')
+      addMessage({ id: `help-${crypto.randomUUID()}`, author: '*', text: SLASH_HELP, createdAt: new Date().toISOString() })
+      return
+    }
+
+    // /nick <new_nickname> — change your nickname.
+    if (teamMode && (text === '/nick' || text.startsWith('/nick '))) {
+      const newNick = text.replace(/^\/nick\s*/, '').trim()
+      if (!newNick) {
+        setFlagError('Usage: /nick <new_nickname>')
+        return
+      }
+      setDraft('')
+      setFlagError('')
+      try {
+        const updated = await api.updateSettings({ teamNickname: newNick })
+        setSettings(updated as Settings)
+      } catch {
+        setFlagError(`Nickname "${newNick}" is already in use`)
+      }
+      return
+    }
+
+    // /me <text> and /slap <user> — IRC-style action messages (rendered italic,
+    // attributed to the operator without a "name:" prefix).
+    if (teamMode && (text === '/me' || text.startsWith('/me '))) {
+      const action = text.replace(/^\/me\s*/, '').trim()
+      if (!action) {
+        setFlagError('Usage: /me <text>')
+        return
+      }
+      setDraft('')
+      setFlagError('')
+      api.sendChatMessage(action, 'action').catch(() => {})
+      return
+    }
+    if (teamMode && (text === '/slap' || text.startsWith('/slap '))) {
+      const target = text.replace(/^\/slap\s*/, '').trim()
+      if (!target) {
+        setFlagError('Usage: /slap <user>')
+        return
+      }
+      setDraft('')
+      setFlagError('')
+      api.sendChatMessage(`slaps ${target} around a bit with a large trout`, 'action').catch(() => {})
       return
     }
 
@@ -572,7 +636,9 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
                 teamMessages.map((m) => (
                   <div key={m.id} className="text-xs">
                     {m.author === '*' ? (
-                      <span className="text-content-muted italic">[*] {m.text}</span>
+                      <span className="text-content-muted italic whitespace-pre-wrap">[*] {m.text}</span>
+                    ) : m.refType === 'action' ? (
+                      <span className="text-content-secondary italic">* {m.author} {m.text}</span>
                     ) : (
                       <>
                         <span className="text-accent-secondary font-medium">{m.author}</span>
