@@ -21,7 +21,11 @@ type UnifiedEvent = {
   fire?: XSSFire
 }
 
-export default function Callbacks() {
+type CallbacksProps = {
+  teamMode?: boolean
+}
+
+export default function Callbacks({ teamMode = false }: CallbacksProps) {
   // Callback store
   const {
     tokens, interactions, interactionsTotal,
@@ -606,10 +610,14 @@ export default function Callbacks() {
             onKeyDown={(e) => e.key === 'Enter' && handleSaveConfig()}
           />
           <input
-            className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-36 lg:w-44"
+            className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-36 lg:w-44 disabled:opacity-50 disabled:cursor-not-allowed"
             placeholder="Callback domain"
             value={callbackDomain}
             onChange={(e) => setCallbackDomain(e.target.value)}
+            disabled={teamMode}
+            title={teamMode
+              ? 'Callback domain is configured on the team server at startup (--domain) and is read-only here.'
+              : undefined}
           />
           <button
             onClick={handleSaveConfig}

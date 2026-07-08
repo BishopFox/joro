@@ -174,7 +174,7 @@ export default function App() {
           <Route path="/fuzz" element={<Fuzz />} />
           <Route path="/generator" element={<Generator />} />
           <Route path="/executor" element={<Executor />} />
-          <Route path="/callbacks" element={<Callbacks />} />
+          <Route path="/callbacks" element={<Callbacks teamMode={teamMode} />} />
           <Route path="/notes" element={<Notes teamMode={teamMode} />} />
           <Route path="/transform" element={<Transform />} />
           <Route path="/plugins" element={<Plugins />} />
