@@ -9,9 +9,14 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+// wsWriteTimeout bounds a single client write so one dead/slow connection can't
+// stall the whole broadcast loop until the OS TCP timeout.
+const wsWriteTimeout = 10 * time.Second
 
 // upgrader allows non-browser clients (no Origin) and same-origin browser
 // handshakes; cross-origin handshakes are rejected.
@@ -89,10 +94,16 @@ func (h *Hub) Run() {
 			continue
 		}
 
+		// Run is the sole writer to client conns, so serialized writes here are
+		// gorilla-safe. Bound each write with a deadline; on error, close the
+		// conn so the client's ReadMessage loop in ServeWS runs its deferred
+		// cleanup and deregisters it (we can't delete under RLock here).
 		h.mu.RLock()
 		for conn := range h.clients {
+			_ = conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 				log.Printf("ws write: %v", err)
+				conn.Close()
 			}
 		}
 		h.mu.RUnlock()

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Toasts from './components/Toasts'
 import UpdateBanner from './components/UpdateBanner'
+import ErrorBoundary from './components/ErrorBoundary'
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import ContextMenu from './components/ContextMenu'
 import { getSelectionMenuItems } from './lib/selectionMenu'
@@ -30,6 +31,7 @@ import SettingsPage from './pages/Settings'
 
 export default function App() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { settings, setSettings } = useSettingsStore()
   const [setupMode, setSetupMode] = useState<string | null>(
     () => localStorage.getItem('joro-setup-mode')
@@ -160,6 +162,7 @@ export default function App() {
 
       {/* Page content */}
       <main className="flex-1 min-h-0 overflow-hidden flex flex-col" onContextMenu={handleGlobalContextMenu}>
+        <ErrorBoundary key={location.pathname}>
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={
@@ -181,6 +184,7 @@ export default function App() {
           <Route path="/plugin/:extName/*" element={<PluginTabPage />} />
           <Route path="/settings" element={<SettingsPage onTeamSettingsChanged={checkTeamMode} />} />
         </Routes>
+        </ErrorBoundary>
       </main>
 
       {globalCtxMenu && (() => {

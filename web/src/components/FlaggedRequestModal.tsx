@@ -23,6 +23,10 @@ export default function FlaggedRequestModal({ flagged, onClose }: Props) {
   const navigate = useNavigate()
   const [respTab, setRespTab] = useState<'raw' | 'render'>('raw')
   const [prettyJson, setPrettyJson] = usePrettyJson()
+  // Line wrapping defaults OFF: wrapping a large (up to 256KB) minified/binary
+  // response locks the main thread. Operators can opt in per pane.
+  const [wrapReq, setWrapReq] = useState(false)
+  const [wrapResp, setWrapResp] = useState(false)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -109,8 +113,17 @@ export default function FlaggedRequestModal({ flagged, onClose }: Props) {
         <div className="flex-1 min-h-0 flex flex-col">
           {/* Request */}
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <div className="shrink-0 px-2 py-1.5 border-b border-border bg-surface-card">
+            <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-card">
               <span className="text-xs font-semibold text-content-primary">Request</span>
+              <button
+                onClick={() => setWrapReq((w) => !w)}
+                title="Line wrapping"
+                className={`ml-auto w-6 h-5 flex items-center justify-center text-[10px] rounded-sm font-semibold leading-none ${
+                  wrapReq ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
+                }`}
+              >
+                ↩
+              </button>
             </div>
             <div className="flex-1 relative min-h-0">
               <div className="absolute inset-0 overflow-hidden">
@@ -119,7 +132,7 @@ export default function FlaggedRequestModal({ flagged, onClose }: Props) {
                   theme={oneDark}
                   readOnly={true}
                   height="100%"
-                  extensions={[EditorView.lineWrapping]}
+                  extensions={wrapReq ? [EditorView.lineWrapping] : []}
                   basicSetup={{ lineNumbers: true, foldGutter: false }}
                 />
               </div>
@@ -152,6 +165,17 @@ export default function FlaggedRequestModal({ flagged, onClose }: Props) {
                   Render
                 </button>
               </div>
+              {respTab === 'raw' && (
+                <button
+                  onClick={() => setWrapResp((w) => !w)}
+                  title="Line wrapping"
+                  className={`ml-auto w-6 h-5 flex items-center justify-center text-[10px] rounded-sm font-semibold leading-none ${
+                    wrapResp ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
+                  }`}
+                >
+                  ↩
+                </button>
+              )}
               {respTab === 'render' && (
                 <button
                   onClick={() => setPrettyJson(!prettyJson)}
@@ -176,7 +200,7 @@ export default function FlaggedRequestModal({ flagged, onClose }: Props) {
                     theme={oneDark}
                     readOnly={true}
                     height="100%"
-                    extensions={[EditorView.lineWrapping]}
+                    extensions={wrapResp ? [EditorView.lineWrapping] : []}
                     basicSetup={{ lineNumbers: true, foldGutter: false }}
                   />
                 </div>

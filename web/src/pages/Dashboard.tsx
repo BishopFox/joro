@@ -30,7 +30,9 @@ interface LocalChatMessage {
 
 function timeAgo(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime()
-  const secs = Math.floor(diff / 1000)
+  // Clamp negatives: timestamps come from the team server, so clock skew
+  // between machines can put a fresh createdAt slightly ahead of our clock.
+  const secs = Math.max(0, Math.floor(diff / 1000))
   if (secs < 60) return `${secs}s ago`
   const mins = Math.floor(secs / 60)
   if (mins < 60) return `${mins}m ago`
@@ -130,7 +132,9 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
       const f = await api.getFlagged(id)
       setFlaggedModal(f)
     } catch {
-      // ignore — artifact may have been deleted
+      // Surface the failure instead of a silent dead click (artifact may have
+      // been deleted, or the proxied fetch to the team server timed out).
+      setFlagError('Failed to open flagged request')
     }
   }, [])
 
@@ -177,38 +181,42 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   }, [])
 
   const fetchData = useCallback(async () => {
-    // Isolate each fetch so one failure doesn't block the rest
+    // Isolate each fetch so one failure doesn't block the rest. On failure a
+    // call resolves to null (the sentinel) and we KEEP the prior state instead
+    // of blanking the panel — a transient timeout (e.g. the team server busy
+    // fanning out a flag) shouldn't wipe Recent Interactions for a poll cycle.
     const [modeRes, intRes, tokRes, firesRes, probesRes, sliverRes] = await Promise.all([
-      api.getMode().catch(() => ({ mode: 'proxy' })),
-      api.listInteractions({ limit: 20 }).catch(() => ({ items: [] as CallbackInteraction[] })),
-      api.listTokens().catch(() => [] as CallbackToken[]),
-      api.listFires({ limit: 20 }).catch(() => ({ items: [] as XSSFire[] })),
-      api.listProbes().catch(() => [] as XSSProbe[]),
-      api.sliverStatus().catch((): { connected: boolean; lhost?: string; lport?: number } => ({ connected: false })),
+      api.getMode().catch(() => null),
+      api.listInteractions({ limit: 20 }).catch(() => null),
+      api.listTokens().catch(() => null),
+      api.listFires({ limit: 20 }).catch(() => null),
+      api.listProbes().catch(() => null),
+      api.sliverStatus().catch((): { connected: boolean; lhost?: string; lport?: number } | null => null),
     ])
-    setMode(modeRes.mode)
-    setInteractions(intRes.items || [])
-    setTokens(tokRes || [])
-    setFires(firesRes.items || [])
-    setProbes(probesRes || [])
+    if (modeRes) setMode(modeRes.mode)
+    if (intRes) setInteractions(intRes.items || [])
+    if (tokRes) setTokens(tokRes || [])
+    if (firesRes) setFires(firesRes.items || [])
+    if (probesRes) setProbes(probesRes || [])
 
-    setSliverConnected(sliverRes.connected)
-    if (sliverRes.connected) {
-      setSliverLhost(sliverRes.lhost || '')
-      setSliverLport(sliverRes.lport || 0)
-      try {
-        const sessRes = await api.sliverSessions()
-        setSliverSessions(sessRes.sessions || [])
-        setSliverBeacons(sessRes.beacons || [])
-      } catch {
+    if (sliverRes) {
+      setSliverConnected(sliverRes.connected)
+      if (sliverRes.connected) {
+        setSliverLhost(sliverRes.lhost || '')
+        setSliverLport(sliverRes.lport || 0)
+        try {
+          const sessRes = await api.sliverSessions()
+          setSliverSessions(sessRes.sessions || [])
+          setSliverBeacons(sessRes.beacons || [])
+        } catch {
+          // keep prior sessions/beacons on a transient failure
+        }
+      } else {
+        setSliverLhost('')
+        setSliverLport(0)
         setSliverSessions([])
         setSliverBeacons([])
       }
-    } else {
-      setSliverLhost('')
-      setSliverLport(0)
-      setSliverSessions([])
-      setSliverBeacons([])
     }
 
     // Fetch plugin graph data (from exec providers that implement GraphProvider).
@@ -233,7 +241,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
       }
       setPluginGraphs(mapped)
     } catch {
-      setPluginGraphs({})
+      // keep prior plugin graph data on a transient failure
     }
 
     // Flagged requests live on the team server; only fetch in team mode.
