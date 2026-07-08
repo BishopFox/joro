@@ -17,9 +17,16 @@ function b64Decode(s: string) {
 type Props = {
   flagged: FlaggedRequest
   onClose: () => void
+  title?: string
+  byline?: string
 }
 
-export default function FlaggedRequestModal({ flagged, onClose }: Props) {
+export default function FlaggedRequestModal({
+  flagged,
+  onClose,
+  title = '🚩 Flagged Request',
+  byline = 'flagged by',
+}: Props) {
   const navigate = useNavigate()
   const [respTab, setRespTab] = useState<'raw' | 'render'>('raw')
   const [prettyJson, setPrettyJson] = usePrettyJson()
@@ -64,7 +71,7 @@ export default function FlaggedRequestModal({ flagged, onClose }: Props) {
         {/* Header */}
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border">
           <span className="text-xs font-semibold text-content-primary uppercase tracking-wide">
-            🚩 Flagged Request
+            {title}
           </span>
           <span className="text-xs text-content-secondary truncate max-w-[45%]">
             <span className="font-bold text-accent-secondary">{flagged.method}</span>{' '}
@@ -101,10 +108,14 @@ export default function FlaggedRequestModal({ flagged, onClose }: Props) {
 
         {/* Meta */}
         <div className="shrink-0 px-3 py-1.5 border-b border-border-subtle text-[11px] text-content-muted flex flex-wrap gap-x-4 gap-y-0.5">
-          <span>
-            flagged by <span className="text-content-secondary">{flagged.author}</span>
-          </span>
-          <span>{new Date(flagged.createdAt).toLocaleString('en-US', { timeZone: 'UTC' })} UTC</span>
+          {flagged.author && (
+            <span>
+              {byline} <span className="text-content-secondary">{flagged.author}</span>
+            </span>
+          )}
+          {flagged.createdAt && (
+            <span>{new Date(flagged.createdAt).toLocaleString('en-US', { timeZone: 'UTC' })} UTC</span>
+          )}
           {flagged.host && <span>host: {flagged.host}</span>}
           {flagged.note && <span className="text-content-secondary">“{flagged.note}”</span>}
         </div>

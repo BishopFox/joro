@@ -10,6 +10,7 @@ import { api } from './lib/api'
 import { connectWS } from './lib/ws'
 import { Settings, useSettingsStore } from './stores/settingsStore'
 import { useHiddenTabsStore } from './stores/hiddenTabsStore'
+import { useDeadDropStore } from './stores/deadDropStore'
 import { NAV } from './lib/nav'
 import { currentTheme } from './lib/theme'
 import Callbacks from './pages/Callbacks'
@@ -17,6 +18,7 @@ import History from './pages/History'
 import Intercept from './pages/Intercept'
 import Manipulate from './pages/Manipulate'
 import Fuzz from './pages/Fuzz'
+import DeadDrop from './pages/DeadDrop'
 import Generator from './pages/Generator'
 import Executor from './pages/Executor'
 import Transform from './pages/Transform'
@@ -41,6 +43,7 @@ export default function App() {
   const [pluginTabs, setPluginTabs] = useState<Array<{ to: string; label: string }>>([])
   const [dashboardPlugin, setDashboardPlugin] = useState<string | null>(null)
   const hiddenTabs = useHiddenTabsStore((s) => s.hiddenTabs)
+  const stagedCount = useDeadDropStore((s) => s.staged.length)
 
   const checkTeamMode = useCallback(async () => {
     // Detect backend restart: if the session ID changed, clear setup state
@@ -152,12 +155,54 @@ export default function App() {
             {label}
           </NavLink>
         ))}
-        {teamMode && settings?.teamNickname && (
-          <span className="ml-auto flex items-center gap-1.5 text-xs text-content-secondary">
-            <span className="w-2 h-2 rounded-full bg-semantic-success" />
-            {settings.teamNickname}
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-3 shrink-0">
+          {/* Dead Drop: low-profile icon access point (not a named tab). */}
+          <NavLink
+            to="/deaddrop"
+            title="Dead Drop"
+            className={({ isActive }) =>
+              `deaddrop-link relative flex items-center p-1.5 rounded-sm transition-colors ${
+                isActive ? 'is-active text-accent' : 'text-content-muted hover:text-content-primary'
+              } ${stagedCount > 0 ? 'has-staged' : ''}`
+            }
+          >
+            {/* Jorōgumo — hand-drawn spider glyph (no icon library in this project) */}
+            <svg
+              className="deaddrop-glyph"
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.7}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <ellipse cx="12" cy="10" rx="1.8" ry="1.7" fill="currentColor" stroke="none" />
+              <ellipse cx="12" cy="14.4" rx="3.5" ry="3.9" fill="currentColor" stroke="none" />
+              <path d="M10.6 10 C 9 8.2, 7.4 7.6, 5.6 7" />
+              <path d="M10.1 11 C 8.2 10.4, 6.6 10, 5 9.6" />
+              <path d="M10.1 12.4 C 8.2 12.8, 6.6 13.2, 5 13.8" />
+              <path d="M10.6 13.4 C 9 14.8, 7.6 15.6, 6 16.6" />
+              <path d="M13.4 10 C 15 8.2, 16.6 7.6, 18.4 7" />
+              <path d="M13.9 11 C 15.8 10.4, 17.4 10, 19 9.6" />
+              <path d="M13.9 12.4 C 15.8 12.8, 17.4 13.2, 19 13.8" />
+              <path d="M13.4 13.4 C 15 14.8, 16.4 15.6, 18 16.6" />
+            </svg>
+            {stagedCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 flex items-center justify-center rounded-full bg-accent-secondary text-black text-[9px] font-bold leading-none">
+                {stagedCount}
+              </span>
+            )}
+          </NavLink>
+          {teamMode && settings?.teamNickname && (
+            <span className="flex items-center gap-1.5 text-xs text-content-secondary">
+              <span className="w-2 h-2 rounded-full bg-semantic-success" />
+              {settings.teamNickname}
+            </span>
+          )}
+        </div>
       </header>
 
       {/* Page content */}
@@ -175,6 +220,7 @@ export default function App() {
           <Route path="/intercept" element={<Intercept />} />
           <Route path="/manipulate" element={<Manipulate />} />
           <Route path="/fuzz" element={<Fuzz />} />
+          <Route path="/deaddrop" element={<DeadDrop />} />
           <Route path="/generator" element={<Generator />} />
           <Route path="/executor" element={<Executor />} />
           <Route path="/callbacks" element={<Callbacks teamMode={teamMode} />} />

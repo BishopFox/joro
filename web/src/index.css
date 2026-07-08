@@ -149,6 +149,22 @@ div:has(> .cm-editor) {
   vertical-align: baseline;
 }
 
+/* Dead Drop: covert access icon that cloaks into the header until hovered or
+   active. The cloak is applied to the glyph only so the staged-count badge
+   stays crisp. */
+.deaddrop-glyph {
+  opacity: 0.35;
+  transition: opacity 200ms ease, filter 200ms ease;
+}
+.deaddrop-link.has-staged .deaddrop-glyph { opacity: 0.85; }
+.deaddrop-link:hover .deaddrop-glyph,
+.deaddrop-link.is-active .deaddrop-glyph { opacity: 1; }
+.deaddrop-link:hover .deaddrop-glyph { filter: drop-shadow(0 0 6px var(--color-accent-secondary)); }
+.deaddrop-link.is-active .deaddrop-glyph { filter: drop-shadow(0 0 5px var(--color-accent)); }
+@media (prefers-reduced-motion: reduce) {
+  .deaddrop-glyph { transition: none; }
+}
+
 /* Network graph animations */
 @keyframes joro-edge-flow {
   to { stroke-dashoffset: -20; }

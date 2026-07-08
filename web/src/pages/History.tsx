@@ -8,6 +8,7 @@ import { api } from '../lib/api'
 import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
 import { rawToCurl } from '../lib/httpTransform'
 import { RequestDetail, RequestSummary, SortColumn, useRequestStore } from '../stores/requestStore'
+import { useDeadDropStore } from '../stores/deadDropStore'
 import { useWSStore } from '../stores/wsStore'
 import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
@@ -490,6 +491,31 @@ function HTTPHistory() {
     }
   }
 
+  function stageDetailForDeadDrop(d: RequestDetail) {
+    useDeadDropStore.getState().add({
+      id: d.id,
+      host: d.host,
+      method: d.method,
+      url: d.url,
+      status: d.statusCode,
+      reqRaw: d.reqRaw,
+      respRaw: d.respRaw,
+      truncated: false,
+      note: '',
+    })
+    addToast('Staged for Dead Drop', 'info')
+  }
+
+  // Row menu carries only the request id, so fetch the raw bytes on demand.
+  async function stageForDeadDrop(id: string) {
+    try {
+      const d = (await api.getRequest(id)) as RequestDetail
+      stageDetailForDeadDrop(d)
+    } catch {
+      addToast('Failed to stage request')
+    }
+  }
+
   function sendToFuzz() {
     if (!selectedDetail) return
     let scheme = 'https'
@@ -907,6 +933,7 @@ function HTTPHistory() {
             ...(highlights[rowMenu.itemId]
               ? [{ label: 'Clear Highlight', onClick: () => removeHighlight(rowMenu.itemId) }]
               : []),
+            { label: 'Stage for Dead Drop', onClick: () => stageForDeadDrop(rowMenu.itemId) },
           ]}
         />
       )}
@@ -921,6 +948,7 @@ function HTTPHistory() {
             ...getSelectionMenuItems(navigate),
             { label: 'Manipulate', onClick: sendToManipulate },
             { label: 'Fuzz', onClick: sendToFuzz },
+            { label: 'Stage for Dead Drop', onClick: () => stageDetailForDeadDrop(selectedDetail) },
             ...(teamMode ? [{ label: '🚩 Flag to team', onClick: flagToTeam }] : []),
             { label: 'Copy URL', onClick: copyUrl },
             { label: 'Copy as curl', onClick: copyCurl },
