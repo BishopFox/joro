@@ -145,7 +145,7 @@ npm run build     # output to web/dist/ (embedded into Go binary)
 All under `/api/v1/`. Request/response shapes are JSON unless noted. WebSocket events stream from `/ws`.
 
 **History & intercept**
-- `GET/DELETE /requests`, `GET /requests/:id` — paginated history with filters; raw bytes base64
+- `GET/DELETE /requests`, `GET /requests/:id` — paginated history with filters; raw bytes base64. Filters: `host`, `method`, `status`, `search` (URL substring), `exclude`+`extMode` (file extensions), `contentType`, `scope_only`, and `content`+`contentMode` (`include`/`exclude`) +`contentRegex` (`true`) — matches a string (case-insensitive) or regex against the **raw request + response bytes**. Content search is server-side only (raw bytes aren't in the WS summary), so live-streamed rows bypass it until reload — same as the other body/URL filters.
 - `GET /intercept`, `PUT /intercept/enabled`, `POST /intercept/:id/{forward,drop}` — queue control; forward accepts modified `reqRaw` base64
 
 **Manipulate**
