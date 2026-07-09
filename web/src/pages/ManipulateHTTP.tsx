@@ -15,6 +15,7 @@ import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
+import { useDeadDropStore } from '../stores/deadDropStore'
 
 function b64Encode(s: string) { try { return btoa(s) } catch { return s } }
 function b64Decode(s: string) { try { return atob(s) } catch { return s } }
@@ -226,6 +227,24 @@ export default function ManipulateHTTP() {
     } catch {
       addToast('Failed to flag request')
     }
+  }
+
+  function stageForDeadDrop() {
+    // Manipulate requests have no source history id, so synthesize a unique
+    // staging key (the store dedupes by id — a fresh key stages each snapshot).
+    const key = `manip-${tab.id}-${Date.now()}`
+    useDeadDropStore.getState().add({
+      id: key,
+      host: tab.host,
+      method: getMethod(tab.rawReq),
+      url: getRequestUrl(),
+      status: tab.status ?? 0,
+      reqRaw: b64Encode(tab.rawReq),
+      respRaw: b64Encode(tab.response || ''),
+      truncated: false,
+      note: '',
+    })
+    addToast('Staged for Dead Drop', 'info')
   }
 
   function copyUrl() { copyText(getRequestUrl()) }
@@ -460,6 +479,7 @@ export default function ManipulateHTTP() {
                 { label: 'XML', checked: currentFormat === 'xml', onClick: () => updateTab(tab.id, { rawReq: changeContentType(tab.rawReq, 'xml') }) },
               ],
             }] : []),
+            { label: 'Stage for Dead Drop', onClick: stageForDeadDrop },
             { label: 'Copy URL', onClick: copyUrl },
             { label: 'Copy as curl', onClick: copyCurl },
             { label: 'Copy Raw Request', onClick: copyRawRequest },
