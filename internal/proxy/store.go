@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/url"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -14,15 +15,15 @@ type ScopeFunc func(host, method, path string) bool
 
 // CapturedRequest holds all data about a proxied HTTP request/response pair.
 type CapturedRequest struct {
-	ID          string        `json:"id"`
-	Seq         int           `json:"seq"`
-	Timestamp   time.Time     `json:"timestamp"`
-	Method      string        `json:"method"`
-	URL         string        `json:"url"`
-	Host        string        `json:"host"`
-	Protocol    string        `json:"protocol,omitempty"` // "HTTP/1.1" | "HTTP/2"
-	StatusCode  int           `json:"statusCode"`
-	ContentType string        `json:"contentType,omitempty"`
+	ID           string        `json:"id"`
+	Seq          int           `json:"seq"`
+	Timestamp    time.Time     `json:"timestamp"`
+	Method       string        `json:"method"`
+	URL          string        `json:"url"`
+	Host         string        `json:"host"`
+	Protocol     string        `json:"protocol,omitempty"` // "HTTP/1.1" | "HTTP/2"
+	StatusCode   int           `json:"statusCode"`
+	ContentType  string        `json:"contentType,omitempty"`
 	Duration     time.Duration `json:"duration"`
 	ResponseSize int           `json:"responseSize"`
 	ReqRaw       []byte        `json:"reqRaw,omitempty"`
@@ -31,13 +32,16 @@ type CapturedRequest struct {
 
 // RequestFilter holds optional filter criteria for listing requests.
 type RequestFilter struct {
-	Host        string
-	Method      string
-	Status      int
-	Search      string
-	Exclude     string // comma-separated file extensions, e.g. ".css,.png,.jpg"
-	ExtMode     string // "exclude" (default) or "include"
+	Host         string
+	Method       string
+	Status       int
+	Search       string
+	Exclude      string    // comma-separated file extensions, e.g. ".css,.png,.jpg"
+	ExtMode      string    // "exclude" (default) or "include"
 	ContentType  string    // simplified content type keyword, e.g. "html", "json", "image"
+	Content      string    // string/regex matched against raw request+response bytes
+	ContentMode  string    // "include" (default) or "exclude"
+	ContentRegex bool      // treat Content as a regular expression
 	InScopeFunc  ScopeFunc // optional: if set, only include requests passing this check
 	Offset       int
 	Limit        int
@@ -134,6 +138,21 @@ func (s *Store) List(f RequestFilter) ([]*CapturedRequest, int) {
 		}
 	}
 
+	// Prepare content matching (searches raw request + response bytes).
+	// Include mode keeps matching requests; exclude mode drops them.
+	contentExclude := strings.EqualFold(f.ContentMode, "exclude")
+	var contentRe *regexp.Regexp
+	var contentNeedle string
+	contentActive := f.Content != ""
+	if contentActive {
+		if f.ContentRegex {
+			// An invalid pattern matches nothing (regex stays nil).
+			contentRe, _ = regexp.Compile(f.Content)
+		} else {
+			contentNeedle = strings.ToLower(f.Content)
+		}
+	}
+
 	var filtered []*CapturedRequest
 	for _, r := range s.items {
 		if f.Host != "" && r.Host != f.Host {
@@ -172,6 +191,22 @@ func (s *Store) List(f RequestFilter) ([]*CapturedRequest, int) {
 				}
 			}
 			if !matched {
+				continue
+			}
+		}
+		if contentActive {
+			var matched bool
+			if f.ContentRegex {
+				matched = contentRe != nil && (contentRe.Match(r.ReqRaw) || contentRe.Match(r.RespRaw))
+			} else {
+				matched = strings.Contains(strings.ToLower(string(r.ReqRaw)), contentNeedle) ||
+					strings.Contains(strings.ToLower(string(r.RespRaw)), contentNeedle)
+			}
+			if contentExclude {
+				if matched {
+					continue
+				}
+			} else if !matched {
 				continue
 			}
 		}
@@ -280,7 +315,7 @@ type SitemapEndpoint struct {
 	Path     string           `json:"path"`
 	Methods  []string         `json:"methods"`
 	Params   []string         `json:"params"`
-	Variants []SitemapVariant  `json:"variants"`
+	Variants []SitemapVariant `json:"variants"`
 	Count    int              `json:"count"`
 }
 

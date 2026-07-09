@@ -559,6 +559,9 @@ function HTTPHistory() {
         ...(filter.status && { status: filter.status }),
         ...(filter.exclude && filter.extMode && { exclude: filter.exclude }),
         ...(filter.exclude && filter.extMode && { extMode: filter.extMode }),
+        ...(filter.content && filter.contentMode && { content: filter.content }),
+        ...(filter.content && filter.contentMode && { contentMode: filter.contentMode }),
+        ...(filter.content && filter.contentMode && filter.contentRegex && { contentRegex: 'true' }),
         ...(filter.contentTypes.length > 0 && { contentType: filter.contentTypes.join(',') }),
         ...(filter.scopeOnly && { scope_only: 'true' }),
       })
@@ -708,6 +711,65 @@ function HTTPHistory() {
                 />
                 <span className="text-xs text-content-secondary">In Scope</span>
               </label>
+            </Tooltip>
+          </div>
+          {/* Row 3: Content search (raw request + response bytes) */}
+          <div className="flex flex-wrap items-center gap-2 lg:gap-3 px-2 py-1.5 border-t border-border-subtle">
+            <Tooltip content="Match a string or regex against the raw request and response bytes"><span className="text-xs text-content-muted shrink-0">Content</span></Tooltip>
+            <Tooltip content="Hide requests whose request/response contains this">
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={filter.contentMode === 'exclude'}
+                  onChange={(e) => {
+                    const next = e.target.checked ? 'exclude' : ''
+                    setFilter({ contentMode: next })
+                    localStorage.setItem('joro-history-contentMode', next)
+                  }}
+                />
+                <span className="text-xs text-content-secondary">Exclude</span>
+              </label>
+            </Tooltip>
+            <Tooltip content="Show only requests whose request/response contains this">
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={filter.contentMode === 'include'}
+                  onChange={(e) => {
+                    const next = e.target.checked ? 'include' : ''
+                    setFilter({ contentMode: next })
+                    localStorage.setItem('joro-history-contentMode', next)
+                  }}
+                />
+                <span className="text-xs text-content-secondary">Include</span>
+              </label>
+            </Tooltip>
+            <Tooltip content="Treat the search term as a regular expression">
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={filter.contentRegex}
+                  onChange={(e) => {
+                    setFilter({ contentRegex: e.target.checked })
+                    localStorage.setItem('joro-history-contentRegex', String(e.target.checked))
+                  }}
+                />
+                <span className="text-xs text-content-secondary">Regex</span>
+              </label>
+            </Tooltip>
+            <Tooltip content="Search string (case-insensitive) or regex; matched against raw request + response">
+              <input
+                className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border flex-1 min-w-24"
+                placeholder={filter.contentRegex ? 'e.g. (password|token)=\\w+' : 'e.g. Set-Cookie, admin, error'}
+                value={filter.content}
+                onChange={(e) => {
+                  setFilter({ content: e.target.value })
+                  localStorage.setItem('joro-history-content', e.target.value)
+                }}
+              />
             </Tooltip>
           </div>
         </div>

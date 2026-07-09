@@ -22,15 +22,18 @@ func (s *APIServer) handleListRequests(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f := proxy.RequestFilter{
-		Host:        q.Get("host"),
-		Method:      q.Get("method"),
-		Status:      status,
-		Search:      q.Get("search"),
-		Exclude:     q.Get("exclude"),
-		ExtMode:     extMode,
-		ContentType: q.Get("contentType"),
-		Offset:      offset,
-		Limit:       limit,
+		Host:         q.Get("host"),
+		Method:       q.Get("method"),
+		Status:       status,
+		Search:       q.Get("search"),
+		Exclude:      q.Get("exclude"),
+		ExtMode:      extMode,
+		ContentType:  q.Get("contentType"),
+		Content:      q.Get("content"),
+		ContentMode:  q.Get("contentMode"),
+		ContentRegex: q.Get("contentRegex") == "true",
+		Offset:       offset,
+		Limit:        limit,
 	}
 
 	if q.Get("scope_only") == "true" && s.scope != nil {

@@ -53,6 +53,9 @@ export interface RequestFilter {
   status: string
   exclude: string
   extMode: 'exclude' | 'include' | ''
+  content: string
+  contentMode: 'exclude' | 'include' | ''
+  contentRegex: boolean
   contentTypes: string[]
   scopeOnly: boolean
   offset: number
@@ -119,7 +122,7 @@ export const useRequestStore = create<RequestState>((set) => ({
   reloadCounter: 0,
   sortColumn: initialSort.column,
   sortDir: initialSort.dir,
-  filter: { host: '', method: '', search: '', status: '', exclude: localStorage.getItem('joro-history-exclude') ?? DEFAULT_EXCLUDE, extMode: (localStorage.getItem('joro-history-extMode') as 'exclude' | 'include' | '') ?? 'exclude', contentTypes: [], scopeOnly: false, offset: 0, limit: 0 },
+  filter: { host: '', method: '', search: '', status: '', exclude: localStorage.getItem('joro-history-exclude') ?? DEFAULT_EXCLUDE, extMode: (localStorage.getItem('joro-history-extMode') as 'exclude' | 'include' | '') ?? 'exclude', content: localStorage.getItem('joro-history-content') ?? '', contentMode: (localStorage.getItem('joro-history-contentMode') as 'exclude' | 'include' | '') ?? 'include', contentRegex: localStorage.getItem('joro-history-contentRegex') === 'true', contentTypes: [], scopeOnly: false, offset: 0, limit: 0 },
 
   addItem: (item) =>
     set((s) => {
