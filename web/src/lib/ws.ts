@@ -5,6 +5,7 @@ import { useInterceptStore } from '../stores/interceptStore'
 import { useManipulateWSStore, type WSFrameEntry } from '../stores/manipulateWSStore'
 import { useRequestStore, type RequestSummary } from '../stores/requestStore'
 import { useTeamStore, type ChatMessage, type ActiveUser } from '../stores/teamStore'
+import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectionStore'
 import { useTeamFlaggedStore, type FlaggedSummary } from '../stores/teamFlaggedStore'
 import { useTeamSharedConfigStore, type SharedConfigSummary } from '../stores/teamSharedConfigStore'
 import { useUpdateStore } from '../stores/updateStore'
@@ -184,9 +185,16 @@ function handleMessage(msg: WSMessage) {
       useTeamStore.getState().handleNicknameChange(d.oldNickname, d.newNickname)
       break
     }
-    case 'team.relay.error': {
-      const d = msg.data as { message: string }
-      useToastStore.getState().addToast(d.message)
+    case 'team.relay': {
+      const d = msg.data as { state: RelayState; error?: string; httpStatus?: number }
+      const prev = useTeamConnectionStore.getState().state
+      useTeamConnectionStore.getState().setState(d.state, d.error, d.httpStatus)
+      // Toast only on the connected→disconnected transition, so backoff retries
+      // and reconnect churn don't spam.
+      if (prev === 'connected' && d.state === 'disconnected') {
+        const detail = d.error ? `: ${d.error}` : ''
+        useToastStore.getState().addToast(`Team server disconnected${detail}`)
+      }
       break
     }
     case 'sliver.event': {

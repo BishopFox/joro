@@ -184,17 +184,31 @@ export interface PluginGraphInfo {
 
 const BASE = '/api/v1'
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error((err as { error: string }).error || res.statusText)
+// TEAM_POLL_TIMEOUT bounds the listener-proxied polling GETs (chat/notes/flagged/
+// callbacks/xss lists). When the team server is down these otherwise hang for the
+// full server-side proxyToListener timeout (~10s) and saturate the browser's HTTP/1.1
+// connection pool, delaying unrelated local calls (e.g. getSettings). Applied only to
+// polling reads — never to mutations or /manipulate/send, which can be legitimately slow.
+export const TEAM_POLL_TIMEOUT = 4000
+
+async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+  const ctrl = timeoutMs ? new AbortController() : undefined
+  const timer = timeoutMs ? setTimeout(() => ctrl!.abort(), timeoutMs) : undefined
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+      signal: ctrl?.signal,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error((err as { error: string }).error || res.statusText)
+    }
+    return res.json() as Promise<T>
+  } finally {
+    if (timer) clearTimeout(timer)
   }
-  return res.json() as Promise<T>
 }
 
 export const api = {
@@ -398,7 +412,7 @@ export const api = {
   getMode: () => req<{ mode: string; sessionId: string }>('GET', '/mode'),
 
   // Callbacks
-  listTokens: () => req<CallbackToken[]>('GET', '/callbacks/tokens'),
+  listTokens: () => req<CallbackToken[]>('GET', '/callbacks/tokens', undefined, TEAM_POLL_TIMEOUT),
   createToken: (note: string) => req<CallbackToken>('POST', '/callbacks/tokens', { note }),
   deleteToken: (id: string) => req<unknown>('DELETE', `/callbacks/tokens/${id}`),
   listInteractions: (params: Record<string, string | number>) => {
@@ -408,7 +422,7 @@ export const api = {
         .map(([k, v]) => [k, String(v)])
     ).toString()
     return req<{ items: CallbackInteraction[]; total: number; offset: number; limit: number }>(
-      'GET', `/callbacks/interactions${qs ? `?${qs}` : ''}`
+      'GET', `/callbacks/interactions${qs ? `?${qs}` : ''}`, undefined, TEAM_POLL_TIMEOUT
     )
   },
   clearInteractions: (tokenId?: string) =>
@@ -418,7 +432,7 @@ export const api = {
     req<{ domain: string; responseIp: string }>('PUT', '/callbacks/config', cfg),
 
   // XSS Hunter
-  listProbes: () => req<XSSProbe[]>('GET', '/xss/probes'),
+  listProbes: () => req<XSSProbe[]>('GET', '/xss/probes', undefined, TEAM_POLL_TIMEOUT),
   createProbe: (name: string) => req<XSSProbe>('POST', '/xss/probes', { name }),
   deleteProbe: (id: string) => req<unknown>('DELETE', `/xss/probes/${id}`),
   getPayloads: (id: string) => req<PayloadVariant[]>('GET', `/xss/probes/${id}/payloads`),
@@ -429,7 +443,7 @@ export const api = {
         .map(([k, v]) => [k, String(v)])
     ).toString()
     return req<{ items: XSSFire[]; total: number; offset: number; limit: number }>(
-      'GET', `/xss/fires${qs ? `?${qs}` : ''}`
+      'GET', `/xss/fires${qs ? `?${qs}` : ''}`, undefined, TEAM_POLL_TIMEOUT
     )
   },
   getFire: (id: string) => req<XSSFire>('GET', `/xss/fires/${id}`),
@@ -453,15 +467,15 @@ export const api = {
         .map(([k, v]) => [k, String(v)])
     ).toString()
     return req<{ items: ChatMessage[]; total: number; offset: number; limit: number }>(
-      'GET', `/team/chat${qs ? `?${qs}` : ''}`
+      'GET', `/team/chat${qs ? `?${qs}` : ''}`, undefined, TEAM_POLL_TIMEOUT
     )
   },
   sendChatMessage: (text: string, refType?: 'action') =>
     req<ChatMessage>('POST', '/team/chat', { text, ...(refType ? { refType } : {}) }),
-  listActiveUsers: () => req<ActiveUser[]>('GET', '/team/users'),
+  listActiveUsers: () => req<ActiveUser[]>('GET', '/team/users', undefined, TEAM_POLL_TIMEOUT),
   updatePresence: (payload: { status: string; projectId: string }) =>
     req<{ status: string }>('POST', '/team/presence', payload),
-  listTeamNoteHosts: () => req<string[]>('GET', '/team/notes/hosts'),
+  listTeamNoteHosts: () => req<string[]>('GET', '/team/notes/hosts', undefined, TEAM_POLL_TIMEOUT),
   listTeamNotes: (params: Record<string, string | number>) => {
     const qs = new URLSearchParams(
       Object.entries(params)
@@ -469,7 +483,7 @@ export const api = {
         .map(([k, v]) => [k, String(v)])
     ).toString()
     return req<{ items: Note[]; total: number; offset: number; limit: number }>(
-      'GET', `/team/notes${qs ? `?${qs}` : ''}`
+      'GET', `/team/notes${qs ? `?${qs}` : ''}`, undefined, TEAM_POLL_TIMEOUT
     )
   },
   createTeamNote: (host: string, content: string) =>
@@ -492,7 +506,7 @@ export const api = {
         .map(([k, v]) => [k, String(v)])
     ).toString()
     return req<{ items: FlaggedSummary[]; total: number; offset: number; limit: number }>(
-      'GET', `/team/flagged${qs ? `?${qs}` : ''}`
+      'GET', `/team/flagged${qs ? `?${qs}` : ''}`, undefined, TEAM_POLL_TIMEOUT
     )
   },
   getFlagged: (id: string) => req<FlaggedRequest>('GET', `/team/flagged/${id}`),
@@ -506,7 +520,7 @@ export const api = {
     req<Record<string, unknown>>('POST', '/configs/apply-shared', { config, mode }),
   publishConfig: (payload: { name: string; projectId: string; config: string }) =>
     req<SharedConfigSummary>('POST', '/team/configs', payload),
-  listSharedConfigs: () => req<{ items: SharedConfigSummary[] }>('GET', '/team/configs'),
+  listSharedConfigs: () => req<{ items: SharedConfigSummary[] }>('GET', '/team/configs', undefined, TEAM_POLL_TIMEOUT),
   getSharedConfig: (id: string) => req<SharedConfig>('GET', `/team/configs/${id}`),
   deleteSharedConfig: (id: string) => req<unknown>('DELETE', `/team/configs/${id}`),
   requestCollab: (payload: { projectId: string; note: string; config: string }) =>

@@ -3,6 +3,7 @@ import { api } from '../lib/api'
 import type { CallbackInteraction, CallbackToken } from '../stores/callbackStore'
 import type { XSSFire, XSSProbe } from '../stores/xssHunterStore'
 import { useTeamStore } from '../stores/teamStore'
+import { useTeamConnectionStore } from '../stores/teamConnectionStore'
 import { useTeamFlaggedStore, type FlaggedRequest } from '../stores/teamFlaggedStore'
 import { useRequestStore, type RequestDetail } from '../stores/requestStore'
 import { useSettingsStore, type Settings } from '../stores/settingsStore'
@@ -113,6 +114,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
 
   const settings = useSettingsStore((s) => s.settings)
   const setSettings = useSettingsStore((s) => s.setSettings)
+  const teamConn = useTeamConnectionStore((s) => s.state)
 
   const teamMessages = useTeamStore((s) => s.messages)
   const activeUsers = useTeamStore((s) => s.activeUsers)
@@ -185,12 +187,18 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
     // call resolves to null (the sentinel) and we KEEP the prior state instead
     // of blanking the panel — a transient timeout (e.g. the team server busy
     // fanning out a flag) shouldn't wipe Recent Interactions for a poll cycle.
+    // When the team server is known-down, its listener-proxied polls (callbacks +
+    // xss lists) hang until the server-side timeout and saturate the connection
+    // pool — skip them and keep the last-known values. getMode/sliverStatus stay
+    // (they're local). The 5s interval auto-resumes when a team.relay 'connected'
+    // event flips the store back.
+    const teamDown = useTeamConnectionStore.getState().state === 'disconnected'
     const [modeRes, intRes, tokRes, firesRes, probesRes, sliverRes] = await Promise.all([
       api.getMode().catch(() => null),
-      api.listInteractions({ limit: 20 }).catch(() => null),
-      api.listTokens().catch(() => null),
-      api.listFires({ limit: 20 }).catch(() => null),
-      api.listProbes().catch(() => null),
+      teamDown ? Promise.resolve(null) : api.listInteractions({ limit: 20 }).catch(() => null),
+      teamDown ? Promise.resolve(null) : api.listTokens().catch(() => null),
+      teamDown ? Promise.resolve(null) : api.listFires({ limit: 20 }).catch(() => null),
+      teamDown ? Promise.resolve(null) : api.listProbes().catch(() => null),
       api.sliverStatus().catch((): { connected: boolean; lhost?: string; lport?: number } | null => null),
     ])
     if (modeRes) setMode(modeRes.mode)
@@ -244,8 +252,9 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
       // keep prior plugin graph data on a transient failure
     }
 
-    // Flagged requests live on the team server; only fetch in team mode.
-    if (teamMode) {
+    // Flagged requests live on the team server; only fetch in team mode and skip
+    // when the relay is down (same pool-saturation reason as above).
+    if (teamMode && !teamDown) {
       try {
         const flagged = await api.listFlagged({ limit: 50 })
         setFlaggedItems(flagged.items || [])
@@ -482,7 +491,9 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
                 sliverServer={sliverConnected ? { lhost: sliverLhost, lport: sliverLport } : undefined}
                 sessions={sliverSessions}
                 beacons={sliverBeacons}
-                connected={true}
+                // Reflect real relay state when a team server is configured; in
+                // solo mode there's no relay, so keep the graph "connected".
+                connected={settings?.listenerUrl ? teamConn === 'connected' : true}
                 pluginGraphs={Object.keys(pluginGraphs).length > 0 ? pluginGraphs : undefined}
               />
             </div>

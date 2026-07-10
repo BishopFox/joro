@@ -56,6 +56,14 @@ type presenceUser struct {
 	ProjectID string `json:"projectId"`
 }
 
+// relayStateData is the last-known team relay connection state. It is pushed to
+// newly connected clients so a page reload mid-outage reflects the real status.
+type relayStateData struct {
+	State      string // connecting | connected | disconnected | idle
+	Error      string
+	HTTPStatus int
+}
+
 // Hub manages WebSocket clients and broadcasts events to all of them.
 type Hub struct {
 	mu           sync.RWMutex
@@ -64,6 +72,7 @@ type Hub struct {
 	broadcast    chan any
 	onConnect    OnConnectFunc
 	onDisconnect OnConnectFunc
+	relayState   *relayStateData // last-known team relay state (nil until first set)
 }
 
 // NewHub creates a Hub. Call Run() in a goroutine before accepting connections.
@@ -187,6 +196,36 @@ func (h *Hub) SetPresenceMeta(nickname, status, projectID string) {
 	h.broadcastPresence()
 }
 
+// SetRelayState records the team relay connection state and broadcasts a
+// team.relay event to clients on change. Deduped by state string so the relay's
+// exponential-backoff reconnect loop can call it freely without spamming
+// identical events; error/httpStatus are refreshed silently when state is unchanged.
+func (h *Hub) SetRelayState(state, errStr string, httpStatus int) {
+	h.mu.Lock()
+	if h.relayState != nil && h.relayState.State == state {
+		h.relayState.Error = errStr
+		h.relayState.HTTPStatus = httpStatus
+		h.mu.Unlock()
+		return
+	}
+	h.relayState = &relayStateData{State: state, Error: errStr, HTTPStatus: httpStatus}
+	h.mu.Unlock()
+	h.broadcastRelayState(state, errStr, httpStatus)
+}
+
+// ClearRelayState marks the relay as intentionally idle (not configured / user
+// disconnect). Broadcasts once via SetRelayState's dedup.
+func (h *Hub) ClearRelayState() {
+	h.SetRelayState("idle", "", 0)
+}
+
+func (h *Hub) broadcastRelayState(state, errStr string, httpStatus int) {
+	h.broadcast <- map[string]any{
+		"type": "team.relay",
+		"data": map[string]any{"state": state, "error": errStr, "httpStatus": httpStatus},
+	}
+}
+
 // broadcastPresence sends a team.presence event with the current active user list.
 func (h *Hub) broadcastPresence() {
 	h.broadcast <- map[string]any{
@@ -260,6 +299,17 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 	h.clients[conn] = nickname
 	h.mu.Unlock()
+
+	// Push the current relay state to the newly connected client so a page reload
+	// mid-outage reflects the real status. Unconditional (the local browser client
+	// connects with no nickname). Routed through the broadcast channel, never a
+	// direct conn write; re-sending to existing clients is idempotent.
+	h.mu.RLock()
+	rs := h.relayState
+	h.mu.RUnlock()
+	if rs != nil {
+		h.broadcastRelayState(rs.State, rs.Error, rs.HTTPStatus)
+	}
 
 	if nickname != "" {
 		h.broadcastPresence()

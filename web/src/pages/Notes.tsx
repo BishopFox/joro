@@ -4,6 +4,7 @@ import type { Note } from '../lib/api'
 import { Tooltip } from '../components/Tooltip'
 import ConfirmModal from '../components/ConfirmModal'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useTeamConnectionStore } from '../stores/teamConnectionStore'
 
 function timeAgo(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime()
@@ -38,6 +39,9 @@ export default function Notes({ teamMode = false }: NotesProps) {
   const canModify = (n: Note) => !isShared || n.author === myNickname
 
   const fetchHosts = useCallback(async () => {
+    // Skip shared (team-server-proxied) polls when the relay is down — they hang
+    // and blank the panel. Local notes are unaffected.
+    if (isShared && useTeamConnectionStore.getState().state === 'disconnected') return
     try {
       const hostsRes = isShared
         ? await api.listTeamNoteHosts()
@@ -55,6 +59,7 @@ export default function Notes({ teamMode = false }: NotesProps) {
   }, [fetchHosts])
 
   const fetchNotes = useCallback(async (host: string) => {
+    if (isShared && useTeamConnectionStore.getState().state === 'disconnected') return
     try {
       const res = isShared
         ? await api.listTeamNotes({ host, limit: 100 })

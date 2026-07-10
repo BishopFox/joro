@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, CustomAddition, MatchReplaceRule, NoisePattern, ScopeRule } from '../lib/api'
 import { useRequestStore } from '../stores/requestStore'
 import { Settings, useSettingsStore } from '../stores/settingsStore'
+import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectionStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useHiddenTabsStore } from '../stores/hiddenTabsStore'
 import { useTeamSharedConfigStore } from '../stores/teamSharedConfigStore'
@@ -31,6 +32,20 @@ const THEMES = [
 
 type FilterTab = 'scope' | 'noise' | 'replace'
 
+// teamStatus maps the relay connection state to the Team Server card's status row.
+function teamStatus(state: RelayState): { dot: string; label: string } {
+  switch (state) {
+    case 'connected':
+      return { dot: 'bg-semantic-success', label: 'Connected' }
+    case 'connecting':
+      return { dot: 'bg-semantic-warning', label: 'Connecting…' }
+    case 'disconnected':
+      return { dot: 'bg-semantic-error', label: 'Disconnected' }
+    default:
+      return { dot: 'bg-content-muted', label: 'Idle' }
+  }
+}
+
 interface SettingsPageProps {
   onTeamSettingsChanged?: () => void
 }
@@ -54,13 +69,19 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
   const [socksDns, setSocksDns] = useState(false)
   const [socksSaved, setSocksSaved] = useState(false)
 
-  // Team server state
-  const [listenerUrl, setListenerUrl] = useState('')
-  const [teamToken, setTeamToken] = useState('')
-  const [teamNickname, setTeamNickname] = useState('')
+  // Team server state — seed from the already-hydrated settings store so the
+  // fields render immediately on mount (the getSettings() refresh below can be
+  // delayed behind hung listener-proxied requests when the team server is down).
+  const initialSettings = useSettingsStore.getState().settings
+  const [listenerUrl, setListenerUrl] = useState(initialSettings?.listenerUrl || '')
+  const [teamToken, setTeamToken] = useState(initialSettings?.teamToken || '')
+  const [teamNickname, setTeamNickname] = useState(initialSettings?.teamNickname || '')
   const [teamSaved, setTeamSaved] = useState(false)
   const [teamError, setTeamError] = useState('')
   const [teamLoading, setTeamLoading] = useState(false)
+  const teamConn = useTeamConnectionStore((s) => s.state)
+  const teamConnError = useTeamConnectionStore((s) => s.error)
+  const teamConnHTTP = useTeamConnectionStore((s) => s.httpStatus)
 
   // Project ID + shared configs
   const [projectId, setProjectId] = useState('')
@@ -509,6 +530,17 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
             <p className="text-xs text-content-muted mb-2">
               Connect to a remote team server for shared chat and notes.
             </p>
+            {listenerUrl && (
+              <div className="flex items-center gap-1.5 text-xs mb-2">
+                <span className={`w-2 h-2 rounded-full ${teamStatus(teamConn).dot}`} />
+                <span className="text-content-secondary">{teamStatus(teamConn).label}</span>
+                {teamConn === 'disconnected' && teamConnError && (
+                  <span className="text-content-muted truncate">
+                    — {teamConnError}{teamConnHTTP ? ` (HTTP ${teamConnHTTP})` : ''}
+                  </span>
+                )}
+              </div>
+            )}
             <div>
               <label className="block text-[10px] text-content-muted mb-0.5">Listener URL</label>
               <input

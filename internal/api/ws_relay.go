@@ -47,6 +47,9 @@ func (lr *ListenerRelay) Update(listenerURL, token, nickname string) {
 	}
 
 	if listenerURL == "" || token == "" {
+		if lr.hub != nil {
+			lr.hub.ClearRelayState()
+		}
 		return
 	}
 
@@ -54,7 +57,27 @@ func (lr *ListenerRelay) Update(listenerURL, token, nickname string) {
 	lr.token = token
 	lr.nickname = nickname
 	lr.stop = make(chan struct{})
+	// Set "connecting" synchronously so the UI reflects the attempt immediately,
+	// before the goroutine's first dial. run() re-asserts it (deduped) each loop.
+	if lr.hub != nil {
+		lr.hub.SetRelayState("connecting", "", 0)
+	}
 	go lr.run(lr.stop, listenerURL, token, nickname)
+}
+
+// setRelayState reports a relay state to the hub, but only while this run()
+// goroutine is still current (its stop channel is open). A stale goroutine left
+// over from a reconnect can be mid-backoff; this stops it from clobbering the
+// new goroutine's state after the fact.
+func (lr *ListenerRelay) setRelayState(stop chan struct{}, state, errStr string, httpStatus int) {
+	select {
+	case <-stop:
+		return
+	default:
+	}
+	if lr.hub != nil {
+		lr.hub.SetRelayState(state, errStr, httpStatus)
+	}
 }
 
 func (lr *ListenerRelay) run(stop chan struct{}, listenerURL, token, nickname string) {
@@ -72,13 +95,18 @@ func (lr *ListenerRelay) run(stop chan struct{}, listenerURL, token, nickname st
 			return
 		}
 
+		lr.setRelayState(stop, "connecting", "", 0)
+
 		conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
+			httpStatus := 0
 			if resp != nil {
+				httpStatus = resp.StatusCode
 				log.Printf("team relay: connect error: %v (HTTP %d)", err, resp.StatusCode)
 			} else {
 				log.Printf("team relay: connect error: %v", err)
 			}
+			lr.setRelayState(stop, "disconnected", err.Error(), httpStatus)
 			select {
 			case <-stop:
 				return
@@ -91,8 +119,10 @@ func (lr *ListenerRelay) run(stop chan struct{}, listenerURL, token, nickname st
 		}
 
 		backoff = time.Second
+		lr.setRelayState(stop, "connected", "", 0)
 		lr.readLoop(conn, stop)
 		conn.Close()
+		lr.setRelayState(stop, "disconnected", "connection closed", 0)
 	}
 }
 

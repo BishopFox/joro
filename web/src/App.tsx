@@ -9,6 +9,7 @@ import { getSelectionMenuItems } from './lib/selectionMenu'
 import { api } from './lib/api'
 import { connectWS } from './lib/ws'
 import { Settings, useSettingsStore } from './stores/settingsStore'
+import { useTeamConnectionStore, type RelayState } from './stores/teamConnectionStore'
 import { useHiddenTabsStore } from './stores/hiddenTabsStore'
 import { useDeadDropStore } from './stores/deadDropStore'
 import { NAV } from './lib/nav'
@@ -31,10 +32,26 @@ import Plugins from './pages/Plugins'
 import PluginTabPage from './pages/PluginTabPage'
 import SettingsPage from './pages/Settings'
 
+// relayDot maps the team relay connection state to the header status dot's color
+// and tooltip.
+function relayDot(state: RelayState): { cls: string; label: string } {
+  switch (state) {
+    case 'connected':
+      return { cls: 'bg-semantic-success', label: 'Team server connected' }
+    case 'connecting':
+      return { cls: 'bg-semantic-warning', label: 'Connecting to team server…' }
+    case 'disconnected':
+      return { cls: 'bg-semantic-error', label: 'Team server disconnected' }
+    default:
+      return { cls: 'bg-content-muted', label: 'Team server idle' }
+  }
+}
+
 export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
   const { settings, setSettings } = useSettingsStore()
+  const teamConn = useTeamConnectionStore((s) => s.state)
   const [setupMode, setSetupMode] = useState<string | null>(
     () => localStorage.getItem('joro-setup-mode')
   )
@@ -197,8 +214,11 @@ export default function App() {
             )}
           </NavLink>
           {teamMode && settings?.teamNickname && (
-            <span className="flex items-center gap-1.5 text-xs text-content-secondary">
-              <span className="w-2 h-2 rounded-full bg-semantic-success" />
+            <span
+              className="flex items-center gap-1.5 text-xs text-content-secondary"
+              title={relayDot(teamConn).label}
+            >
+              <span className={`w-2 h-2 rounded-full ${relayDot(teamConn).cls}`} />
               {settings.teamNickname}
             </span>
           )}
