@@ -358,6 +358,19 @@ export const api = {
   // Certs
   caCertURL: () => `${BASE}/certs/ca.crt`,
 
+  // Managed testing browser
+  browserStatus: () => req<{ available: boolean; browser: string }>('GET', '/browser/status'),
+  launchBrowser: (opts?: { url?: string }) =>
+    req<{ status: string; browser: string; profile: string }>('POST', '/browser/launch', opts ?? {}),
+  clearBrowserCookies: () =>
+    req<{ status: string; profile: string }>('POST', '/browser/clear-cookies', {}),
+
+  // Health check (first-run wizard)
+  healthCheck: () =>
+    req<{ proxyPort: number; uiPort: number; bindAddr: string; caPresent: boolean; browserAvailable: boolean; browserName: string; requestCount: number; activeProject: string }>(
+      'GET', '/system/healthcheck'
+    ),
+
   // System info
   systemInfo: () => req<{ hostname: string; ip: string }>('GET', '/system/info'),
 

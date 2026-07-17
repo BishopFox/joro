@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { Settings, useSettingsStore } from '../stores/settingsStore'
+import HealthCheck from '../components/HealthCheck'
 
 interface Props {
   onSetupComplete: (mode: 'local' | 'remote') => void
@@ -8,6 +9,7 @@ interface Props {
 
 export default function Setup({ onSetupComplete }: Props) {
   const { setSettings } = useSettingsStore()
+  const [step, setStep] = useState<'choose' | 'health'>('choose')
   const [projectId, setProjectId] = useState('')
   const [listenerUrl, setListenerUrl] = useState('')
   const [token, setToken] = useState('')
@@ -57,6 +59,20 @@ export default function Setup({ onSetupComplete }: Props) {
     }
   }
 
+  if (step === 'health') {
+    return (
+      <div className="flex items-center justify-center h-screen bg-surface-body">
+        <div className="space-y-6">
+          <div className="text-center">
+            <h1 className="text-accent text-2xl font-bold uppercase tracking-wider">Joro</h1>
+            <p className="text-content-muted text-xs mt-1">Almost there</p>
+          </div>
+          <HealthCheck onFinish={() => onSetupComplete('local')} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex items-center justify-center h-screen bg-surface-body">
       <div className="space-y-6">
@@ -90,7 +106,7 @@ export default function Setup({ onSetupComplete }: Props) {
                     setSettings(updated as Settings)
                   } catch { /* ignore */ }
                 }
-                onSetupComplete('local')
+                setStep('health')
               }}
               className="w-full px-4 py-2 bg-accent-tertiary text-black text-xs font-semibold rounded hover:bg-accent-tertiary-hover"
             >

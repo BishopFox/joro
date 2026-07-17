@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/BishopFox/joro/internal/browser"
 	"github.com/BishopFox/joro/internal/event"
 	"github.com/BishopFox/joro/internal/update"
 )
@@ -27,6 +28,33 @@ func (s *APIServer) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"hostname": hostname,
 		"ip":       ip,
+	})
+}
+
+// handleHealthCheck reports the state the first-run wizard polls: proxy/UI
+// addressing, CA presence, whether a launchable browser is installed, and the
+// number of captured requests (used to confirm live traffic is flowing).
+func (s *APIServer) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
+	_, browserName, browserAvailable := browser.Find()
+
+	s.mu.RLock()
+	activeProject := s.activeProjectConfig
+	s.mu.RUnlock()
+
+	requestCount := 0
+	if s.store != nil {
+		requestCount = s.store.Count()
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"proxyPort":        s.cfg.ProxyPort,
+		"uiPort":           s.cfg.UIPort,
+		"bindAddr":         s.cfg.BindAddr,
+		"caPresent":        s.ca != nil,
+		"browserAvailable": browserAvailable,
+		"browserName":      browserName,
+		"requestCount":     requestCount,
+		"activeProject":    activeProject,
 	})
 }
 

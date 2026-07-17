@@ -179,6 +179,14 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	// CA cert download
 	mux.HandleFunc("GET /api/v1/certs/ca.crt", s.handleDownloadCACert)
 
+	// Managed testing browser
+	mux.HandleFunc("GET /api/v1/browser/status", s.handleBrowserStatus)
+	mux.HandleFunc("POST /api/v1/browser/launch", s.handleBrowserLaunch)
+	mux.HandleFunc("POST /api/v1/browser/clear-cookies", s.handleClearBrowserCookies)
+
+	// Health check (first-run wizard)
+	mux.HandleFunc("GET /api/v1/system/healthcheck", s.handleHealthCheck)
+
 	// Team routes (proxy-side, forwarded to teamserver via proxyToListener).
 	mux.HandleFunc("GET /api/v1/team/chat", s.handleProxyTeamChat)
 	mux.HandleFunc("POST /api/v1/team/chat", s.handleProxyTeamChat)

@@ -7,6 +7,9 @@ import { useUpdateStore } from '../stores/updateStore'
 import { useHiddenTabsStore } from '../stores/hiddenTabsStore'
 import { useTeamSharedConfigStore } from '../stores/teamSharedConfigStore'
 import ConfirmModal from '../components/ConfirmModal'
+import HealthCheck from '../components/HealthCheck'
+import { useToastStore } from '../stores/toastStore'
+import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
 
 const THEMES = [
@@ -60,6 +63,42 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
   const [checking, setChecking] = useState(false)
   const [checkError, setCheckError] = useState('')
   const [justChecked, setJustChecked] = useState(false)
+
+  // Testing browser + health check state
+  const addToast = useToastStore((s) => s.addToast)
+  const [browserAvail, setBrowserAvail] = useState<{ available: boolean; browser: string } | null>(null)
+  const [launchingBrowser, setLaunchingBrowser] = useState(false)
+  const [showHealthCheck, setShowHealthCheck] = useState(false)
+  const [browserUrl, setBrowserUrl] = useState(() => getBrowserPrefs().url)
+  const [clearingCookies, setClearingCookies] = useState(false)
+
+  useEffect(() => {
+    api.browserStatus().then(setBrowserAvail).catch(() => {})
+  }, [])
+
+  async function launchTestingBrowser() {
+    setLaunchingBrowser(true)
+    try {
+      const res = await api.launchBrowser({ url: browserUrl })
+      addToast(`Launched ${res.browser}`, 'info')
+    } catch (e) {
+      addToast(`Launch failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setLaunchingBrowser(false)
+    }
+  }
+
+  async function clearTestingBrowserCookies() {
+    setClearingCookies(true)
+    try {
+      await api.clearBrowserCookies()
+      addToast('Cleared testing browser cookies — relaunch it if open', 'info')
+    } catch (e) {
+      addToast(`Clear cookies failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setClearingCookies(false)
+    }
+  }
 
   // SOCKS proxy state
   const [socksHost, setSocksHost] = useState('')
@@ -480,21 +519,84 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
               </div>
             </div>
 
-            {/* CA Certificate */}
-            <div className="bg-surface-card rounded border border-border p-3">
-              <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">CA Certificate</h3>
-              <p className="text-xs text-content-secondary mb-3">
-                Import into your browser/OS trust store to avoid TLS warnings.
+            {/* Testing Browser */}
+            <div className="bg-surface-card rounded border border-border p-3 space-y-3">
+              <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide">Testing Browser</h3>
+              <p className="text-xs text-content-secondary">
+                Opens a browser routed through the proxy with the CA trusted, using a separate profile per project.
+                With no project loaded, the profile is temporary and cleared when the browser closes.
               </p>
-              <a
-                href={api.caCertURL()}
-                download="joro-ca.crt"
-                className="inline-block px-4 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold"
-              >
-                Download CA Cert
-              </a>
+              <div>
+                <label className="block text-[10px] text-content-muted mb-0.5">Landing URL (optional)</label>
+                <input
+                  type="text"
+                  value={browserUrl}
+                  onChange={(e) => {
+                    setBrowserUrl(e.target.value)
+                    setBrowserPrefs({ url: e.target.value })
+                  }}
+                  placeholder="about:blank"
+                  className="w-full bg-surface-input text-content-primary text-xs px-3 py-2 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={launchTestingBrowser}
+                  disabled={launchingBrowser || (browserAvail !== null && !browserAvail.available)}
+                  className="px-4 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold disabled:opacity-50"
+                >
+                  {launchingBrowser ? 'Launching…' : 'Launch Testing Browser'}
+                </button>
+                <button
+                  onClick={clearTestingBrowserCookies}
+                  disabled={clearingCookies}
+                  className="px-4 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary text-xs font-semibold disabled:opacity-50"
+                >
+                  {clearingCookies ? 'Clearing…' : 'Clear Cookies'}
+                </button>
+                <button
+                  onClick={() => setShowHealthCheck(true)}
+                  className="px-4 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary text-xs font-semibold"
+                >
+                  Run Setup Check
+                </button>
+              </div>
+              <p className="text-[10px] text-content-muted">
+                Clear Cookies removes cookies for this project's testing browser only. Close the browser first for it to take effect.
+              </p>
+              {browserAvail && !browserAvail.available && (
+                <p className="text-xs text-semantic-warning">
+                  No supported browser detected (Chrome, Chromium, Edge, or Brave).
+                </p>
+              )}
+              {browserAvail?.available && (
+                <p className="text-xs text-content-muted">Detected: {browserAvail.browser}</p>
+              )}
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs text-content-secondary mb-2">
+                  Or import the CA into your own browser/OS trust store to avoid TLS warnings.
+                </p>
+                <a
+                  href={api.caCertURL()}
+                  download="joro-ca.crt"
+                  className="inline-block px-4 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold"
+                >
+                  Download CA Cert
+                </a>
+              </div>
             </div>
           </div>
+
+          {showHealthCheck && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+              onMouseDown={() => setShowHealthCheck(false)}
+            >
+              <div onMouseDown={(e) => e.stopPropagation()}>
+                <HealthCheck onFinish={() => setShowHealthCheck(false)} />
+              </div>
+            </div>
+          )}
 
           {/* Configurations */}
           {unknownPluginStatesNotice.length > 0 && (

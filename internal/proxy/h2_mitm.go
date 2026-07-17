@@ -5,7 +5,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,11 +16,28 @@ import (
 	"golang.org/x/net/http2"
 )
 
+// h2PrefaceFilter drops "error reading preface" lines — logged when a client opens
+// a connection and closes it before completing the HTTP/2 preface (speculative
+// preconnects, resets) — and passes everything else through to stderr.
+type h2PrefaceFilter struct{}
+
+func (h2PrefaceFilter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "error reading preface") {
+		return len(p), nil
+	}
+	return os.Stderr.Write(p)
+}
+
+// h2ErrorLog is the error log for the HTTP/2 MITM server; it exists only to
+// suppress benign preface-read noise.
+var h2ErrorLog = log.New(h2PrefaceFilter{}, "", log.LstdFlags)
+
 // serveH2 dispatches an HTTP/2 connection by handing it to golang.org/x/net/http2's
 // server, which decodes streams and invokes h.h2Stream for each request.
 func (h *Handler) serveH2(tlsConn *tls.Conn, hostname, hostPort string) {
 	srv := &http2.Server{}
 	srv.ServeConn(tlsConn, &http2.ServeConnOpts{
+		BaseConfig: &http.Server{ErrorLog: h2ErrorLog},
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h.h2Stream(w, r, hostname, hostPort)
 		}),

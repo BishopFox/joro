@@ -60,6 +60,10 @@ func GenerateLeafMulti(ca *CA, names []string) (*tls.Certificate, error) {
 		return nil, fmt.Errorf("creating key pair: %w", err)
 	}
 
+	// Send the CA cert in the presented chain so its SPKI is available to
+	// clients pinning it (e.g. --ignore-certificate-errors-spki-list).
+	cert.Certificate = append(cert.Certificate, ca.Cert.Raw)
+
 	// Attach the parsed leaf so callers (e.g. the cache) can read NotAfter
 	// without a lazy re-parse on first use.
 	if leaf, err := x509.ParseCertificate(certDER); err == nil {
@@ -114,6 +118,10 @@ func GenerateLeaf(ca *CA, hostname string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating key pair: %w", err)
 	}
+
+	// Send the CA cert in the presented chain so its SPKI is available to
+	// clients pinning it (e.g. --ignore-certificate-errors-spki-list).
+	cert.Certificate = append(cert.Certificate, ca.Cert.Raw)
 
 	// Attach the parsed leaf so callers can read NotAfter without a lazy re-parse.
 	if leaf, err := x509.ParseCertificate(certDER); err == nil {

@@ -19,6 +19,9 @@ export default defineConfig({
           if (id.includes('@uiw/react-codemirror') || id.includes('@codemirror/')) {
             return 'codemirror'
           }
+          if (id.includes('node_modules')) {
+            return 'vendor'
+          }
         },
       },
     },

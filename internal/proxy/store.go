@@ -281,6 +281,13 @@ func (s *Store) LoadItems(items []*CapturedRequest) {
 	}
 }
 
+// Count returns the number of requests currently held.
+func (s *Store) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.items)
+}
+
 // MaxSize returns the current ring buffer capacity.
 func (s *Store) MaxSize() int {
 	s.mu.RLock()
