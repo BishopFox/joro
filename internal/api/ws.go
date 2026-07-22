@@ -45,15 +45,15 @@ type OnConnectFunc func(nickname, ip string)
 
 // presenceInfo holds a user's opt-in presence metadata, keyed by nickname.
 type presenceInfo struct {
-	Status    string // online | away | dnd | offline
-	ProjectID string // "" unless the operator shares it
+	Status  string // online | away | dnd | offline
+	Project string // active project name, "" unless the operator shares it
 }
 
 // presenceUser is a single entry in a team.presence broadcast.
 type presenceUser struct {
-	Nickname  string `json:"nickname"`
-	Status    string `json:"status"`
-	ProjectID string `json:"projectId"`
+	Nickname string `json:"nickname"`
+	Status   string `json:"status"`
+	Project  string `json:"project"`
 }
 
 // relayStateData is the last-known team relay connection state. It is pushed to
@@ -180,18 +180,18 @@ func (h *Hub) ActiveUsersDetailed() []presenceUser {
 		if status == "offline" {
 			continue // appear offline: hidden from the roster
 		}
-		users = append(users, presenceUser{Nickname: nick, Status: status, ProjectID: meta.ProjectID})
+		users = append(users, presenceUser{Nickname: nick, Status: status, Project: meta.Project})
 	}
 	return users
 }
 
 // SetPresenceMeta updates a user's presence metadata and rebroadcasts presence.
-func (h *Hub) SetPresenceMeta(nickname, status, projectID string) {
+func (h *Hub) SetPresenceMeta(nickname, status, project string) {
 	if nickname == "" {
 		return
 	}
 	h.mu.Lock()
-	h.presenceMeta[nickname] = presenceInfo{Status: status, ProjectID: projectID}
+	h.presenceMeta[nickname] = presenceInfo{Status: status, Project: project}
 	h.mu.Unlock()
 	h.broadcastPresence()
 }

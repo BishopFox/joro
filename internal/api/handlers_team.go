@@ -98,8 +98,8 @@ var validPresenceStatus = map[string]bool{"online": true, "away": true, "dnd": t
 
 func (s *APIServer) handleTeamPresence(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Status    string `json:"status"`
-		ProjectID string `json:"projectId"`
+		Status  string `json:"status"`
+		Project string `json:"project"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -109,7 +109,7 @@ func (s *APIServer) handleTeamPresence(w http.ResponseWriter, r *http.Request) {
 		body.Status = "online"
 	}
 	nickname := team.NicknameFromContext(r.Context())
-	s.hub.SetPresenceMeta(nickname, body.Status, body.ProjectID)
+	s.hub.SetPresenceMeta(nickname, body.Status, body.Project)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -420,7 +420,7 @@ func (s *APIServer) handleListSharedConfigs(w http.ResponseWriter, r *http.Reque
 func (s *APIServer) handleCreateSharedConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name      string `json:"name"`
-		ProjectID string `json:"projectId"`
+		ProjectID string `json:"project"`
 		Config    string `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -485,7 +485,7 @@ func (s *APIServer) handleDeleteSharedConfig(w http.ResponseWriter, r *http.Requ
 
 func (s *APIServer) handleCreateCollab(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ProjectID string `json:"projectId"`
+		ProjectID string `json:"project"`
 		Note      string `json:"note"`
 		Config    string `json:"config"`
 	}

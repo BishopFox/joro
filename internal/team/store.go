@@ -20,7 +20,7 @@ type ChatMessage struct {
 type SharedConfig struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	ProjectID string    `json:"projectId"`
+	ProjectID string    `json:"project"` // active project name (column: project_id)
 	Author    string    `json:"author"`
 	Config    string    `json:"config,omitempty"` // omitted in list responses
 	CreatedAt time.Time `json:"createdAt"`
@@ -31,7 +31,7 @@ type SharedConfig struct {
 type CollabRequest struct {
 	ID        string    `json:"id"`
 	Requestor string    `json:"requestor"`
-	ProjectID string    `json:"projectId"`
+	ProjectID string    `json:"project"` // active project name (column: project_id)
 	Note      string    `json:"note"`
 	Config    string    `json:"config,omitempty"` // omitted in summaries
 	Status    string    `json:"status"`

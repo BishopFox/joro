@@ -6,11 +6,23 @@ import type { SharedConfigSummary, SharedConfig, SharedConfigPayload } from '../
 export interface CollabRequest {
   id: string
   requestor: string
-  projectId: string
+  project: string
   note: string
   config?: string
   status: string
   createdAt: string
+}
+
+// ProjectMeta is the per-project metadata shown in the project browser/switcher.
+export interface ProjectMeta {
+  name: string
+  savedAt: string
+  sizeBytes: number
+  requestCount: number
+  noteCount: number
+  autoSave: boolean
+  saveHistory: boolean
+  active: boolean
 }
 import type { XSSProbe, XSSFire, PayloadVariant, CollectedPage, CollectedPageSummary, XSSConfig } from '../stores/xssHunterStore'
 
@@ -350,10 +362,16 @@ export const api = {
   saveUserConfig: (name: string, theme?: string, hiddenTabs?: string[]) => req<{ status: string; name: string }>('POST', '/configs/user', { name, theme, hiddenTabs }),
   loadUserConfig: (name: string) => req<unknown>('PUT', `/configs/user/${name}`),
   deleteUserConfig: (name: string) => req<unknown>('DELETE', `/configs/user/${name}`),
-  listProjectConfigs: () => req<{ configs: string[]; active: string }>('GET', '/configs/project'),
+  listProjectConfigs: () => req<{ configs: string[]; active: string; projects: ProjectMeta[] }>('GET', '/configs/project'),
   saveProjectConfig: (name: string) => req<{ status: string; name: string }>('POST', '/configs/project', { name }),
   loadProjectConfig: (name: string) => req<unknown>('PUT', `/configs/project/${name}`),
   deleteProjectConfig: (name: string) => req<unknown>('DELETE', `/configs/project/${name}`),
+  switchProject: (name: string, opts?: { action?: 'save' | 'discard'; saveScratchAs?: string }) =>
+    req<Record<string, unknown>>('POST', '/configs/project/switch', { name, ...(opts ?? {}) }),
+  newProject: (name: string, opts: { empty: boolean; action?: 'save' | 'discard'; saveScratchAs?: string }) =>
+    req<Record<string, unknown>>('POST', '/configs/project/new', { name, ...opts }),
+  setProjectPrefs: (name: string, prefs: { autoSave?: boolean; saveHistory?: boolean }) =>
+    req<{ ok: boolean; autoSave: boolean; saveHistory: boolean }>('POST', '/configs/project/prefs', { name, ...prefs }),
 
   // Certs
   caCertURL: () => `${BASE}/certs/ca.crt`,
@@ -486,7 +504,7 @@ export const api = {
   sendChatMessage: (text: string, refType?: 'action') =>
     req<ChatMessage>('POST', '/team/chat', { text, ...(refType ? { refType } : {}) }),
   listActiveUsers: () => req<ActiveUser[]>('GET', '/team/users', undefined, TEAM_POLL_TIMEOUT),
-  updatePresence: (payload: { status: string; projectId: string }) =>
+  updatePresence: (payload: { status: string; project: string }) =>
     req<{ status: string }>('POST', '/team/presence', payload),
   listTeamNoteHosts: () => req<string[]>('GET', '/team/notes/hosts', undefined, TEAM_POLL_TIMEOUT),
   listTeamNotes: (params: Record<string, string | number>) => {
@@ -526,17 +544,17 @@ export const api = {
   deleteFlagged: (id: string) => req<unknown>('DELETE', `/team/flagged/${id}`),
 
   // Shared project configs (Feature A) + collaboration (Feature B)
-  exportProjectConfig: () => req<{ config: string; projectId: string }>('GET', '/configs/export'),
+  exportProjectConfig: () => req<{ config: string }>('GET', '/configs/export'),
   importProjectConfig: (name: string, config: string) =>
     req<Record<string, unknown>>('POST', '/configs/import', { name, config }),
   applySharedConfig: (config: SharedConfigPayload, mode: 'replace' | 'merge') =>
     req<Record<string, unknown>>('POST', '/configs/apply-shared', { config, mode }),
-  publishConfig: (payload: { name: string; projectId: string; config: string }) =>
+  publishConfig: (payload: { name: string; project: string; config: string }) =>
     req<SharedConfigSummary>('POST', '/team/configs', payload),
   listSharedConfigs: () => req<{ items: SharedConfigSummary[] }>('GET', '/team/configs', undefined, TEAM_POLL_TIMEOUT),
   getSharedConfig: (id: string) => req<SharedConfig>('GET', `/team/configs/${id}`),
   deleteSharedConfig: (id: string) => req<unknown>('DELETE', `/team/configs/${id}`),
-  requestCollab: (payload: { projectId: string; note: string; config: string }) =>
+  requestCollab: (payload: { project: string; note: string; config: string }) =>
     req<CollabRequest>('POST', '/team/collab', payload),
   getCollab: (id: string) => req<CollabRequest>('GET', `/team/collab/${id}`),
   acceptCollab: (id: string) => req<{ status: string }>('POST', `/team/collab/${id}/accept`, {}),

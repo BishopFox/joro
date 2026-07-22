@@ -20,9 +20,9 @@ import (
 	"github.com/BishopFox/joro/internal/config"
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/event"
-	"github.com/BishopFox/joro/internal/plugins"
 	"github.com/BishopFox/joro/internal/fuzzer"
 	"github.com/BishopFox/joro/internal/notes"
+	"github.com/BishopFox/joro/internal/plugins"
 	"github.com/BishopFox/joro/internal/proxy"
 	"github.com/BishopFox/joro/internal/sliver"
 	"github.com/BishopFox/joro/internal/team"
@@ -33,21 +33,20 @@ import (
 
 // Settings holds runtime-adjustable configuration exposed via the API.
 type Settings struct {
-	ProxyPort        int    `json:"proxyPort"`
-	UIPort           int    `json:"uiPort"`
-	InterceptEnabled bool   `json:"interceptEnabled"`
-	InterceptTimeout int    `json:"interceptTimeout"` // seconds
-	ListenerURL      string `json:"listenerUrl"`
-	ProjectID        string `json:"projectId"`
-	TeamStatus       string `json:"teamStatus"`
-	ShareProjectID   bool   `json:"shareProjectId"`
-	HTTP2Enabled     bool   `json:"http2Enabled"`
-	KeepAliveEnabled bool   `json:"keepAliveEnabled"`
-	SOCKSHost        string `json:"socksHost"`
-	SOCKSPort        int    `json:"socksPort"`
-	SOCKSUsername    string `json:"socksUsername"`
-	SOCKSPassword    string `json:"socksPassword"`
-	SOCKSDNS         bool   `json:"socksDns"`
+	ProxyPort           int    `json:"proxyPort"`
+	UIPort              int    `json:"uiPort"`
+	InterceptEnabled    bool   `json:"interceptEnabled"`
+	InterceptTimeout    int    `json:"interceptTimeout"` // seconds
+	ListenerURL         string `json:"listenerUrl"`
+	TeamStatus          string `json:"teamStatus"`
+	ShareProjectName    bool   `json:"shareProjectName"`
+	HTTP2Enabled        bool   `json:"http2Enabled"`
+	KeepAliveEnabled    bool   `json:"keepAliveEnabled"`
+	SOCKSHost           string `json:"socksHost"`
+	SOCKSPort           int    `json:"socksPort"`
+	SOCKSUsername       string `json:"socksUsername"`
+	SOCKSPassword       string `json:"socksPassword"`
+	SOCKSDNS            bool   `json:"socksDns"`
 	TeamToken           string `json:"teamToken"`
 	TeamNickname        string `json:"teamNickname"`
 	MaxRequests         int    `json:"maxRequests"`
@@ -74,12 +73,12 @@ type APIServer struct {
 	ca         *cert.CA
 	hub        *Hub
 
-	transport    *proxy.TransportConfig
-	wsStore      *proxy.WSStore
-	wsManipulate *proxy.ManipulateWSManager
-	cbStore      *callback.Store
-	xssStore     *xsshunter.Store
-	noteStore    *notes.Store
+	transport      *proxy.TransportConfig
+	wsStore        *proxy.WSStore
+	wsManipulate   *proxy.ManipulateWSManager
+	cbStore        *callback.Store
+	xssStore       *xsshunter.Store
+	noteStore      *notes.Store
 	sliverClient   *sliver.Client
 	listenerMode   bool
 	teamServerMode bool
@@ -104,6 +103,7 @@ type APIServer struct {
 	settings            Settings
 	activeUserConfig    string
 	activeProjectConfig string
+	lastSaveSig         string // fingerprint of live state at last save (auto-save skip)
 
 	// pendingUserPluginStates / pendingProjectPluginStates preserve plugin
 	// state blobs across a load -> save round-trip even when the owning

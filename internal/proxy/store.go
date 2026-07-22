@@ -288,6 +288,15 @@ func (s *Store) Count() int {
 	return len(s.items)
 }
 
+// LastSeq returns the sequence number of the most recently added request.
+// Unlike Count, it keeps increasing after the ring buffer reaches capacity,
+// so it detects new traffic even when the item count is pinned at maxSize.
+func (s *Store) LastSeq() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.nextSeq
+}
+
 // MaxSize returns the current ring buffer capacity.
 func (s *Store) MaxSize() int {
 	s.mu.RLock()

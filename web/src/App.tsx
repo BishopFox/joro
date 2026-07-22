@@ -30,7 +30,11 @@ import Notes from './pages/Notes'
 import Setup from './pages/Setup'
 import Plugins from './pages/Plugins'
 import PluginTabPage from './pages/PluginTabPage'
+import Projects from './pages/Projects'
 import SettingsPage from './pages/Settings'
+import ProjectSwitcher from './components/ProjectSwitcher'
+import TestingBrowserButton from './components/TestingBrowserButton'
+import { useProjectStore } from './stores/projectStore'
 
 // relayDot maps the team relay connection state to the header status dot's color
 // and tooltip.
@@ -103,6 +107,7 @@ export default function App() {
   useEffect(() => {
     connectWS()
     checkTeamMode()
+    useProjectStore.getState().refresh()
 
     // Load plugin tabs.
     api.listPlugins().then((plugs) => {
@@ -114,6 +119,14 @@ export default function App() {
       const dash = plugs.find((e) => e.type === 'dashboard' && e.status === 'loaded')
       if (dash) setDashboardPlugin(dash.name)
     }).catch(() => {})
+  }, [checkTeamMode])
+
+  // A project switch (header dropdown or Projects page) may change team settings,
+  // so re-evaluate team mode when live state is rehydrated.
+  useEffect(() => {
+    const handler = () => checkTeamMode()
+    window.addEventListener('joro:project-changed', handler)
+    return () => window.removeEventListener('joro:project-changed', handler)
   }, [checkTeamMode])
 
   const [globalCtxMenu, setGlobalCtxMenu] = useState<{ x: number; y: number } | null>(null)
@@ -173,6 +186,8 @@ export default function App() {
           </NavLink>
         ))}
         <div className="ml-auto flex items-center gap-3 shrink-0">
+          {setupMode && <ProjectSwitcher />}
+          {setupMode && <TestingBrowserButton />}
           {/* Dead Drop: low-profile icon access point (not a named tab). */}
           <NavLink
             to="/deaddrop"
@@ -247,8 +262,9 @@ export default function App() {
           <Route path="/notes" element={<Notes teamMode={teamMode} />} />
           <Route path="/transform" element={<Transform />} />
           <Route path="/plugins" element={<Plugins />} />
+          <Route path="/projects" element={<Projects />} />
           <Route path="/plugin/:extName/*" element={<PluginTabPage />} />
-          <Route path="/settings" element={<SettingsPage onTeamSettingsChanged={checkTeamMode} />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
         </ErrorBoundary>
       </main>

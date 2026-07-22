@@ -1,11 +1,8 @@
-import { useEffect, useState } from 'react'
-import { api, CustomAddition, MatchReplaceRule, NoisePattern, ScopeRule } from '../lib/api'
-import { useRequestStore } from '../stores/requestStore'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { api } from '../lib/api'
 import { Settings, useSettingsStore } from '../stores/settingsStore'
-import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectionStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useHiddenTabsStore } from '../stores/hiddenTabsStore'
-import { useTeamSharedConfigStore } from '../stores/teamSharedConfigStore'
 import ConfirmModal from '../components/ConfirmModal'
 import HealthCheck from '../components/HealthCheck'
 import { useToastStore } from '../stores/toastStore'
@@ -33,31 +30,53 @@ const THEMES = [
   { value: 'tokyo', label: 'Tokyo' },
 ]
 
-type FilterTab = 'scope' | 'noise' | 'replace'
+type Category = 'general' | 'appearance' | 'testing'
 
-// teamStatus maps the relay connection state to the Team Server card's status row.
-function teamStatus(state: RelayState): { dot: string; label: string } {
-  switch (state) {
-    case 'connected':
-      return { dot: 'bg-semantic-success', label: 'Connected' }
-    case 'connecting':
-      return { dot: 'bg-semantic-warning', label: 'Connecting…' }
-    case 'disconnected':
-      return { dot: 'bg-semantic-error', label: 'Disconnected' }
-    default:
-      return { dot: 'bg-content-muted', label: 'Idle' }
-  }
-}
+const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
+  {
+    id: 'general',
+    label: 'General',
+    icon: (
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" />
+      </svg>
+    ),
+  },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    icon: (
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="8.5" />
+        <circle cx="8.5" cy="10" r="1" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
+        <circle cx="15.5" cy="10" r="1" fill="currentColor" stroke="none" />
+        <path d="M12 20.5c1.5 0 2-1 2-2s-1-1.5-1-2.5 1-1.5 2.5-1.5S20 12 20 10.5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'testing',
+    label: 'Testing Browser',
+    icon: (
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M3 8 H21" />
+        <circle cx="6" cy="6" r="0.5" fill="currentColor" stroke="none" />
+        <circle cx="8" cy="6" r="0.5" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+]
 
-interface SettingsPageProps {
-  onTeamSettingsChanged?: () => void
-}
-
-export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProps) {
+export default function SettingsPage() {
   const { settings, setSettings } = useSettingsStore()
   const { info: updateInfo, setInfo: setUpdateInfo } = useUpdateStore()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+
+  const [category, setCategory] = useState<Category>('general')
 
   // Update check state
   const [checking, setChecking] = useState(false)
@@ -67,7 +86,6 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
   // Testing browser + health check state
   const addToast = useToastStore((s) => s.addToast)
   const [browserAvail, setBrowserAvail] = useState<{ available: boolean; browser: string } | null>(null)
-  const [launchingBrowser, setLaunchingBrowser] = useState(false)
   const [showHealthCheck, setShowHealthCheck] = useState(false)
   const [browserUrl, setBrowserUrl] = useState(() => getBrowserPrefs().url)
   const [clearingCookies, setClearingCookies] = useState(false)
@@ -75,18 +93,6 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
   useEffect(() => {
     api.browserStatus().then(setBrowserAvail).catch(() => {})
   }, [])
-
-  async function launchTestingBrowser() {
-    setLaunchingBrowser(true)
-    try {
-      const res = await api.launchBrowser({ url: browserUrl })
-      addToast(`Launched ${res.browser}`, 'info')
-    } catch (e) {
-      addToast(`Launch failed: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setLaunchingBrowser(false)
-    }
-  }
 
   async function clearTestingBrowserCookies() {
     setClearingCookies(true)
@@ -106,25 +112,6 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
   const [socksUsername, setSocksUsername] = useState('')
   const [socksPassword, setSocksPassword] = useState('')
   const [socksDns, setSocksDns] = useState(false)
-  const [socksSaved, setSocksSaved] = useState(false)
-
-  // Team server state — seed from the already-hydrated settings store so the
-  // fields render immediately on mount (the getSettings() refresh below can be
-  // delayed behind hung listener-proxied requests when the team server is down).
-  const initialSettings = useSettingsStore.getState().settings
-  const [listenerUrl, setListenerUrl] = useState(initialSettings?.listenerUrl || '')
-  const [teamToken, setTeamToken] = useState(initialSettings?.teamToken || '')
-  const [teamNickname, setTeamNickname] = useState(initialSettings?.teamNickname || '')
-  const [teamSaved, setTeamSaved] = useState(false)
-  const [teamError, setTeamError] = useState('')
-  const [teamLoading, setTeamLoading] = useState(false)
-  const teamConn = useTeamConnectionStore((s) => s.state)
-  const teamConnError = useTeamConnectionStore((s) => s.error)
-  const teamConnHTTP = useTeamConnectionStore((s) => s.httpStatus)
-
-  // Project ID + shared configs
-  const [projectId, setProjectId] = useState('')
-  const [projectIdSaved, setProjectIdSaved] = useState(false)
 
   // Local draft for editable fields
   const [interceptTimeout, setInterceptTimeout] = useState(60)
@@ -137,38 +124,8 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
   const toggleTab = useHiddenTabsStore((s) => s.toggleTab)
   const [pluginTabs, setPluginTabs] = useState<Array<{ to: string; label: string }>>([])
 
-  // Filter tab
-  const [filterTab, setFilterTab] = useState<FilterTab>('scope')
-
-  // Noise filter state
-  const [noiseEnabled, setNoiseEnabled] = useState(true)
-  const [noisePatterns, setNoisePatterns] = useState<NoisePattern[]>([])
-  const [newNoisePattern, setNewNoisePattern] = useState('')
-
-  // Scope state
-  const [scopeEnabled, setScopeEnabled] = useState(false)
-  const [scopeRules, setScopeRules] = useState<ScopeRule[]>([])
-  const [newPattern, setNewPattern] = useState('')
-  const [newMethods, setNewMethods] = useState('')
-  const [newPath, setNewPath] = useState('')
-  const [newInclude, setNewInclude] = useState(true)
-
-  // Match & Replace state
-  const [replaceEnabled, setReplaceEnabled] = useState(false)
-  const [replaceRules, setReplaceRules] = useState<MatchReplaceRule[]>([])
-  const [newRuleTarget, setNewRuleTarget] = useState('request_header')
-  const [newRuleMatchType, setNewRuleMatchType] = useState('string')
-  const [newRuleMatch, setNewRuleMatch] = useState('')
-  const [newRuleReplace, setNewRuleReplace] = useState('')
-
-  // Custom Data state
-  const [customDataEnabled, setCustomDataEnabled] = useState(false)
-  const [customDataItems, setCustomDataItems] = useState<CustomAddition[]>([])
-  const [newItemType, setNewItemType] = useState('header')
-  const [newItemName, setNewItemName] = useState('')
-  const [newItemValue, setNewItemValue] = useState('')
-
-  useEffect(() => {
+  // refetchLive pulls the user/machine settings into local state on mount.
+  const refetchLive = useCallback(() => {
     api.getSettings().then((s) => {
       const st = s as Settings
       setSettings(st)
@@ -179,27 +136,11 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
       setSocksUsername(st.socksUsername || '')
       setSocksPassword(st.socksPassword || '')
       setSocksDns(st.socksDns || false)
-      setListenerUrl(st.listenerUrl || '')
-      setTeamToken(st.teamToken || '')
-      setTeamNickname(st.teamNickname || '')
-      setProjectId(st.projectId || '')
     })
-    api.getNoise().then((n) => {
-      setNoiseEnabled(n.enabled)
-      setNoisePatterns(n.patterns)
-    }).catch(() => {})
-    api.getScope().then((s) => {
-      setScopeEnabled(s.enabled)
-      setScopeRules(s.rules)
-    })
-    api.getReplace().then((r) => {
-      setReplaceEnabled(r.enabled)
-      setReplaceRules(r.rules)
-    }).catch(() => {})
-    api.getCustomData().then((cd) => {
-      setCustomDataEnabled(cd.enabled)
-      setCustomDataItems(cd.items)
-    }).catch(() => {})
+  }, [setSettings])
+
+  useEffect(() => {
+    refetchLive()
     api.listPlugins().then((plugs) => {
       setPluginTabs(
         plugs
@@ -207,12 +148,21 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
           .map((p) => ({ to: `/plugin/${p.name}`, label: p.tabLabel || p.name }))
       )
     }).catch(() => {})
-  }, []) // eslint-disable-line
+  }, [refetchLive])
 
+  // save persists the General → Proxy group: intercept/max-requests + SOCKS.
   async function save() {
     setError('')
     try {
-      const updated = await api.updateSettings({ interceptTimeout, maxRequests })
+      const updated = await api.updateSettings({
+        interceptTimeout,
+        maxRequests,
+        socksHost,
+        socksPort: socksPort ? Number(socksPort) : 0,
+        socksUsername,
+        socksPassword,
+        socksDns,
+      })
       setSettings(updated as Settings)
       setSaved(true)
       window.setTimeout(() => setSaved(false), 3000)
@@ -221,125 +171,230 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
     }
   }
 
-  // Apply a loaded/imported project config response to the live UI state.
-  const applyProjectResp = (p: unknown) => {
-    const proj = p as {
-      listenerUrl?: string; teamToken?: string; teamNickname?: string; projectId?: string
-      scopeEnabled: boolean; scopeRules: ScopeRule[]
-      noiseEnabled: boolean; noisePatterns: NoisePattern[]
-      replaceEnabled: boolean; replaceRules: MatchReplaceRule[]
-      customDataEnabled: boolean; customDataItems: CustomAddition[]
-      unknownPluginStates?: string[]
-    }
-    setScopeEnabled(proj.scopeEnabled)
-    setScopeRules(proj.scopeRules || [])
-    setNoiseEnabled(proj.noiseEnabled)
-    setNoisePatterns(proj.noisePatterns || [])
-    setReplaceEnabled(proj.replaceEnabled)
-    setReplaceRules(proj.replaceRules || [])
-    setCustomDataEnabled(proj.customDataEnabled)
-    setCustomDataItems(proj.customDataItems || [])
-    if (proj.listenerUrl !== undefined) {
-      setListenerUrl(proj.listenerUrl || '')
-      setTeamToken(proj.teamToken || '')
-      setTeamNickname(proj.teamNickname || '')
-    }
-    if (proj.projectId !== undefined) setProjectId(proj.projectId || '')
-    setUnknownPluginStatesNotice(proj.unknownPluginStates || [])
-    useRequestStore.getState().invalidate()
-    api.getSettings().then((s) => setSettings(s as Settings))
-    if (onTeamSettingsChanged) onTeamSettingsChanged()
-  }
+  const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border'
 
   return (
-    <div className="p-4 overflow-y-auto flex-1 min-h-0">
-      <h2 className="text-sm font-semibold uppercase tracking-wide mb-4">Settings</h2>
+    <div className="h-full flex gap-4 p-4 min-h-0">
+      {/* Sidebar */}
+      <nav className="w-44 shrink-0 flex flex-col gap-0.5">
+        <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-content-muted px-3 pt-1 pb-2">Settings</h2>
+        {CATEGORIES.map((c) => {
+          const active = category === c.id
+          return (
+            <button
+              key={c.id}
+              onClick={() => setCategory(c.id)}
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-xs text-left border-l-2 transition-colors ${
+                active
+                  ? 'bg-surface-card text-content-primary border-accent-secondary font-medium'
+                  : 'text-content-secondary hover:text-content-primary hover:bg-surface-hover border-transparent'
+              }`}
+            >
+              <span className="shrink-0">{c.icon}</span>
+              <span className="truncate">{c.label}</span>
+            </button>
+          )
+        })}
+      </nav>
 
-      {settings && (
-        <div className="space-y-4">
-          {/* Top row: Server Info, Appearance, Intercept, CA Cert */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-            {/* Server Info */}
-            <div className="bg-surface-card rounded border border-border p-3 space-y-3">
-              <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">Server Info</h3>
-              <Row label="Proxy Port" value={`:${settings.proxyPort}`} />
-              <Row label="UI Port" value={`:${settings.uiPort}`} />
-              {updateInfo && (
-                <div className="text-xs text-content-secondary">
-                  <span className="text-content-muted">Version:</span>{' '}
-                  <span className="text-content-primary">{updateInfo.version}</span>{' '}
-                  <span className="text-content-muted">({updateInfo.commit})</span>
-                </div>
-              )}
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-content-secondary">Update Checks</label>
-                <select
-                  value={settings.disableUpdateChecks ? 'disabled' : 'enabled'}
-                  onChange={async (e) => {
-                    const next = e.target.value === 'disabled'
-                    const updated = await api.updateSettings({ disableUpdateChecks: next })
-                    setSettings(updated as Settings)
-                  }}
-                  className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                >
-                  <option value="enabled">Enabled</option>
-                  <option value="disabled">Disabled</option>
-                </select>
+      {/* Content pane */}
+      <div className="flex-1 min-h-0">
+        <div className="h-full overflow-y-auto bg-surface-card rounded-lg p-5 shadow-sm">
+          {settings && category === 'general' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2">
+              {/* Column A */}
+              <div className="divide-y divide-border lg:pr-8">
+                <Group title="Proxy">
+                  <Rows>
+                    <Row label="Max requests" title="Capacity of the in-memory capture history buffer.">
+                      <input
+                        type="number"
+                        min={100}
+                        max={100000}
+                        value={maxRequests}
+                        onChange={(e) => setMaxRequests(Number(e.target.value))}
+                        className={`w-24 text-right ${inputCls}`}
+                      />
+                    </Row>
+                    <Row label="Auto-forward (s)" title="Seconds an intercepted request waits before auto-forwarding.">
+                      <input
+                        type="number"
+                        min={1}
+                        value={interceptTimeout}
+                        onChange={(e) => setInterceptTimeout(Number(e.target.value))}
+                        className={`w-24 text-right ${inputCls}`}
+                      />
+                    </Row>
+                  </Rows>
+                  <SubLabel>SOCKS upstream</SubLabel>
+                  <div className="space-y-1.5">
+                    <div className="flex gap-1.5">
+                      <input type="text" placeholder="Host" value={socksHost} onChange={(e) => setSocksHost(e.target.value)} className={`flex-1 min-w-0 ${inputCls}`} />
+                      <input type="number" placeholder="Port" value={socksPort} onChange={(e) => setSocksPort(e.target.value)} className={`w-20 ${inputCls}`} />
+                    </div>
+                    <div className="flex gap-1.5">
+                      <input type="text" placeholder="User" value={socksUsername} onChange={(e) => setSocksUsername(e.target.value)} className={`flex-1 min-w-0 ${inputCls}`} />
+                      <input type="password" placeholder="Password" value={socksPassword} onChange={(e) => setSocksPassword(e.target.value)} className={`flex-1 min-w-0 ${inputCls}`} />
+                    </div>
+                  </div>
+                  <div className="divide-y divide-border-subtle mt-1">
+                    <Row label="DNS over SOCKS" title="Resolve hostnames through the SOCKS proxy instead of locally.">
+                      <Switch checked={socksDns} onChange={setSocksDns} />
+                    </Row>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-2.5">
+                    {error && <span className="text-semantic-error text-[11px] mr-auto truncate">{error}</span>}
+                    {saved && <span className="text-semantic-success text-[11px]">Saved!</span>}
+                    <button
+                      onClick={save}
+                      className="px-2.5 py-1 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-[11px] font-semibold"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </Group>
+
+                <Group title="Connection">
+                  <Rows>
+                    <Row
+                      label="Default to HTTP/2"
+                      title="Advertise h2 in browser-side ALPN and forward upstream as HTTP/2 when supported. Disable to force HTTP/1.1 everywhere. Takes effect on new connections."
+                    >
+                      <Switch
+                        checked={!!settings.http2Enabled}
+                        onChange={async (v) => {
+                          const updated = await api.updateSettings({ http2Enabled: v })
+                          setSettings(updated as Settings)
+                        }}
+                      />
+                    </Row>
+                    <Row label="HTTP/1 keep-alive" title="Reuse upstream HTTP/1.1 connections across requests.">
+                      <Switch
+                        checked={!!settings.keepAliveEnabled}
+                        onChange={async (v) => {
+                          const updated = await api.updateSettings({ keepAliveEnabled: v })
+                          setSettings(updated as Settings)
+                        }}
+                      />
+                    </Row>
+                  </Rows>
+                </Group>
               </div>
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  onClick={async () => {
-                    setCheckError('')
-                    setJustChecked(false)
-                    setChecking(true)
-                    try {
-                      const result = await api.checkForUpdate()
-                      setUpdateInfo(result)
-                      setJustChecked(true)
-                      window.setTimeout(() => setJustChecked(false), 3000)
-                    } catch (e) {
-                      setCheckError(e instanceof Error ? e.message : String(e))
-                    } finally {
-                      setChecking(false)
+
+              {/* Column B */}
+              <div className="divide-y divide-border border-t border-border pt-5 lg:pt-0 lg:border-t-0 lg:pl-8 lg:border-l lg:border-border">
+                <Group title="Server">
+                  <Rows>
+                    <Row label="Proxy port"><ValueChip>{`:${settings.proxyPort}`}</ValueChip></Row>
+                    <Row label="UI port"><ValueChip>{`:${settings.uiPort}`}</ValueChip></Row>
+                    {updateInfo && (
+                      <Row label="Version">
+                        <ValueChip>{updateInfo.version}{updateInfo.commit ? ` · ${updateInfo.commit}` : ''}</ValueChip>
+                      </Row>
+                    )}
+                    <Row label="Update checks" title="Periodically check GitHub for a newer Joro release.">
+                      <Switch
+                        checked={!settings.disableUpdateChecks}
+                        onChange={async (v) => {
+                          const updated = await api.updateSettings({ disableUpdateChecks: !v })
+                          setSettings(updated as Settings)
+                        }}
+                      />
+                    </Row>
+                    <Row
+                      label={
+                        <span>
+                          Software updates
+                          {checkError && <span className="text-semantic-error"> · {checkError}</span>}
+                          {justChecked && updateInfo && !updateInfo.updateAvailable && <span className="text-semantic-success"> · up to date</span>}
+                        </span>
+                      }
+                    >
+                      <button
+                        onClick={async () => {
+                          setCheckError('')
+                          setJustChecked(false)
+                          setChecking(true)
+                          try {
+                            const result = await api.checkForUpdate()
+                            setUpdateInfo(result)
+                            setJustChecked(true)
+                            window.setTimeout(() => setJustChecked(false), 3000)
+                          } catch (e) {
+                            setCheckError(e instanceof Error ? e.message : String(e))
+                          } finally {
+                            setChecking(false)
+                          }
+                        }}
+                        disabled={checking}
+                        className="px-2.5 py-1 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-[11px] font-semibold disabled:opacity-60"
+                      >
+                        {checking ? 'Checking…' : 'Check now'}
+                      </button>
+                    </Row>
+                  </Rows>
+                </Group>
+
+                <Group title="User Config">
+                  <p className="text-[11px] text-content-muted leading-relaxed mb-2">
+                    Save and restore machine-level preferences (SOCKS, HTTP/2, theme, hidden tabs) as named snapshots.
+                  </p>
+                  <ConfigManager theme={theme} hiddenTabs={hiddenTabs} onSettingsLoaded={(s) => {
+                    const st = s as Settings & { theme?: string; hiddenTabs?: string[]; unknownPluginStates?: string[] }
+                    setSettings(st)
+                    setInterceptTimeout(st.interceptTimeout)
+                    setMaxRequests(st.maxRequests || 5000)
+                    setSocksHost(st.socksHost || '')
+                    setSocksPort(st.socksPort ? String(st.socksPort) : '')
+                    setSocksUsername(st.socksUsername || '')
+                    setSocksPassword(st.socksPassword || '')
+                    setSocksDns(st.socksDns || false)
+                    if (st.theme) {
+                      setTheme(st.theme)
+                      document.documentElement.setAttribute('data-theme', st.theme)
+                      localStorage.setItem('joro-theme', st.theme)
                     }
-                  }}
-                  disabled={checking}
-                  className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold disabled:opacity-60"
-                >
-                  {checking ? 'Checking...' : 'Check for Updates'}
-                </button>
+                    if (Array.isArray(st.hiddenTabs)) {
+                      useHiddenTabsStore.getState().setHiddenTabs(st.hiddenTabs)
+                    }
+                    setUnknownPluginStatesNotice(st.unknownPluginStates || [])
+                  }} />
+                  {unknownPluginStatesNotice.length > 0 && (
+                    <div className="mt-2 border-l-2 border-semantic-warning pl-2.5 py-1 text-[10px] text-content-secondary leading-relaxed">
+                      State preserved for <span className="text-semantic-warning font-semibold">{unknownPluginStatesNotice.join(', ')}</span> — not installed here; blobs round-trip on re-save.
+                    </div>
+                  )}
+                </Group>
               </div>
-              {justChecked && updateInfo && !updateInfo.updateAvailable && (
-                <div className="text-xs text-semantic-success text-right">You're up to date.</div>
-              )}
-              {checkError && <div className="text-xs text-semantic-error text-right">{checkError}</div>}
             </div>
+          )}
 
-            {/* Theme */}
-            <div className="bg-surface-card rounded border border-border p-3 space-y-3">
-              <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">Appearance</h3>
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-content-secondary">Theme</label>
-                <select
-                  value={theme}
-                  onChange={(e) => {
-                    const t = e.target.value
-                    setTheme(t)
-                    document.documentElement.setAttribute('data-theme', t)
-                    localStorage.setItem('joro-theme', t)
-                  }}
-                  className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                >
-                  {THEMES.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="pt-2 border-t border-border-subtle">
-                <div className="text-sm text-content-secondary mb-2">Visible Tabs</div>
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+          {settings && category === 'appearance' && (
+            <div className="max-w-xl divide-y divide-border">
+              <Group title="Theme">
+                <Row label="Theme">
+                  <select
+                    value={theme}
+                    onChange={(e) => {
+                      const t = e.target.value
+                      setTheme(t)
+                      document.documentElement.setAttribute('data-theme', t)
+                      localStorage.setItem('joro-theme', t)
+                    }}
+                    className={inputCls}
+                  >
+                    {THEMES.map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </Row>
+              </Group>
+
+              <Group title="Visible tabs">
+                <p className="text-[11px] text-content-muted mb-2">Hide tabs you don't use from the header nav.</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5">
                   {[...NAV.filter((n) => n.to !== '/settings'), ...pluginTabs].map((t) => (
-                    <label key={t.to} className="flex items-center gap-1.5 text-xs text-content-secondary cursor-pointer">
+                    <label key={t.to} className="flex items-center gap-1.5 text-[11px] text-content-secondary cursor-pointer">
                       <input
                         type="checkbox"
                         checked={!hiddenTabs.includes(t.to)}
@@ -350,885 +405,75 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
                     </label>
                   ))}
                 </div>
-              </div>
+              </Group>
             </div>
+          )}
 
-            {/* Intercept */}
-            <div className="bg-surface-card rounded border border-border p-3 space-y-3">
-              <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">Proxy</h3>
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-content-secondary">Max requests</label>
-                <input
-                  type="number"
-                  min={100}
-                  max={100000}
-                  value={maxRequests}
-                  onChange={(e) => setMaxRequests(Number(e.target.value))}
-                  className="w-20 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border text-right"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-content-secondary">Auto-forward timeout (s)</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={interceptTimeout}
-                  onChange={(e) => setInterceptTimeout(Number(e.target.value))}
-                  className="w-20 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border text-right"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  onClick={save}
-                  className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold"
-                >
-                  Save
-                </button>
-                {saved && <span className="text-semantic-success text-xs">Saved!</span>}
-              </div>
-              {error && <div className="text-semantic-error text-xs mt-1">{error}</div>}
-            </div>
-
-            {/* Connection */}
-            <div className="bg-surface-card rounded border border-border p-3 space-y-3">
-              <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">Connection</h3>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1">
-                  <label className="text-sm text-content-secondary">Default to HTTP/2</label>
-                  <p className="text-[10px] text-content-muted mt-0.5">
-                    Advertise h2 in browser-side ALPN and forward upstream as HTTP/2 when supported. Disable to force HTTP/1.1 everywhere. Takes effect on new connections.
-                  </p>
-                </div>
-                <button
-                  onClick={async () => {
-                    const next = !settings.http2Enabled
-                    const updated = await api.updateSettings({ http2Enabled: next })
-                    setSettings(updated as Settings)
-                  }}
-                  className={`shrink-0 px-3 py-1.5 rounded-sm text-xs font-semibold transition-colors ${
-                    settings.http2Enabled
-                      ? 'bg-accent-tertiary hover:bg-accent-tertiary-hover text-black'
-                      : 'bg-surface-input hover:bg-surface-hover border border-border text-content-secondary'
-                  }`}
-                >
-                  {settings.http2Enabled ? 'Enabled' : 'Disabled'}
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-content-secondary">HTTP/1 Keep-Alive</label>
-                <button
-                  onClick={async () => {
-                    const next = !settings.keepAliveEnabled
-                    const updated = await api.updateSettings({ keepAliveEnabled: next })
-                    setSettings(updated as Settings)
-                  }}
-                  className={`px-3 py-1.5 rounded-sm text-xs font-semibold transition-colors ${
-                    settings.keepAliveEnabled
-                      ? 'bg-accent-tertiary hover:bg-accent-tertiary-hover text-black'
-                      : 'bg-surface-input hover:bg-surface-hover border border-border text-content-secondary'
-                  }`}
-                >
-                  {settings.keepAliveEnabled ? 'Enabled' : 'Disabled'}
-                </button>
-              </div>
-            </div>
-
-            {/* SOCKS Proxy */}
-            <div className="bg-surface-card rounded border border-border p-3 space-y-2">
-              <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">SOCKS Proxy</h3>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <label className="block text-[10px] text-content-muted mb-0.5">Host</label>
+          {settings && category === 'testing' && (
+            <div className="max-w-xl">
+              <Group title="Testing Browser">
+                <p className="text-[11px] text-content-muted leading-relaxed mb-3">
+                  Opens a browser routed through the proxy with the CA trusted, using a separate profile per
+                  project. With no project loaded, the profile is temporary and cleared when the browser closes.
+                  Launch it from the browser icon in the header (top-right).
+                </p>
+                <div className="mb-3">
+                  <label className="block text-[10px] text-content-muted mb-0.5">Landing URL (optional)</label>
                   <input
                     type="text"
-                    placeholder="127.0.0.1"
-                    value={socksHost}
-                    onChange={(e) => setSocksHost(e.target.value)}
-                    className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                    value={browserUrl}
+                    onChange={(e) => {
+                      setBrowserUrl(e.target.value)
+                      setBrowserPrefs({ url: e.target.value })
+                    }}
+                    placeholder="about:blank"
+                    className={`w-full ${inputCls}`}
                   />
                 </div>
-                <div className="w-16">
-                  <label className="block text-[10px] text-content-muted mb-0.5">Port</label>
-                  <input
-                    type="number"
-                    placeholder="1080"
-                    value={socksPort}
-                    onChange={(e) => setSocksPort(e.target.value)}
-                    className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                  />
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  <button
+                    onClick={clearTestingBrowserCookies}
+                    disabled={clearingCookies}
+                    title="Clears cookies for this project's testing-browser profile only. Close the browser first."
+                    className="px-2.5 py-1 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary text-[11px] font-semibold disabled:opacity-50"
+                  >
+                    {clearingCookies ? 'Clearing…' : 'Clear Cookies'}
+                  </button>
+                  <button
+                    onClick={() => setShowHealthCheck(true)}
+                    className="px-2.5 py-1 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary text-[11px] font-semibold"
+                  >
+                    Setup Check
+                  </button>
+                  <a
+                    href={api.caCertURL()}
+                    download="joro-ca.crt"
+                    title="Import into your own browser/OS trust store to avoid TLS warnings."
+                    className="px-2.5 py-1 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-[11px] font-semibold"
+                  >
+                    Download CA
+                  </a>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <label className="block text-[10px] text-content-muted mb-0.5">Username</label>
-                  <input
-                    type="text"
-                    placeholder="Optional"
-                    value={socksUsername}
-                    onChange={(e) => setSocksUsername(e.target.value)}
-                    className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-[10px] text-content-muted mb-0.5">Password</label>
-                  <input
-                    type="password"
-                    placeholder="Optional"
-                    value={socksPassword}
-                    onChange={(e) => setSocksPassword(e.target.value)}
-                    className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                  />
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-xs text-content-secondary">DNS over SOCKS</label>
-                <button
-                  onClick={() => setSocksDns(!socksDns)}
-                  className={`px-3 py-1 rounded-sm text-xs font-semibold transition-colors ${
-                    socksDns
-                      ? 'bg-accent-tertiary hover:bg-accent-tertiary-hover text-black'
-                      : 'bg-surface-input hover:bg-surface-hover border border-border text-content-secondary'
-                  }`}
-                >
-                  {socksDns ? 'Enabled' : 'Disabled'}
-                </button>
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  onClick={async () => {
-                    try {
-                      const updated = await api.updateSettings({
-                        socksHost,
-                        socksPort: socksPort ? Number(socksPort) : 0,
-                        socksUsername,
-                        socksPassword,
-                        socksDns,
-                      })
-                      setSettings(updated as Settings)
-                      setSocksSaved(true)
-                      window.setTimeout(() => setSocksSaved(false), 3000)
-                    } catch (e) {
-                      setError(String(e))
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold"
-                >
-                  Save
-                </button>
-                {socksSaved && <span className="text-semantic-success text-xs">Saved!</span>}
-              </div>
-            </div>
-
-            {/* Testing Browser */}
-            <div className="bg-surface-card rounded border border-border p-3 space-y-3">
-              <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide">Testing Browser</h3>
-              <p className="text-xs text-content-secondary">
-                Opens a browser routed through the proxy with the CA trusted, using a separate profile per project.
-                With no project loaded, the profile is temporary and cleared when the browser closes.
-              </p>
-              <div>
-                <label className="block text-[10px] text-content-muted mb-0.5">Landing URL (optional)</label>
-                <input
-                  type="text"
-                  value={browserUrl}
-                  onChange={(e) => {
-                    setBrowserUrl(e.target.value)
-                    setBrowserPrefs({ url: e.target.value })
-                  }}
-                  placeholder="about:blank"
-                  className="w-full bg-surface-input text-content-primary text-xs px-3 py-2 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={launchTestingBrowser}
-                  disabled={launchingBrowser || (browserAvail !== null && !browserAvail.available)}
-                  className="px-4 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold disabled:opacity-50"
-                >
-                  {launchingBrowser ? 'Launching…' : 'Launch Testing Browser'}
-                </button>
-                <button
-                  onClick={clearTestingBrowserCookies}
-                  disabled={clearingCookies}
-                  className="px-4 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary text-xs font-semibold disabled:opacity-50"
-                >
-                  {clearingCookies ? 'Clearing…' : 'Clear Cookies'}
-                </button>
-                <button
-                  onClick={() => setShowHealthCheck(true)}
-                  className="px-4 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary text-xs font-semibold"
-                >
-                  Run Setup Check
-                </button>
-              </div>
-              <p className="text-[10px] text-content-muted">
-                Clear Cookies removes cookies for this project's testing browser only. Close the browser first for it to take effect.
-              </p>
-              {browserAvail && !browserAvail.available && (
-                <p className="text-xs text-semantic-warning">
-                  No supported browser detected (Chrome, Chromium, Edge, or Brave).
+                <p className="text-[10px] text-content-muted">
+                  {browserAvail && !browserAvail.available
+                    ? <span className="text-semantic-warning">No supported browser detected (Chrome, Chromium, Edge, or Brave).</span>
+                    : browserAvail?.available
+                      ? <>Detected {browserAvail.browser}.</>
+                      : null}
                 </p>
-              )}
-              {browserAvail?.available && (
-                <p className="text-xs text-content-muted">Detected: {browserAvail.browser}</p>
-              )}
-              <div className="pt-2 border-t border-border">
-                <p className="text-xs text-content-secondary mb-2">
-                  Or import the CA into your own browser/OS trust store to avoid TLS warnings.
-                </p>
-                <a
-                  href={api.caCertURL()}
-                  download="joro-ca.crt"
-                  className="inline-block px-4 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold"
-                >
-                  Download CA Cert
-                </a>
-              </div>
-            </div>
-          </div>
-
-          {showHealthCheck && (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
-              onMouseDown={() => setShowHealthCheck(false)}
-            >
-              <div onMouseDown={(e) => e.stopPropagation()}>
-                <HealthCheck onFinish={() => setShowHealthCheck(false)} />
-              </div>
+              </Group>
             </div>
           )}
+        </div>
+      </div>
 
-          {/* Configurations */}
-          {unknownPluginStatesNotice.length > 0 && (
-            <div className="bg-surface-card rounded border border-border p-3 text-xs text-content-secondary">
-              State preserved for: <span className="text-semantic-warning font-semibold">{unknownPluginStatesNotice.join(', ')}</span>
-              {' '}&mdash; these plugins aren't installed on this system. The blobs round-trip on re-save.
-            </div>
-          )}
-          <ConfigManager theme={theme} hiddenTabs={hiddenTabs} onSettingsLoaded={(s) => {
-            const st = s as Settings & { theme?: string; hiddenTabs?: string[]; unknownPluginStates?: string[] }
-            setSettings(st)
-            setInterceptTimeout(st.interceptTimeout)
-            setMaxRequests(st.maxRequests || 5000)
-            setSocksHost(st.socksHost || '')
-            setSocksPort(st.socksPort ? String(st.socksPort) : '')
-            setSocksUsername(st.socksUsername || '')
-            setSocksPassword(st.socksPassword || '')
-            setSocksDns(st.socksDns || false)
-            if (st.theme) {
-              setTheme(st.theme)
-              document.documentElement.setAttribute('data-theme', st.theme)
-              localStorage.setItem('joro-theme', st.theme)
-            }
-            if (Array.isArray(st.hiddenTabs)) {
-              useHiddenTabsStore.getState().setHiddenTabs(st.hiddenTabs)
-            }
-            setUnknownPluginStatesNotice(st.unknownPluginStates || [])
-          }} onProjectLoaded={applyProjectResp} />
-
-          {/* Team Server */}
-          <div className="bg-surface-card rounded border border-border p-3 space-y-2">
-            <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">Team Server</h3>
-            <p className="text-xs text-content-muted mb-2">
-              Connect to a remote team server for shared chat and notes.
-            </p>
-            {listenerUrl && (
-              <div className="flex items-center gap-1.5 text-xs mb-2">
-                <span className={`w-2 h-2 rounded-full ${teamStatus(teamConn).dot}`} />
-                <span className="text-content-secondary">{teamStatus(teamConn).label}</span>
-                {teamConn === 'disconnected' && teamConnError && (
-                  <span className="text-content-muted truncate">
-                    — {teamConnError}{teamConnHTTP ? ` (HTTP ${teamConnHTTP})` : ''}
-                  </span>
-                )}
-              </div>
-            )}
-            <div>
-              <label className="block text-[10px] text-content-muted mb-0.5">Listener URL</label>
-              <input
-                type="text"
-                placeholder="http://teamserver:9090"
-                value={listenerUrl}
-                onChange={(e) => setListenerUrl(e.target.value)}
-                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] text-content-muted mb-0.5">Team Token</label>
-              <input
-                type="password"
-                placeholder="Token from team server console"
-                value={teamToken}
-                onChange={(e) => setTeamToken(e.target.value)}
-                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] text-content-muted mb-0.5">Nickname</label>
-              <input
-                type="text"
-                placeholder="Your display name"
-                value={teamNickname}
-                onChange={(e) => setTeamNickname(e.target.value)}
-                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-              />
-            </div>
-            {teamError && (
-              <p className="text-semantic-error text-xs">{teamError}</p>
-            )}
-
-            <div className="flex items-center justify-end gap-2 pt-1">
-              {listenerUrl && (
-                <button
-                  onClick={async () => {
-                    try {
-                      const updated = await api.updateSettings({
-                        listenerUrl: '',
-                        teamToken: '',
-                        teamNickname: '',
-                      })
-                      setSettings(updated as Settings)
-                      setListenerUrl('')
-                      setTeamToken('')
-                      setTeamNickname('')
-                      setTeamError('')
-                      localStorage.setItem('joro-setup-mode', 'local')
-                      onTeamSettingsChanged?.()
-                    } catch (e) {
-                      setTeamError(String(e))
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-sm bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary text-xs font-semibold"
-                >
-                  Disconnect
-                </button>
-              )}
-              <button
-                disabled={teamLoading}
-                onClick={async () => {
-                  setTeamError('')
-                  setTeamLoading(true)
-                  try {
-                    const updated = await api.updateSettings({
-                      listenerUrl,
-                      teamToken,
-                      teamNickname,
-                    })
-                    setSettings(updated as Settings)
-
-                    // If a listener URL is set, validate the token works.
-                    if (listenerUrl.trim()) {
-                      await api.listTokens()
-                      localStorage.setItem('joro-setup-mode', 'remote')
-                    } else {
-                      localStorage.setItem('joro-setup-mode', 'local')
-                    }
-
-                    setTeamSaved(true)
-                    window.setTimeout(() => setTeamSaved(false), 3000)
-                    onTeamSettingsChanged?.()
-                  } catch {
-                    setTeamError('Connection failed. Check the URL and auth token.')
-                  } finally {
-                    setTeamLoading(false)
-                  }
-                }}
-                className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold disabled:opacity-50"
-              >
-                {teamLoading ? 'Validating...' : 'Save'}
-              </button>
-              {teamSaved && <span className="text-semantic-success text-xs">Saved!</span>}
-            </div>
-          </div>
-
-          {/* Project */}
-          <div className="bg-surface-card rounded border border-border p-3 space-y-2">
-            <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">Project</h3>
-            <div>
-              <label className="block text-[10px] text-content-muted mb-0.5">Project ID (optional)</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="e.g. acme-q3-external"
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                  className="flex-1 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                />
-                <button
-                  onClick={async () => {
-                    try {
-                      const updated = await api.updateSettings({ projectId })
-                      setSettings(updated as Settings)
-                      setProjectIdSaved(true)
-                      window.setTimeout(() => setProjectIdSaved(false), 3000)
-                    } catch { /* ignore */ }
-                  }}
-                  className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold"
-                >
-                  Save
-                </button>
-                {projectIdSaved && <span className="text-semantic-success text-xs self-center">Saved!</span>}
-              </div>
-              <p className="text-[10px] text-content-muted mt-1">Labels this engagement; shared in published configs and collaboration requests.</p>
-            </div>
-          </div>
-
-          {/* Team Configs (shared project configs) — team mode only */}
-          {listenerUrl.trim() && (
-            <TeamConfigsPanel projectId={projectId} onImported={applyProjectResp} />
-          )}
-
-          {/* Filtering - tabbed card */}
-          <div className="bg-surface-card rounded border border-border">
-            {/* Tab bar */}
-            <div className="flex border-b border-border">
-              <button
-                onClick={() => setFilterTab('scope')}
-                className={`px-4 py-2 text-xs font-semibold transition-colors ${
-                  filterTab === 'scope'
-                    ? 'text-accent border-b-2 border-accent'
-                    : 'text-content-muted hover:text-content-secondary'
-                }`}
-              >
-                Scope
-              </button>
-              <button
-                onClick={() => setFilterTab('noise')}
-                className={`px-4 py-2 text-xs font-semibold transition-colors ${
-                  filterTab === 'noise'
-                    ? 'text-accent border-b-2 border-accent'
-                    : 'text-content-muted hover:text-content-secondary'
-                }`}
-              >
-                Noise Filter
-              </button>
-              <button
-                onClick={() => setFilterTab('replace')}
-                className={`px-4 py-2 text-xs font-semibold transition-colors ${
-                  filterTab === 'replace'
-                    ? 'text-accent border-b-2 border-accent'
-                    : 'text-content-muted hover:text-content-secondary'
-                }`}
-              >
-                Customize Requests
-              </button>
-            </div>
-
-            <div className="p-3 space-y-3">
-              {/* Scope tab */}
-              {filterTab === 'scope' && (
-                <>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-content-muted">
-                      When enabled, only matching hosts are MITM'd and captured. Out-of-scope HTTPS is tunneled without TLS termination.
-                    </p>
-                    <button
-                      onClick={async () => {
-                        const next = !scopeEnabled
-                        await api.setScopeEnabled(next)
-                        setScopeEnabled(next)
-                      }}
-                      className={`ml-3 shrink-0 px-3 py-1.5 rounded-sm text-xs font-semibold transition-colors ${
-                        scopeEnabled
-                          ? 'bg-accent-tertiary hover:bg-accent-tertiary-hover text-black'
-                          : 'bg-surface-input hover:bg-surface-hover border border-border text-content-secondary'
-                      }`}
-                    >
-                      {scopeEnabled ? 'Enabled' : 'Disabled'}
-                    </button>
-                  </div>
-
-                  <div className="text-xs text-content-muted">
-                    Rules (include evaluated first, exclude overrides):
-                  </div>
-                  {scopeRules.length === 0 ? (
-                    <p className="text-xs text-content-muted italic">
-                      No rules defined.{scopeEnabled ? ' All traffic will be blocked.' : ''}
-                    </p>
-                  ) : (
-                    <div className="space-y-1">
-                      {scopeRules.map((rule) => (
-                        <div key={rule.id} className="flex items-center gap-2 text-xs py-1 border-b border-border-subtle">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${rule.include ? 'bg-accent-secondary text-black' : 'bg-semantic-error-bg text-black'}`}>
-                            {rule.include ? 'Include' : 'Exclude'}
-                          </span>
-                          <span className="text-content-primary font-mono">{rule.pattern}</span>
-                          <span className="text-content-muted">{rule.methods?.length ? rule.methods.join(',') : '*'}</span>
-                          <span className="text-content-muted">{rule.path || '/*'}</span>
-                          <button
-                            onClick={async () => {
-                              await api.deleteScopeRule(rule.id)
-                              setScopeRules((prev) => prev.filter((r) => r.id !== rule.id))
-                            }}
-                            className="ml-auto text-content-muted hover:text-semantic-error"
-                          >
-                            x
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Host pattern</label>
-                      <input
-                        type="text"
-                        placeholder="*.target.com"
-                        value={newPattern}
-                        onChange={(e) => setNewPattern(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      />
-                    </div>
-                    <div className="w-24">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Methods</label>
-                      <input
-                        type="text"
-                        placeholder="*"
-                        value={newMethods}
-                        onChange={(e) => setNewMethods(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      />
-                    </div>
-                    <div className="w-24">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Path</label>
-                      <input
-                        type="text"
-                        placeholder="/*"
-                        value={newPath}
-                        onChange={(e) => setNewPath(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      />
-                    </div>
-                    <select
-                      value={newInclude ? 'include' : 'exclude'}
-                      onChange={(e) => setNewInclude(e.target.value === 'include')}
-                      className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                    >
-                      <option value="include">Include</option>
-                      <option value="exclude">Exclude</option>
-                    </select>
-                    <button
-                      onClick={async () => {
-                        if (!newPattern.trim()) return
-                        const methods = newMethods.trim()
-                          ? newMethods.split(',').map((m) => m.trim().toUpperCase()).filter(Boolean)
-                          : []
-                        const rule = await api.addScopeRule({
-                          pattern: newPattern.trim(),
-                          methods,
-                          path: newPath.trim(),
-                          include: newInclude,
-                        })
-                        setScopeRules((prev) => [...prev, rule])
-                        setNewPattern('')
-                        setNewMethods('')
-                        setNewPath('')
-                      }}
-                      className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Noise Filter tab */}
-              {filterTab === 'noise' && (
-                <>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-content-muted">
-                      Silently tunnels common browser background traffic (captive portal, telemetry, OCSP) without capture. Separate from scope.
-                    </p>
-                    <button
-                      onClick={async () => {
-                        const next = !noiseEnabled
-                        await api.setNoiseEnabled(next)
-                        setNoiseEnabled(next)
-                      }}
-                      className={`ml-3 shrink-0 px-3 py-1.5 rounded-sm text-xs font-semibold transition-colors ${
-                        noiseEnabled
-                          ? 'bg-accent-tertiary hover:bg-accent-tertiary-hover text-black'
-                          : 'bg-surface-input hover:bg-surface-hover border border-border text-content-secondary'
-                      }`}
-                    >
-                      {noiseEnabled ? 'Enabled' : 'Disabled'}
-                    </button>
-                  </div>
-
-                  {noisePatterns.length === 0 ? (
-                    <p className="text-xs text-content-muted italic">No patterns defined.</p>
-                  ) : (
-                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {noisePatterns.map((p) => (
-                        <div key={p.id} className="flex items-center gap-2 text-xs py-1 border-b border-border-subtle">
-                          <span className="text-content-primary font-mono">{p.pattern}</span>
-                          <button
-                            onClick={async () => {
-                              await api.deleteNoisePattern(p.id)
-                              setNoisePatterns((prev) => prev.filter((x) => x.id !== p.id))
-                            }}
-                            className="ml-auto text-content-muted hover:text-semantic-error"
-                          >
-                            x
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Host pattern</label>
-                      <input
-                        type="text"
-                        placeholder="example.com"
-                        value={newNoisePattern}
-                        onChange={(e) => setNewNoisePattern(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      />
-                    </div>
-                    <button
-                      onClick={async () => {
-                        if (!newNoisePattern.trim()) return
-                        const p = await api.addNoisePattern(newNoisePattern.trim())
-                        setNoisePatterns((prev) => [...prev, p])
-                        setNewNoisePattern('')
-                      }}
-                      className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Customize Requests tab */}
-              {filterTab === 'replace' && (
-                <>
-                  {/* Match & Replace section */}
-                  <h4 className="text-xs font-semibold text-content-primary uppercase tracking-wide">Match &amp; Replace</h4>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-content-muted">
-                      Automatically modify request/response headers, bodies, and WebSocket messages as they flow through the proxy.
-                    </p>
-                    <button
-                      onClick={async () => {
-                        const next = !replaceEnabled
-                        await api.setReplaceEnabled(next)
-                        setReplaceEnabled(next)
-                      }}
-                      className={`ml-3 shrink-0 px-3 py-1.5 rounded-sm text-xs font-semibold transition-colors ${
-                        replaceEnabled
-                          ? 'bg-accent-tertiary hover:bg-accent-tertiary-hover text-black'
-                          : 'bg-surface-input hover:bg-surface-hover border border-border text-content-secondary'
-                      }`}
-                    >
-                      {replaceEnabled ? 'Enabled' : 'Disabled'}
-                    </button>
-                  </div>
-
-                  {replaceRules.length === 0 ? (
-                    <p className="text-xs text-content-muted italic">No rules defined.</p>
-                  ) : (
-                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {replaceRules.map((rule) => (
-                        <div key={rule.id} className="flex items-center gap-2 text-xs py-1 border-b border-border-subtle">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-secondary text-black">
-                            {rule.target.replace('_', ' ')}
-                          </span>
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-input text-content-secondary">
-                            {rule.matchType}
-                          </span>
-                          <span className="text-content-primary font-mono truncate max-w-[12rem]">{rule.match}</span>
-                          <span className="text-content-muted">&rarr;</span>
-                          <span className="text-semantic-success font-mono truncate max-w-[12rem]">{rule.replace || '(empty)'}</span>
-                          <button
-                            onClick={async () => {
-                              await api.deleteReplaceRule(rule.id)
-                              setReplaceRules((prev) => prev.filter((r) => r.id !== rule.id))
-                            }}
-                            className="ml-auto text-content-muted hover:text-semantic-error"
-                          >
-                            x
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex items-end gap-2">
-                    <div className="w-32">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Target</label>
-                      <select
-                        value={newRuleTarget}
-                        onChange={(e) => setNewRuleTarget(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      >
-                        <option value="request_header">Request Header</option>
-                        <option value="request_body">Request Body</option>
-                        <option value="response_header">Response Header</option>
-                        <option value="response_body">Response Body</option>
-                        <option value="ws_message">WS Message</option>
-                      </select>
-                    </div>
-                    <div className="w-20">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Type</label>
-                      <select
-                        value={newRuleMatchType}
-                        onChange={(e) => setNewRuleMatchType(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      >
-                        <option value="string">String</option>
-                        <option value="regex">Regex</option>
-                      </select>
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Match</label>
-                      <input
-                        type="text"
-                        placeholder="User-Agent: Mozilla..."
-                        value={newRuleMatch}
-                        onChange={(e) => setNewRuleMatch(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Replace</label>
-                      <input
-                        type="text"
-                        placeholder="User-Agent: JoroProxy"
-                        value={newRuleReplace}
-                        onChange={(e) => setNewRuleReplace(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      />
-                    </div>
-                    <button
-                      onClick={async () => {
-                        if (!newRuleMatch.trim()) return
-                        const rule = await api.addReplaceRule({
-                          target: newRuleTarget,
-                          matchType: newRuleMatchType,
-                          match: newRuleMatch,
-                          replace: newRuleReplace,
-                        })
-                        setReplaceRules((prev) => [...prev, rule])
-                        setNewRuleMatch('')
-                        setNewRuleReplace('')
-                      }}
-                      className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold"
-                    >
-                      Add
-                    </button>
-                  </div>
-
-                  {/* Divider */}
-                  <div className="border-t border-border my-2" />
-
-                  {/* Add Custom Data section */}
-                  <h4 className="text-xs font-semibold text-content-primary uppercase tracking-wide">Add Custom Data</h4>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-content-muted">
-                      Automatically add headers, query parameters, or body data to in-scope requests.
-                    </p>
-                    <button
-                      onClick={async () => {
-                        const next = !customDataEnabled
-                        await api.setCustomDataEnabled(next)
-                        setCustomDataEnabled(next)
-                      }}
-                      className={`ml-3 shrink-0 px-3 py-1.5 rounded-sm text-xs font-semibold transition-colors ${
-                        customDataEnabled
-                          ? 'bg-accent-tertiary hover:bg-accent-tertiary-hover text-black'
-                          : 'bg-surface-input hover:bg-surface-hover border border-border text-content-secondary'
-                      }`}
-                    >
-                      {customDataEnabled ? 'Enabled' : 'Disabled'}
-                    </button>
-                  </div>
-
-                  {customDataItems.length === 0 ? (
-                    <p className="text-xs text-content-muted italic">No items defined.</p>
-                  ) : (
-                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {customDataItems.map((item) => (
-                        <div key={item.id} className="flex items-center gap-2 text-xs py-1 border-b border-border-subtle">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-secondary text-black">
-                            {item.type}
-                          </span>
-                          {item.name && <span className="text-content-primary font-mono">{item.name}</span>}
-                          {item.name && <span className="text-content-muted">=</span>}
-                          <span className="text-semantic-success font-mono truncate max-w-[20rem]">{item.value}</span>
-                          <button
-                            onClick={async () => {
-                              await api.deleteCustomDataItem(item.id)
-                              setCustomDataItems((prev) => prev.filter((i) => i.id !== item.id))
-                            }}
-                            className="ml-auto text-content-muted hover:text-semantic-error"
-                          >
-                            x
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex items-end gap-2">
-                    <div className="w-28">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Type</label>
-                      <select
-                        value={newItemType}
-                        onChange={(e) => setNewItemType(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      >
-                        <option value="header">Header</option>
-                        <option value="query">Query Param</option>
-                        <option value="body">Body</option>
-                      </select>
-                    </div>
-                    {newItemType !== 'body' && (
-                      <div className="flex-1">
-                        <label className="block text-[10px] text-content-muted mb-0.5">Name</label>
-                        <input
-                          type="text"
-                          placeholder={newItemType === 'header' ? 'X-Custom-Header' : 'param'}
-                          value={newItemName}
-                          onChange={(e) => setNewItemName(e.target.value)}
-                          className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                        />
-                      </div>
-                    )}
-                    <div className="flex-1">
-                      <label className="block text-[10px] text-content-muted mb-0.5">Value</label>
-                      <input
-                        type="text"
-                        placeholder={newItemType === 'body' ? 'data to append' : 'value'}
-                        value={newItemValue}
-                        onChange={(e) => setNewItemValue(e.target.value)}
-                        className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-                      />
-                    </div>
-                    <button
-                      onClick={async () => {
-                        if (!newItemValue.trim()) return
-                        if (newItemType !== 'body' && !newItemName.trim()) return
-                        const item = await api.addCustomDataItem({
-                          type: newItemType,
-                          name: newItemType === 'body' ? '' : newItemName.trim(),
-                          value: newItemValue.trim(),
-                        })
-                        setCustomDataItems((prev) => [...prev, item])
-                        setNewItemName('')
-                        setNewItemValue('')
-                      }}
-                      className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+      {showHealthCheck && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+          onMouseDown={() => setShowHealthCheck(false)}
+        >
+          <div onMouseDown={(e) => e.stopPropagation()}>
+            <HealthCheck onFinish={() => setShowHealthCheck(false)} />
           </div>
         </div>
       )}
@@ -1236,8 +481,60 @@ export default function SettingsPage({ onTeamSettingsChanged }: SettingsPageProp
   )
 }
 
-function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
-  title: string
+// --- Presentational helpers ---
+
+// Group is a borderless titled sub-section rendered inside the content card.
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="py-5 first:pt-0 last:pb-0">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="w-1 h-3 rounded-full bg-accent-secondary shrink-0" />
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-content-muted">{title}</h3>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function Rows({ children }: { children: ReactNode }) {
+  return <div className="divide-y divide-border-subtle">{children}</div>
+}
+
+function Row({ label, title, children }: { label: ReactNode; title?: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5" title={title}>
+      <span className="text-xs text-content-secondary min-w-0 truncate">{label}</span>
+      <div className="shrink-0 flex items-center gap-2">{children}</div>
+    </div>
+  )
+}
+
+function SubLabel({ children }: { children: ReactNode }) {
+  return <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-muted mt-2.5 mb-1.5">{children}</div>
+}
+
+function Switch({ checked, onChange, title }: { checked: boolean; onChange: (v: boolean) => void; title?: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      title={title}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-4 w-8 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary ${
+        checked ? 'bg-accent-secondary' : 'bg-surface-input border border-border'
+      }`}
+    >
+      <span className={`inline-block h-3 w-3 rounded-full bg-content-primary transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
+    </button>
+  )
+}
+
+function ValueChip({ children }: { children: ReactNode }) {
+  return <code className="font-mono text-[11px] bg-surface-input text-content-primary px-1.5 py-0.5 rounded-sm">{children}</code>
+}
+
+function ConfigSection({ configs, active, onSave, onLoad, onDelete }: {
   configs: string[]
   active: string
   onSave: (name: string) => Promise<void>
@@ -1256,22 +553,22 @@ function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
     onConfirm: () => void
   } | null>(null)
 
-  return (
-    <div className="flex-1 space-y-2">
-      <h4 className="text-xs font-semibold text-content-muted uppercase tracking-wide">{title}</h4>
+  const btn = 'px-2 py-1 rounded-sm text-[11px] font-semibold disabled:opacity-50'
 
-      {/* Select existing */}
-      <div className="flex items-center gap-2">
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="flex-1 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-        >
-          <option value="">Select a config...</option>
-          {configs.map((c) => (
-            <option key={c} value={c}>{c}{c === active ? ' (active)' : ''}</option>
-          ))}
-        </select>
+  return (
+    <div className="space-y-1.5">
+      <select
+        value={selected}
+        onChange={(e) => setSelected(e.target.value)}
+        className="w-full bg-surface-input text-xs px-2 py-1 rounded-sm border border-border"
+      >
+        <option value="">Select a config…</option>
+        {configs.map((c) => (
+          <option key={c} value={c}>{c}{c === active ? ' (active)' : ''}</option>
+        ))}
+      </select>
+
+      <div className="flex gap-1.5">
         <button
           disabled={!selected || loading}
           onClick={async () => {
@@ -1284,9 +581,9 @@ function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
             } catch (e) { setMsg(String(e)) }
             finally { setLoading(false) }
           }}
-          className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold disabled:opacity-50"
+          className={`${btn} bg-accent-secondary hover:bg-accent-secondary-hover text-black`}
         >
-          {loading ? '...' : 'Load'}
+          {loading ? '…' : 'Load'}
         </button>
         <button
           disabled={!selected || saving}
@@ -1305,9 +602,9 @@ function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
               finally { setSaving(false) }
             },
           })}
-          className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold disabled:opacity-50"
+          className={`${btn} bg-accent-tertiary hover:bg-accent-tertiary-hover text-black`}
         >
-          {saving ? '...' : 'Save'}
+          {saving ? '…' : 'Save'}
         </button>
         <button
           disabled={!selected}
@@ -1324,20 +621,19 @@ function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
               } catch (e) { setMsg(String(e)) }
             },
           })}
-          className="px-3 py-1.5 rounded-sm bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary text-xs font-semibold disabled:opacity-50"
+          className={`${btn} bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary`}
         >
           Delete
         </button>
       </div>
 
-      {/* Save new */}
-      <div className="flex items-center gap-2">
+      <div className="flex gap-1.5">
         <input
           type="text"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          placeholder="Config name"
-          className="flex-1 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border placeholder:text-content-muted"
+          placeholder="Save as new…"
+          className="flex-1 min-w-0 bg-surface-input text-xs px-2 py-1 rounded-sm border border-border placeholder:text-content-muted"
         />
         <button
           disabled={!newName.trim() || saving}
@@ -1352,13 +648,13 @@ function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
             } catch (e) { setMsg(String(e)) }
             finally { setSaving(false) }
           }}
-          className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold disabled:opacity-50"
+          className={`${btn} bg-accent-tertiary hover:bg-accent-tertiary-hover text-black`}
         >
-          {saving ? '...' : 'Save New'}
+          {saving ? '…' : 'Save'}
         </button>
       </div>
 
-      {msg && <p className={`text-xs ${msg.startsWith('Error') || msg.startsWith('config') ? 'text-semantic-error' : 'text-semantic-success'}`}>{msg}</p>}
+      {msg && <p className={`text-[11px] ${msg.startsWith('Error') || msg.startsWith('config') ? 'text-semantic-error' : 'text-semantic-success'}`}>{msg}</p>}
 
       {confirmState && (
         <ConfirmModal
@@ -1377,16 +673,13 @@ function ConfigSection({ title, configs, active, onSave, onLoad, onDelete }: {
   )
 }
 
-function ConfigManager({ theme, hiddenTabs, onSettingsLoaded, onProjectLoaded }: {
+function ConfigManager({ theme, hiddenTabs, onSettingsLoaded }: {
   theme: string
   hiddenTabs: string[]
   onSettingsLoaded: (s: unknown) => void
-  onProjectLoaded: (p: unknown) => void
 }) {
   const [userConfigs, setUserConfigs] = useState<string[]>([])
   const [activeUser, setActiveUser] = useState('')
-  const [projectConfigs, setProjectConfigs] = useState<string[]>([])
-  const [activeProject, setActiveProject] = useState('')
 
   const refresh = async () => {
     try {
@@ -1394,169 +687,27 @@ function ConfigManager({ theme, hiddenTabs, onSettingsLoaded, onProjectLoaded }:
       setUserConfigs(u.configs)
       setActiveUser(u.active)
     } catch { /* empty */ }
-    try {
-      const p = await api.listProjectConfigs()
-      setProjectConfigs(p.configs)
-      setActiveProject(p.active)
-    } catch { /* empty */ }
   }
 
   useEffect(() => { refresh() }, [])
 
   return (
-    <div className="bg-surface-card rounded border border-border p-3">
-      <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-3">Configurations</h3>
-      <div className="flex gap-6">
-        <ConfigSection
-          title="User Config"
-          configs={userConfigs}
-          active={activeUser}
-          onSave={async (name) => {
-            await api.saveUserConfig(name, theme, hiddenTabs)
-            await refresh()
-          }}
-          onLoad={async (name) => {
-            const result = await api.loadUserConfig(name)
-            onSettingsLoaded(result)
-            await refresh()
-          }}
-          onDelete={async (name) => {
-            await api.deleteUserConfig(name)
-            await refresh()
-          }}
-        />
-        <ConfigSection
-          title="Project Config"
-          configs={projectConfigs}
-          active={activeProject}
-          onSave={async (name) => {
-            await api.saveProjectConfig(name)
-            await refresh()
-          }}
-          onLoad={async (name) => {
-            const result = await api.loadProjectConfig(name)
-            onProjectLoaded(result)
-            await refresh()
-          }}
-          onDelete={async (name) => {
-            await api.deleteProjectConfig(name)
-            await refresh()
-          }}
-        />
-      </div>
-    </div>
-  )
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between text-sm">
-      <span className="text-content-secondary">{label}</span>
-      <code className="text-content-primary">{value}</code>
-    </div>
-  )
-}
-
-function TeamConfigsPanel({ projectId, onImported }: { projectId: string; onImported: (p: unknown) => void }) {
-  const items = useTeamSharedConfigStore((s) => s.items)
-  const setItems = useTeamSharedConfigStore((s) => s.setItems)
-  const removeItem = useTeamSharedConfigStore((s) => s.removeItem)
-  const [publishName, setPublishName] = useState('')
-  const [msg, setMsg] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    api.listSharedConfigs().then((r) => setItems(r.items || [])).catch(() => {})
-  }, [setItems])
-
-  async function publish() {
-    if (!publishName.trim()) return
-    setBusy(true)
-    setMsg('')
-    try {
-      const exported = await api.exportProjectConfig()
-      await api.publishConfig({ name: publishName.trim(), projectId, config: exported.config })
-      setPublishName('')
-      setMsg('Published!')
-      window.setTimeout(() => setMsg(''), 3000)
-    } catch (e) {
-      setMsg(String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function load(id: string, name: string) {
-    setMsg('')
-    try {
-      const cfg = await api.getSharedConfig(id)
-      const resp = await api.importProjectConfig(name, cfg.config)
-      onImported(resp)
-      setMsg(`Loaded "${name}"`)
-      window.setTimeout(() => setMsg(''), 3000)
-    } catch (e) {
-      setMsg(String(e))
-    }
-  }
-
-  async function del(id: string) {
-    removeItem(id)
-    try {
-      await api.deleteSharedConfig(id)
-    } catch { /* ignore */ }
-  }
-
-  return (
-    <div className="bg-surface-card rounded border border-border p-3 space-y-2">
-      <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wide mb-2">Team Configs</h3>
-      <p className="text-xs text-content-muted mb-2">
-        Publish your current project config to the team, or load one a teammate shared.
-      </p>
-      <div className="flex gap-2">
-        <input
-          type="text"
-          placeholder="Name to publish current config as"
-          value={publishName}
-          onChange={(e) => setPublishName(e.target.value)}
-          className="flex-1 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-        />
-        <button
-          disabled={busy || !publishName.trim()}
-          onClick={publish}
-          className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold disabled:opacity-50"
-        >
-          Publish to team
-        </button>
-      </div>
-      {msg && <p className="text-xs text-content-secondary">{msg}</p>}
-      {items.length === 0 ? (
-        <p className="text-[10px] text-content-muted italic">No published configs yet</p>
-      ) : (
-        <div className="divide-y divide-border-subtle">
-          {items.map((c) => (
-            <div key={c.id} className="flex items-center gap-2 py-1.5 text-xs">
-              <span className="text-content-primary font-medium truncate">{c.name}</span>
-              {c.projectId && <span className="text-content-muted">[{c.projectId}]</span>}
-              <span className="text-content-muted truncate">by {c.author}</span>
-              <div className="ml-auto flex gap-2">
-                <button
-                  onClick={() => load(c.id, c.name)}
-                  className="text-accent-secondary hover:underline font-medium"
-                >
-                  Load
-                </button>
-                <button
-                  onClick={() => del(c.id)}
-                  className="text-content-muted hover:text-semantic-error"
-                  title="Delete published config"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    <ConfigSection
+      configs={userConfigs}
+      active={activeUser}
+      onSave={async (name) => {
+        await api.saveUserConfig(name, theme, hiddenTabs)
+        await refresh()
+      }}
+      onLoad={async (name) => {
+        const result = await api.loadUserConfig(name)
+        onSettingsLoaded(result)
+        await refresh()
+      }}
+      onDelete={async (name) => {
+        await api.deleteUserConfig(name)
+        await refresh()
+      }}
+    />
   )
 }

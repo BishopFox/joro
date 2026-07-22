@@ -7,6 +7,7 @@ import { useTeamConnectionStore } from '../stores/teamConnectionStore'
 import { useTeamFlaggedStore, type FlaggedRequest } from '../stores/teamFlaggedStore'
 import { useRequestStore, type RequestDetail } from '../stores/requestStore'
 import { useSettingsStore, type Settings } from '../stores/settingsStore'
+import { useProjectStore } from '../stores/projectStore'
 import NetworkGraph from '../components/NetworkGraph'
 import FlaggedRequestModal from '../components/FlaggedRequestModal'
 import CollabSwapModal from '../components/CollabSwapModal'
@@ -114,6 +115,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
 
   const settings = useSettingsStore((s) => s.settings)
   const setSettings = useSettingsStore((s) => s.setSettings)
+  const activeProject = useProjectStore((s) => s.active)
   const teamConn = useTeamConnectionStore((s) => s.state)
 
   const teamMessages = useTeamStore((s) => s.messages)
@@ -276,13 +278,13 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
       .catch(() => {})
   }, [teamMode, setActiveUsers, setMessages])
 
-  // Push our presence (status + optionally shared Project ID) on join and
+  // Push our presence (status + optionally shared project name) on join and
   // whenever the relevant settings change. No relay reconnect involved.
   useEffect(() => {
     if (!teamMode) return
-    const projectId = settings?.shareProjectId ? (settings?.projectId || '') : ''
-    api.updatePresence({ status: settings?.teamStatus || 'online', projectId }).catch(() => {})
-  }, [teamMode, settings?.teamStatus, settings?.shareProjectId, settings?.projectId])
+    const project = settings?.shareProjectName ? activeProject : ''
+    api.updatePresence({ status: settings?.teamStatus || 'online', project }).catch(() => {})
+  }, [teamMode, settings?.teamStatus, settings?.shareProjectName, activeProject])
 
   const changeStatus = async (status: string) => {
     try {
@@ -293,7 +295,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
 
   const toggleShareProject = async (share: boolean) => {
     try {
-      const updated = await api.updateSettings({ shareProjectId: share })
+      const updated = await api.updateSettings({ shareProjectName: share })
       setSettings(updated as Settings)
     } catch { /* ignore */ }
   }
@@ -412,7 +414,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
       try {
         const config = await api.gatherCurrentRules()
         await api.requestCollab({
-          projectId: settings?.projectId || '',
+          project: activeProject,
           note,
           config: JSON.stringify(config),
         })
@@ -756,10 +758,10 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
               <label className="flex items-center gap-1.5 text-xs text-content-terminal cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={!!settings?.shareProjectId}
+                  checked={!!settings?.shareProjectName}
                   onChange={(e) => toggleShareProject(e.target.checked)}
                 />
-                Share Project ID
+                Share project name
               </label>
             </div>
           )}
@@ -773,9 +775,9 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
                     <span className={`w-2 h-2 mt-1 rounded-full shrink-0 ${statusDotClass(user.status)}`} />
                     <div className="min-w-0">
                       <div className="text-xs text-content-terminal truncate">{user.nickname}</div>
-                      {user.projectId && (
-                        <div className="text-[10px] text-content-muted truncate" title={user.projectId}>
-                          {user.projectId}
+                      {user.project && (
+                        <div className="text-[10px] text-content-muted truncate" title={user.project}>
+                          {user.project}
                         </div>
                       )}
                     </div>

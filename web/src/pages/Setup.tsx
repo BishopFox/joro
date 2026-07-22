@@ -10,7 +10,6 @@ interface Props {
 export default function Setup({ onSetupComplete }: Props) {
   const { setSettings } = useSettingsStore()
   const [step, setStep] = useState<'choose' | 'health'>('choose')
-  const [projectId, setProjectId] = useState('')
   const [listenerUrl, setListenerUrl] = useState('')
   const [token, setToken] = useState('')
   const [nickname, setNickname] = useState('')
@@ -87,27 +86,10 @@ export default function Setup({ onSetupComplete }: Props) {
             <h2 className="text-sm font-semibold text-content-primary mb-1">Local Proxy</h2>
             <p className="text-xs text-content-muted mb-4 flex-1">
               Run Joro as a local intercepting proxy. No authentication required.
+              Organize your work into projects from the header once you're in.
             </p>
-            <div className="mb-3">
-              <label className="block text-[10px] text-content-muted mb-0.5">Project ID (optional)</label>
-              <input
-                type="text"
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                placeholder="e.g. acme-q3-external"
-                className="w-full bg-surface-input text-content-primary text-xs px-3 py-2 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary"
-              />
-            </div>
             <button
-              onClick={async () => {
-                if (projectId.trim()) {
-                  try {
-                    const updated = await api.updateSettings({ projectId: projectId.trim() })
-                    setSettings(updated as Settings)
-                  } catch { /* ignore */ }
-                }
-                setStep('health')
-              }}
+              onClick={() => setStep('health')}
               className="w-full px-4 py-2 bg-accent-tertiary text-black text-xs font-semibold rounded hover:bg-accent-tertiary-hover"
             >
               Continue

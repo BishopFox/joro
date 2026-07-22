@@ -20,6 +20,7 @@ type ListenerRelay struct {
 	token string
 	nickname string
 	stop chan struct{}
+	conn *websocket.Conn // active connection; closed by Update to force server-side deregister
 }
 
 // NewListenerRelay creates a relay. Call Update() to start connecting.
@@ -40,10 +41,16 @@ func (lr *ListenerRelay) Update(listenerURL, token, nickname string) {
 	lr.mu.Lock()
 	defer lr.mu.Unlock()
 
-	// Stop existing connection.
+	// Close the live conn, not just the stop channel: run() blocks in
+	// conn.ReadMessage and won't see a closed stop channel until the socket errors,
+	// leaving the old nickname registered and 409-ing the next reconnect.
 	if lr.stop != nil {
 		close(lr.stop)
 		lr.stop = nil
+	}
+	if lr.conn != nil {
+		lr.conn.Close()
+		lr.conn = nil
 	}
 
 	if listenerURL == "" || token == "" {
@@ -118,10 +125,28 @@ func (lr *ListenerRelay) run(stop chan struct{}, listenerURL, token, nickname st
 			continue
 		}
 
+		// Publish the live conn so Update can close it. If already stopped between
+		// the dial and here, close and exit rather than registering a stale conn.
+		lr.mu.Lock()
+		select {
+		case <-stop:
+			lr.mu.Unlock()
+			conn.Close()
+			return
+		default:
+			lr.conn = conn
+			lr.mu.Unlock()
+		}
+
 		backoff = time.Second
 		lr.setRelayState(stop, "connected", "", 0)
 		lr.readLoop(conn, stop)
 		conn.Close()
+		lr.mu.Lock()
+		if lr.conn == conn {
+			lr.conn = nil
+		}
+		lr.mu.Unlock()
 		lr.setRelayState(stop, "disconnected", "connection closed", 0)
 	}
 }

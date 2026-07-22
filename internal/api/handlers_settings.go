@@ -39,19 +39,18 @@ func (s *APIServer) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		InterceptEnabled *bool   `json:"interceptEnabled"`
-		InterceptTimeout *int    `json:"interceptTimeout"`
-		ListenerURL      *string `json:"listenerUrl"`
-		ProjectID        *string `json:"projectId"`
-		TeamStatus       *string `json:"teamStatus"`
-		ShareProjectID   *bool   `json:"shareProjectId"`
-		HTTP2Enabled     *bool   `json:"http2Enabled"`
-		KeepAliveEnabled *bool   `json:"keepAliveEnabled"`
-		SOCKSHost        *string `json:"socksHost"`
-		SOCKSPort        *int    `json:"socksPort"`
-		SOCKSUsername    *string `json:"socksUsername"`
-		SOCKSPassword    *string `json:"socksPassword"`
-		SOCKSDNS         *bool   `json:"socksDns"`
+		InterceptEnabled    *bool   `json:"interceptEnabled"`
+		InterceptTimeout    *int    `json:"interceptTimeout"`
+		ListenerURL         *string `json:"listenerUrl"`
+		TeamStatus          *string `json:"teamStatus"`
+		ShareProjectName    *bool   `json:"shareProjectName"`
+		HTTP2Enabled        *bool   `json:"http2Enabled"`
+		KeepAliveEnabled    *bool   `json:"keepAliveEnabled"`
+		SOCKSHost           *string `json:"socksHost"`
+		SOCKSPort           *int    `json:"socksPort"`
+		SOCKSUsername       *string `json:"socksUsername"`
+		SOCKSPassword       *string `json:"socksPassword"`
+		SOCKSDNS            *bool   `json:"socksDns"`
 		TeamToken           *string `json:"teamToken"`
 		TeamNickname        *string `json:"teamNickname"`
 		MaxRequests         *int    `json:"maxRequests"`
@@ -137,14 +136,11 @@ func (s *APIServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request)
 	if body.DisableUpdateChecks != nil {
 		s.settings.DisableUpdateChecks = *body.DisableUpdateChecks
 	}
-	if body.ProjectID != nil {
-		s.settings.ProjectID = *body.ProjectID
-	}
 	if body.TeamStatus != nil {
 		s.settings.TeamStatus = *body.TeamStatus
 	}
-	if body.ShareProjectID != nil {
-		s.settings.ShareProjectID = *body.ShareProjectID
+	if body.ShareProjectName != nil {
+		s.settings.ShareProjectName = *body.ShareProjectName
 	}
 
 	settings := s.settings

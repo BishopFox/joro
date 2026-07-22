@@ -12,7 +12,7 @@ export interface ChatMessage {
 export interface ActiveUser {
   nickname: string
   status: string // online | away | dnd
-  projectId: string // "" unless shared
+  project: string // active project name, "" unless shared
 }
 
 interface TeamState {

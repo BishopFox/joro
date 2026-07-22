@@ -4,7 +4,7 @@ import { create } from 'zustand'
 export interface SharedConfigSummary {
   id: string
   name: string
-  projectId: string
+  project: string
   author: string
   createdAt: string
 }
