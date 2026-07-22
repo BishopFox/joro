@@ -18,6 +18,10 @@ interface ProjectState {
   createEmpty: (name: string, opts?: { action?: 'save' | 'discard'; saveScratchAs?: string }) => Promise<void>
   remove: (name: string) => Promise<void>
   setPrefs: (name: string, prefs: { autoSave?: boolean; saveHistory?: boolean }) => Promise<void>
+  // saveActive snapshots the current live state into the active project in place
+  // (unconditional server-side save, independent of the autoSave pref). No-op if
+  // there is no named active project.
+  saveActive: () => Promise<void>
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -56,6 +60,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   setPrefs: async (name, prefs) => {
     await api.setProjectPrefs(name, prefs)
+    await get().refresh()
+  },
+  saveActive: async () => {
+    const name = get().active
+    if (!name) return
+    await api.saveProjectConfig(name)
     await get().refresh()
   },
 }))

@@ -31,6 +31,7 @@ export default function Projects() {
   const createFromCurrent = useProjectStore((s) => s.createFromCurrent)
   const createEmpty = useProjectStore((s) => s.createEmpty)
   const setPrefs = useProjectStore((s) => s.setPrefs)
+  const saveActive = useProjectStore((s) => s.saveActive)
   const addToast = useToastStore((s) => s.addToast)
 
   const [creating, setCreating] = useState(false)
@@ -77,6 +78,15 @@ export default function Projects() {
     if (active === '') { setPending({ name, scratch: true }); return }
     if (activeMeta && activeMeta.autoSave) { doSwitch(name, { action: 'save' }); return }
     setPending({ name, scratch: false })
+  }
+
+  async function handleSave() {
+    try {
+      await saveActive()
+      addToast(`Saved ${active}`, 'info')
+    } catch (e) {
+      addToast(`Failed to save: ${String(e)}`, 'error')
+    }
   }
 
   async function handleCreateCurrent(name: string) {
@@ -134,6 +144,14 @@ export default function Projects() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide">Projects</h2>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleSave}
+            disabled={active === ''}
+            title={active === '' ? 'No active project to save' : `Save ${active}`}
+            className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold disabled:opacity-40"
+          >
+            Save
+          </button>
           <button
             onClick={() => setCreating(true)}
             className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold"

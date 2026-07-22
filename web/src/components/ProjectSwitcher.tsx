@@ -15,6 +15,7 @@ export default function ProjectSwitcher() {
   const switchTo = useProjectStore((s) => s.switchTo)
   const createFromCurrent = useProjectStore((s) => s.createFromCurrent)
   const createEmpty = useProjectStore((s) => s.createEmpty)
+  const saveActive = useProjectStore((s) => s.saveActive)
   const addToast = useToastStore((s) => s.addToast)
 
   const [open, setOpen] = useState(false)
@@ -86,6 +87,16 @@ export default function ProjectSwitcher() {
     setPending({ name, scratch: false })
   }
 
+  async function handleSave() {
+    try {
+      await saveActive()
+      addToast(`Saved ${active}`, 'info')
+    } catch (e) {
+      addToast(`Failed to save: ${String(e)}`, 'error')
+    }
+    setOpen(false)
+  }
+
   async function handleCreateCurrent(name: string) {
     try {
       await createFromCurrent(name)
@@ -152,6 +163,11 @@ export default function ProjectSwitcher() {
           </div>
 
           <div className="border-t border-border-subtle mt-1 pt-1">
+            {active !== '' && (
+              <button onClick={handleSave} className="w-full text-left px-3 py-1.5 hover:bg-surface-hover text-accent-tertiary">
+                💾 Save project
+              </button>
+            )}
             <button onClick={() => setCreating(true)} className="w-full text-left px-3 py-1.5 hover:bg-surface-hover text-accent-secondary">
               ＋ New project…
             </button>
