@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../stores/projectStore'
 import { useToastStore } from '../stores/toastStore'
 import { api, type ProjectMeta } from '../lib/api'
-import NewProjectModal from '../components/NewProjectModal'
-import ProjectSettings from '../components/ProjectSettings'
+import NewProjectModal from './NewProjectModal'
+import ProjectSettings from './ProjectSettings'
 
 function formatBytes(n: number): string {
   if (n <= 0) return '0 B'
@@ -20,9 +19,10 @@ function formatWhen(iso: string): string {
   return d.toLocaleString()
 }
 
-export default function Projects() {
-  const location = useLocation()
-  const navigate = useNavigate()
+// ProjectBrowser is the project list + management UI, embedded in the Settings
+// page under the "Project" category. Per-project settings render inline below
+// the table (Team Server / Team Configs / Filtering, via ProjectSettings).
+export default function ProjectBrowser() {
   const projects = useProjectStore((s) => s.projects)
   const active = useProjectStore((s) => s.active)
   const loading = useProjectStore((s) => s.loading)
@@ -35,29 +35,12 @@ export default function Projects() {
   const addToast = useToastStore((s) => s.addToast)
 
   const [creating, setCreating] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [pending, setPending] = useState<{ name: string; scratch: boolean } | null>(null)
   const [scratchName, setScratchName] = useState('')
   const [err, setErr] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { refresh() }, [refresh])
-
-  // Deep-link from the Settings page: open the project-settings modal, then clear
-  // the nav state so a refresh/back doesn't reopen it.
-  useEffect(() => {
-    if ((location.state as { openProjectSettings?: boolean } | null)?.openProjectSettings) {
-      setSettingsOpen(true)
-      navigate('/projects', { replace: true, state: {} })
-    }
-  }, [location.state, navigate])
-
-  useEffect(() => {
-    if (!settingsOpen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSettingsOpen(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [settingsOpen])
 
   const activeMeta = projects.find((p) => p.name === active)
 
@@ -140,8 +123,8 @@ export default function Projects() {
   }
 
   return (
-    <div className="p-4 overflow-y-auto flex-1 min-h-0">
-      <div className="flex items-center justify-between mb-4">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide">Projects</h2>
         <div className="flex items-center gap-2">
           <button
@@ -164,18 +147,11 @@ export default function Projects() {
           >
             Import…
           </button>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            title="Edit settings for the active project"
-            className="px-3 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover border border-border text-content-secondary text-xs font-semibold"
-          >
-            Settings
-          </button>
           <input ref={fileRef} type="file" accept=".joro,.json" onChange={handleImport} className="hidden" />
         </div>
       </div>
 
-      <p className="text-xs text-content-muted mb-4">
+      <p className="text-xs text-content-muted">
         Auto-save periodically writes the active project in the background; turn off Save history to
         keep a project small (its sitemap won't persist).
       </p>
@@ -237,31 +213,11 @@ export default function Projects() {
         </div>
       )}
 
-      {settingsOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
-          onMouseDown={() => setSettingsOpen(false)}
-        >
-          <div
-            className="flex flex-col w-full max-w-3xl max-h-[85vh] bg-surface-body border border-border rounded shadow-lg overflow-hidden"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-              <span className="text-xs font-semibold text-content-primary uppercase tracking-wide">Project Settings</span>
-              <button
-                onClick={() => setSettingsOpen(false)}
-                className="text-content-muted hover:text-content-primary text-sm"
-                title="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto">
-              <ProjectSettings />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Per-project settings, formerly a modal opened from this page. */}
+      <div className="border-t border-border pt-4">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-content-muted mb-3">Project Settings</h3>
+        <ProjectSettings />
+      </div>
 
       {creating && (
         <NewProjectModal

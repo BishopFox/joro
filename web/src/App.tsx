@@ -30,7 +30,6 @@ import Notes from './pages/Notes'
 import Setup from './pages/Setup'
 import Plugins from './pages/Plugins'
 import PluginTabPage from './pages/PluginTabPage'
-import Projects from './pages/Projects'
 import SettingsPage from './pages/Settings'
 import ProjectSwitcher from './components/ProjectSwitcher'
 import TestingBrowserButton from './components/TestingBrowserButton'
@@ -262,7 +261,6 @@ export default function App() {
           <Route path="/notes" element={<Notes teamMode={teamMode} />} />
           <Route path="/transform" element={<Transform />} />
           <Route path="/plugins" element={<Plugins />} />
-          <Route path="/projects" element={<Projects />} />
           <Route path="/plugin/:extName/*" element={<PluginTabPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>

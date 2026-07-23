@@ -171,7 +171,7 @@ export default function ProjectSwitcher() {
             <button onClick={() => setCreating(true)} className="w-full text-left px-3 py-1.5 hover:bg-surface-hover text-accent-secondary">
               ＋ New project…
             </button>
-            <button onClick={() => { setOpen(false); navigate('/projects') }} className="w-full text-left px-3 py-1.5 hover:bg-surface-hover text-content-secondary">
+            <button onClick={() => { setOpen(false); navigate('/settings', { state: { category: 'project' } }) }} className="w-full text-left px-3 py-1.5 hover:bg-surface-hover text-content-secondary">
               Manage…
             </button>
           </div>

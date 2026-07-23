@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
+import ProjectBrowser from '../components/ProjectBrowser'
 import { Settings, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useHiddenTabsStore } from '../stores/hiddenTabsStore'
@@ -30,7 +32,7 @@ const THEMES = [
   { value: 'tokyo', label: 'Tokyo' },
 ]
 
-type Category = 'general' | 'appearance' | 'testing'
+type Category = 'project' | 'general' | 'appearance' | 'testing'
 
 const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   {
@@ -57,6 +59,15 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
     ),
   },
   {
+    id: 'project',
+    label: 'Project',
+    icon: (
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      </svg>
+    ),
+  },
+  {
     id: 'testing',
     label: 'Testing Browser',
     icon: (
@@ -76,7 +87,21 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  const [category, setCategory] = useState<Category>('general')
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [category, setCategory] = useState<Category>(
+    () => ((location.state as { category?: Category } | null)?.category) || 'general'
+  )
+
+  // Deep-link from the header project dropdown ("Manage…"): open a specific
+  // sub-menu, then clear the nav state so a reload/back doesn't re-pin it.
+  useEffect(() => {
+    const cat = (location.state as { category?: Category } | null)?.category
+    if (cat) {
+      setCategory(cat)
+      navigate('/settings', { replace: true, state: {} })
+    }
+  }, [location.state, navigate])
 
   // Update check state
   const [checking, setChecking] = useState(false)
@@ -200,6 +225,8 @@ export default function SettingsPage() {
       {/* Content pane */}
       <div className="flex-1 min-h-0">
         <div className="h-full overflow-y-auto bg-surface-card rounded-lg p-5 shadow-sm">
+          {category === 'project' && <ProjectBrowser />}
+
           {settings && category === 'general' && (
             <div className="grid grid-cols-1 lg:grid-cols-2">
               {/* Column A */}
