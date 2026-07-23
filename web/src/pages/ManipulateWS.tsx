@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { X, Plus, WrapText, ArrowRight, ArrowLeft } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
@@ -288,18 +289,18 @@ export default function ManipulateWS() {
             {tabs.length > 1 && (
               <button
                 onClick={(e) => { e.stopPropagation(); removeTab(t.id) }}
-                className="text-content-muted hover:text-semantic-error ml-1 leading-none"
+                className="text-content-muted hover:text-semantic-error ml-1 leading-none inline-flex items-center"
               >
-                &times;
+                <X size={12} />
               </button>
             )}
           </div>
         ))}
         <button
           onClick={() => addTab()}
-          className="px-2 py-1.5 text-xs text-content-muted hover:text-content-secondary shrink-0"
+          className="px-2 py-1.5 text-content-muted hover:text-content-secondary shrink-0 inline-flex items-center"
         >
-          +
+          <Plus size={14} />
         </button>
       </div>
 
@@ -340,7 +341,7 @@ export default function ManipulateWS() {
           <div className="flex items-center gap-1 px-2 py-1 bg-surface-card border-b border-border shrink-0">
             <span className="text-xs text-content-muted">Upgrade Request</span>
             <div className="flex items-center gap-1 ml-auto">
-              <SquareToggle label="↩" title="Line wrapping" active={tab.wrapUpgrade} onClick={() => updateTab(tab.id, { wrapUpgrade: !tab.wrapUpgrade })} />
+              <SquareToggle label={<WrapText size={12} />} title="Line wrapping" active={tab.wrapUpgrade} onClick={() => updateTab(tab.id, { wrapUpgrade: !tab.wrapUpgrade })} />
             </div>
           </div>
           <div className="flex-1 relative min-h-0" style={{ flex: 1 }}>
@@ -359,7 +360,7 @@ export default function ManipulateWS() {
           <div className="flex items-center gap-1 px-2 py-1 bg-surface-card border-y border-border shrink-0">
             <span className="text-xs text-content-muted">Upgrade Response</span>
             <div className="flex items-center gap-1 ml-auto">
-              <SquareToggle label="↩" title="Line wrapping" active={tab.wrapResponse} onClick={() => updateTab(tab.id, { wrapResponse: !tab.wrapResponse })} />
+              <SquareToggle label={<WrapText size={12} />} title="Line wrapping" active={tab.wrapResponse} onClick={() => updateTab(tab.id, { wrapResponse: !tab.wrapResponse })} />
             </div>
           </div>
           <div className="relative min-h-0" style={{ flex: 1 }}>
@@ -406,8 +407,8 @@ export default function ManipulateWS() {
                     >
                       <td className="px-2 py-0.5 w-6 text-center">
                         {f.direction === 'sent'
-                          ? <span className="text-accent-secondary">→</span>
-                          : <span className="text-accent-tertiary">←</span>}
+                          ? <span className="text-accent-secondary inline-flex items-center"><ArrowRight size={13} /></span>
+                          : <span className="text-accent-tertiary inline-flex items-center"><ArrowLeft size={13} /></span>}
                       </td>
                       <td className="px-2 py-0.5 w-20 text-content-muted">{formatTime(f.ts)}</td>
                       <td className="px-2 py-0.5 w-14 text-content-secondary">{f.opcode}</td>
@@ -460,7 +461,7 @@ export default function ManipulateWS() {
                 <option value="close">Close</option>
               </select>
               <div className="ml-auto flex items-center gap-1">
-                <SquareToggle label="↩" title="Line wrapping" active={tab.wrapPayload} onClick={() => updateTab(tab.id, { wrapPayload: !tab.wrapPayload })} />
+                <SquareToggle label={<WrapText size={12} />} title="Line wrapping" active={tab.wrapPayload} onClick={() => updateTab(tab.id, { wrapPayload: !tab.wrapPayload })} />
                 <button
                   onClick={sendFrame}
                   disabled={tab.state !== 'connected'}
@@ -506,7 +507,7 @@ function StateBadge({ state }: { state: ManipulateWSTab['state'] }) {
   )
 }
 
-function SquareToggle({ label, title, active, onClick }: { label: string; title: string; active: boolean; onClick: () => void }) {
+function SquareToggle({ label, title, active, onClick }: { label: ReactNode; title: string; active: boolean; onClick: () => void }) {
   return (
     <Tooltip content={title}>
       <button

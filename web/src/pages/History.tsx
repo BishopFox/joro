@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Flag, WrapText, ChevronUp, ChevronDown } from 'lucide-react'
 import type { CapturedWSMessage } from '../lib/api'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
@@ -379,8 +380,12 @@ function HTTPHistory() {
     }
   }
 
-  const sortIndicator = (col: SortColumn) =>
-    sortColumn === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''
+  const sortIndicator = (col: SortColumn): ReactNode =>
+    sortColumn === col
+      ? (sortDir === 'asc'
+          ? <ChevronUp size={11} className="inline ml-0.5 align-[-1px]" />
+          : <ChevronDown size={11} className="inline ml-0.5 align-[-1px]" />)
+      : null
 
   const sortedItems = useMemo(() => {
     const sorted = [...items]
@@ -865,11 +870,11 @@ function HTTPHistory() {
                   <Tooltip content="Line wrapping">
                     <button
                       onClick={() => setWrapReq(w => !w)}
-                      className={`w-6 h-5 flex items-center justify-center text-[10px] rounded-sm font-semibold leading-none ${
+                      className={`w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
                         wrapReq ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
                       }`}
                     >
-                      ↩
+                      <WrapText size={12} />
                     </button>
                   </Tooltip>
                 </div>
@@ -922,11 +927,11 @@ function HTTPHistory() {
                     <Tooltip content="Line wrapping">
                       <button
                         onClick={() => setWrapResp(w => !w)}
-                        className={`w-6 h-5 flex items-center justify-center text-[10px] rounded-sm font-semibold leading-none ${
+                        className={`w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
                           wrapResp ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
                         }`}
                       >
-                        ↩
+                        <WrapText size={12} />
                       </button>
                     </Tooltip>
                   ) : (
@@ -1002,7 +1007,7 @@ function HTTPHistory() {
             { label: 'Manipulate', onClick: sendToManipulate },
             { label: 'Fuzz', onClick: sendToFuzz },
             { label: 'Stage for Dead Drop', onClick: () => stageDetailForDeadDrop(selectedDetail) },
-            ...(teamMode ? [{ label: '🚩 Flag to team', onClick: flagToTeam }] : []),
+            ...(teamMode ? [{ label: 'Flag to team', icon: <Flag size={13} />, onClick: flagToTeam }] : []),
             { label: 'Copy URL', onClick: copyUrl },
             { label: 'Copy as curl', onClick: copyCurl },
             { label: 'Copy Raw Request', onClick: () => copyRaw('request') },

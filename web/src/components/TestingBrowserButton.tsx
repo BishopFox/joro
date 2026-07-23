@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AppWindow } from 'lucide-react'
 import { api } from '../lib/api'
 import { getBrowserPrefs } from '../lib/browserPrefs'
 import { useToastStore } from '../stores/toastStore'
@@ -47,25 +48,7 @@ export default function TestingBrowserButton() {
           : 'text-content-muted hover:text-content-primary'
       }`}
     >
-      {/* Browser-window glyph (no icon library in this project) */}
-      <svg
-        viewBox="0 0 24 24"
-        width="20"
-        height="20"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.7}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-        className={launching ? 'animate-pulse' : ''}
-      >
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="M3 8 H21" />
-        <circle cx="6" cy="6" r="0.6" fill="currentColor" stroke="none" />
-        <circle cx="8.2" cy="6" r="0.6" fill="currentColor" stroke="none" />
-        <circle cx="10.4" cy="6" r="0.6" fill="currentColor" stroke="none" />
-      </svg>
+      <AppWindow size={20} strokeWidth={1.7} aria-hidden="true" className={launching ? 'animate-pulse' : ''} />
     </button>
   )
 }

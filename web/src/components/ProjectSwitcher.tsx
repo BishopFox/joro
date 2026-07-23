@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../stores/projectStore'
 import { useToastStore } from '../stores/toastStore'
 import NewProjectModal from './NewProjectModal'
+import { Folder, ChevronDown, Save, Plus } from 'lucide-react'
 
 // ProjectSwitcher is the header dropdown (left of the Dead Drop spider) for quick
 // project switching. Switching respects the outgoing project's autoSave pref:
@@ -129,13 +130,9 @@ export default function ProjectSwitcher() {
         title="Switch project"
         className="flex items-center gap-1.5 max-w-[180px] px-2 py-1 rounded-sm text-xs bg-surface-input border border-border text-content-secondary hover:text-content-primary hover:border-accent-secondary transition-colors"
       >
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-        </svg>
+        <Folder size={14} strokeWidth={1.8} aria-hidden="true" className="shrink-0" />
         <span className={`truncate ${active ? 'text-content-primary' : 'italic text-content-muted'}`}>{label}</span>
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        <ChevronDown size={12} aria-hidden="true" className="shrink-0" />
       </button>
 
       {open && (
@@ -165,16 +162,12 @@ export default function ProjectSwitcher() {
           <div className="border-t border-border-subtle mt-1 pt-1">
             {active !== '' && (
               <button onClick={handleSave} className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-surface-hover text-accent-tertiary text-left">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                  <polyline points="17 21 17 13 7 13 7 21" />
-                  <polyline points="7 3 7 8 15 8" />
-                </svg>
+                <Save size={14} strokeWidth={1.8} aria-hidden="true" className="shrink-0" />
                 Save project
               </button>
             )}
-            <button onClick={() => setCreating(true)} className="w-full text-left px-3 py-1.5 hover:bg-surface-hover text-accent-secondary">
-              ＋ New project…
+            <button onClick={() => setCreating(true)} className="w-full flex items-center gap-2 text-left px-3 py-1.5 hover:bg-surface-hover text-accent-secondary">
+              <Plus size={14} strokeWidth={1.8} aria-hidden="true" className="shrink-0" /> New project…
             </button>
             <button onClick={() => { setOpen(false); navigate('/settings', { state: { category: 'project' } }) }} className="w-full text-left px-3 py-1.5 hover:bg-surface-hover text-content-secondary">
               Manage…

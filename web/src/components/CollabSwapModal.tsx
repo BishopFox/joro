@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Handshake } from 'lucide-react'
 import { api, type CollabRequest } from '../lib/api'
 import type { SharedConfigPayload } from '../stores/teamSharedConfigStore'
 
@@ -110,8 +111,9 @@ export default function CollabSwapModal({ collabId, onClose, onApplied }: Props)
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="shrink-0 px-4 py-3 border-b border-border">
-          <span className="text-xs font-semibold text-content-primary uppercase tracking-wide">
-            🤝 Collaboration request
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-content-primary uppercase tracking-wide">
+            <Handshake size={14} aria-hidden="true" />
+            Collaboration request
           </span>
           {req && (
             <p className="text-xs text-content-secondary mt-1">

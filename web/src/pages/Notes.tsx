@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Pencil, X } from 'lucide-react'
 import { api } from '../lib/api'
 import type { Note } from '../lib/api'
 import { Tooltip } from '../components/Tooltip'
@@ -295,17 +296,17 @@ export default function Notes({ teamMode = false }: NotesProps) {
                           <Tooltip content="Edit note">
                             <button
                               onClick={() => startEdit(n)}
-                              className="w-7 h-7 flex items-center justify-center rounded text-sm text-content-muted hover:text-accent-secondary hover:bg-surface-hover"
+                              className="w-7 h-7 flex items-center justify-center rounded text-content-muted hover:text-accent-secondary hover:bg-surface-hover"
                             >
-                              ✎
+                              <Pencil size={14} />
                             </button>
                           </Tooltip>
                           <Tooltip content="Delete note">
                             <button
                               onClick={() => setConfirmDeleteId(n.id)}
-                              className="w-7 h-7 flex items-center justify-center rounded text-sm text-content-muted hover:text-semantic-error hover:bg-surface-hover"
+                              className="w-7 h-7 flex items-center justify-center rounded text-content-muted hover:text-semantic-error hover:bg-surface-hover"
                             >
-                              ✕
+                              <X size={15} />
                             </button>
                           </Tooltip>
                         </div>

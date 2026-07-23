@@ -13,6 +13,7 @@ import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
 import ConfirmModal from '../components/ConfirmModal'
 import { Tooltip } from '../components/Tooltip'
+import { Filter, ChevronRight, X, WrapText } from 'lucide-react'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
 import SitemapFilterModal, { emptySitemapFilter, hasModalFilters } from '../components/SitemapFilterModal'
@@ -256,7 +257,7 @@ export default function Map() {
                 hasModalFilters(filter) ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
               }`}
             >
-              &#9776;
+              <Filter size={13} strokeWidth={1.8} aria-hidden="true" />
               {hasModalFilters(filter) && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-accent-tertiary" />
               )}
@@ -300,7 +301,7 @@ export default function Map() {
                       onClick={() => toggleHost(host.origin)}
                       className="flex items-center gap-2 flex-1 min-w-0 text-left px-2 py-1.5"
                     >
-                      <span className={`text-[10px] text-content-muted transition-transform ${hostExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
+                      <span className={`inline-flex items-center text-content-muted transition-transform ${hostExpanded ? 'rotate-90' : ''}`}><ChevronRight size={12} /></span>
                       <span className="text-xs font-semibold text-content-primary">{host.origin}</span>
                       <span className="text-[10px] text-content-muted ml-1">({host.count})</span>
                       <span className="text-[10px] text-content-muted ml-auto">{host.endpoints.length} {host.endpoints.length === 1 ? 'endpoint' : 'endpoints'}</span>
@@ -309,9 +310,9 @@ export default function Map() {
                       <button
                         onClick={() => setConfirmDelete({ kind: 'host', origin: host.origin })}
                         aria-label="Delete host"
-                        className="px-2 py-1.5 text-content-muted hover:text-semantic-error text-xs leading-none shrink-0"
+                        className="px-2 py-1.5 text-content-muted hover:text-semantic-error text-xs leading-none shrink-0 inline-flex items-center"
                       >
-                        &#10005;
+                        <X size={13} />
                       </button>
                     </Tooltip>
                   </div>
@@ -336,7 +337,7 @@ export default function Map() {
                                 className="flex items-center gap-2 flex-1 min-w-0 text-left px-2 py-1 cursor-pointer"
                               >
                                 {hasMultipleVariants ? (
-                                  <span className={`text-[10px] text-content-muted transition-transform ${epExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
+                                  <span className={`inline-flex items-center text-content-muted transition-transform ${epExpanded ? 'rotate-90' : ''}`}><ChevronRight size={12} /></span>
                                 ) : (
                                   <span className="text-[10px] text-content-muted">&bull;</span>
                                 )}
@@ -352,9 +353,9 @@ export default function Map() {
                                 <button
                                   onClick={() => setConfirmDelete({ kind: 'endpoint', origin: host.origin, path: ep.path })}
                                   aria-label="Delete endpoint"
-                                  className="px-2 py-1 text-content-muted hover:text-semantic-error text-xs leading-none shrink-0"
+                                  className="px-2 py-1 text-content-muted hover:text-semantic-error text-xs leading-none shrink-0 inline-flex items-center"
                                 >
-                                  &#10005;
+                                  <X size={13} />
                                 </button>
                               </Tooltip>
                             </div>
@@ -424,11 +425,11 @@ export default function Map() {
                   <Tooltip content="Line wrapping">
                     <button
                       onClick={() => setWrapReq(w => !w)}
-                      className={`w-6 h-5 flex items-center justify-center text-[10px] rounded-sm font-semibold leading-none ${
+                      className={`w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
                         wrapReq ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
                       }`}
                     >
-                      ↩
+                      <WrapText size={12} />
                     </button>
                   </Tooltip>
                 </div>
@@ -481,11 +482,11 @@ export default function Map() {
                     <Tooltip content="Line wrapping">
                       <button
                         onClick={() => setWrapResp(w => !w)}
-                        className={`w-6 h-5 flex items-center justify-center text-[10px] rounded-sm font-semibold leading-none ${
+                        className={`w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
                           wrapResp ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
                         }`}
                       >
-                        ↩
+                        <WrapText size={12} />
                       </button>
                     </Tooltip>
                   ) : (

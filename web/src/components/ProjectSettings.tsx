@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ArrowRight, X } from 'lucide-react'
 import { api, CustomAddition, MatchReplaceRule, NoisePattern, ScopeRule } from '../lib/api'
 import { useRequestStore } from '../stores/requestStore'
 import { Settings, useSettingsStore } from '../stores/settingsStore'
@@ -531,7 +532,7 @@ export default function ProjectSettings() {
                         {rule.matchType}
                       </span>
                       <span className="text-content-primary font-mono truncate max-w-[12rem]">{rule.match}</span>
-                      <span className="text-content-muted">&rarr;</span>
+                      <span className="text-content-muted inline-flex items-center"><ArrowRight size={12} /></span>
                       <span className="text-semantic-success font-mono truncate max-w-[12rem]">{rule.replace || '(empty)'}</span>
                       <button
                         onClick={async () => {
@@ -815,10 +816,10 @@ function TeamConfigsPanel({ onImported }: { onImported: (p: unknown) => void }) 
                 </button>
                 <button
                   onClick={() => del(c.id)}
-                  className="text-content-muted hover:text-semantic-error"
+                  className="text-content-muted hover:text-semantic-error inline-flex items-center"
                   title="Delete published config"
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               </div>
             </div>

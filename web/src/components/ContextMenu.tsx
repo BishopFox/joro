@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { Check, ChevronRight } from 'lucide-react'
 
 export interface MenuItem {
   label: string
@@ -7,6 +8,7 @@ export interface MenuItem {
   children?: MenuItem[]
   disabled?: boolean
   checked?: boolean
+  icon?: ReactNode
 }
 
 interface ContextMenuProps {
@@ -94,11 +96,12 @@ function MenuList({ items, x, y, onClose, isSubmenu }: { items: MenuItem[]; x: n
             (e.currentTarget as HTMLDivElement).style.background = 'transparent'
           }}
         >
-          <span style={{ width: 18, flexShrink: 0, color: 'var(--color-accent)' }}>
-            {item.checked ? '✓' : ''}
+          <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', alignItems: 'center', color: 'var(--color-accent)' }}>
+            {item.checked ? <Check size={12} /> : null}
           </span>
+          {item.icon && <span style={{ marginRight: 8, display: 'inline-flex', alignItems: 'center' }}>{item.icon}</span>}
           <span style={{ flex: 1 }}>{item.label}</span>
-          {item.children && <span style={{ marginLeft: 8, color: 'var(--color-content-muted)' }}>▸</span>}
+          {item.children && <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', color: 'var(--color-content-muted)' }}><ChevronRight size={12} /></span>}
         </div>
       ))}
       {openSub !== null && items[openSub].children && (

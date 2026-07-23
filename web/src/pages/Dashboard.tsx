@@ -13,6 +13,7 @@ import FlaggedRequestModal from '../components/FlaggedRequestModal'
 import CollabSwapModal from '../components/CollabSwapModal'
 import type { SliverSession, PluginGraphData } from '../components/NetworkGraph'
 import { onMythicEvent } from '../lib/ws'
+import { X } from 'lucide-react'
 
 interface UnifiedEvent {
   id: string
@@ -669,10 +670,10 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
                         <td className="px-3 py-1.5 text-right">
                           <button
                             onClick={(e) => { e.stopPropagation(); deleteFlagged(f.id) }}
-                            className="text-content-muted hover:text-semantic-error"
+                            className="text-content-muted hover:text-semantic-error inline-flex items-center"
                             title="Delete flagged request"
                           >
-                            ✕
+                            <X size={14} />
                           </button>
                         </td>
                       </tr>

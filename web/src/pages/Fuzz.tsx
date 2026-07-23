@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { WrapText, Pilcrow, CornerDownRight, ChevronUp, ChevronDown, X, Settings } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view'
 import type { Range } from '@codemirror/state'
@@ -548,9 +549,11 @@ export default function Fuzz() {
     }
   }
 
-  const sortArrow = (col: FuzzSortColumn) => {
-    if (tab.sortColumn !== col) return ''
-    return tab.sortDir === 'asc' ? ' ▲' : ' ▼'
+  const sortArrow = (col: FuzzSortColumn): ReactNode => {
+    if (tab.sortColumn !== col) return null
+    return tab.sortDir === 'asc'
+      ? <ChevronUp size={11} className="inline ml-0.5 align-[-1px]" />
+      : <ChevronDown size={11} className="inline ml-0.5 align-[-1px]" />
   }
 
   const pct = tab.totalPayloads > 0 ? (tab.completedPayloads / tab.totalPayloads) * 100 : 0
@@ -601,9 +604,9 @@ export default function Fuzz() {
             {tabs.length > 1 && (
               <button
                 onClick={(e) => { e.stopPropagation(); removeTab(t.id) }}
-                className="text-content-muted hover:text-semantic-error ml-1 leading-none"
+                className="text-content-muted hover:text-semantic-error ml-1 leading-none inline-flex items-center"
               >
-                &times;
+                <X size={12} />
               </button>
             )}
           </div>
@@ -760,10 +763,10 @@ export default function Fuzz() {
                   </Tooltip>
                 </div>
                 <div className="flex items-center gap-1 ml-auto">
-                  <SquareToggle label="↩" title="Line wrapping" active={tab.wrapReq} onClick={() => store.setWrapReq(!tab.wrapReq)} />
+                  <SquareToggle label={<WrapText size={12} />} title="Line wrapping" active={tab.wrapReq} onClick={() => store.setWrapReq(!tab.wrapReq)} />
                   <SquareToggle label="CL" title="Auto-update Content-Length" active={tab.updateContentLength} onClick={() => store.setUpdateContentLength(!tab.updateContentLength)} />
-                  <SquareToggle label="¶" title="Show non-printable characters" active={tab.showNonPrintable} onClick={() => store.setShowNonPrintable(!tab.showNonPrintable)} />
-                  <SquareToggle label="↪" title="Follow redirects" active={tab.followRedirects} onClick={() => store.setFollowRedirects(!tab.followRedirects)} />
+                  <SquareToggle label={<Pilcrow size={12} />} title="Show non-printable characters" active={tab.showNonPrintable} onClick={() => store.setShowNonPrintable(!tab.showNonPrintable)} />
+                  <SquareToggle label={<CornerDownRight size={12} />} title="Follow redirects" active={tab.followRedirects} onClick={() => store.setFollowRedirects(!tab.followRedirects)} />
                 </div>
               </div>
               <div className="flex-1 relative min-h-0">
@@ -813,10 +816,10 @@ export default function Fuzz() {
                         <Tooltip content="Clear wordlist">
                           <button
                             onClick={() => store.setWordlist('')}
-                            className="text-xs text-content-muted hover:text-semantic-error px-1"
+                            className="text-xs text-content-muted hover:text-semantic-error px-1 inline-flex items-center"
                             disabled={isRunning}
                           >
-                            &times;
+                            <X size={12} />
                           </button>
                         </Tooltip>
                       )}
@@ -883,10 +886,10 @@ export default function Fuzz() {
                             <Tooltip content="Clear wordlist">
                               <button
                                 onClick={() => store.setPositionWordlist(activeWlTab, '')}
-                                className="text-xs text-content-muted hover:text-semantic-error px-1"
+                                className="text-xs text-content-muted hover:text-semantic-error px-1 inline-flex items-center"
                                 disabled={isRunning}
                               >
-                                &times;
+                                <X size={12} />
                               </button>
                             </Tooltip>
                           )}
@@ -943,9 +946,9 @@ export default function Fuzz() {
                 <Tooltip content="Matchers & Filters">
                   <button
                     onClick={store.toggleConfigPanel}
-                    className={`text-xs px-1.5 py-0.5 rounded-sm ${tab.configPanelOpen ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'}`}
+                    className={`text-xs px-1.5 py-0.5 rounded-sm inline-flex items-center ${tab.configPanelOpen ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'}`}
                   >
-                    ⚙
+                    <Settings size={13} />
                   </button>
                 </Tooltip>
               </div>
@@ -1062,7 +1065,7 @@ export default function Fuzz() {
                           <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-surface-card shrink-0">
                             <span className="text-xs font-semibold text-content-primary">Request</span>
                             <div className="flex items-center gap-1 ml-auto">
-                              <SquareToggle label="↩" title="Line wrapping" active={wrapDetailReq} onClick={() => setWrapDetailReq(w => !w)} />
+                              <SquareToggle label={<WrapText size={12} />} title="Line wrapping" active={wrapDetailReq} onClick={() => setWrapDetailReq(w => !w)} />
                             </div>
                           </div>
                           <div className="flex-1 relative min-h-0">
@@ -1109,7 +1112,7 @@ export default function Fuzz() {
                             </div>
                             <div className="flex items-center gap-1 ml-auto">
                               {respTab === 'raw' ? (
-                                <SquareToggle label="↩" title="Line wrapping" active={wrapDetailResp} onClick={() => setWrapDetailResp(w => !w)} />
+                                <SquareToggle label={<WrapText size={12} />} title="Line wrapping" active={wrapDetailResp} onClick={() => setWrapDetailResp(w => !w)} />
                               ) : (
                                 <SquareToggle label="{ }" title="Pretty-print JSON" active={prettyJson} onClick={() => setPrettyJson(!prettyJson)} />
                               )}
@@ -1180,7 +1183,7 @@ function StatusBadge({ status }: { status: number }) {
   return <span className={color}>{status}</span>
 }
 
-function SquareToggle({ label, title, active, onClick }: { label: string; title: string; active: boolean; onClick: () => void }) {
+function SquareToggle({ label, title, active, onClick }: { label: ReactNode; title: string; active: boolean; onClick: () => void }) {
   return (
     <Tooltip content={title}>
       <button
@@ -1251,9 +1254,9 @@ function FilterSection({ title, borderColor, rules, mode, onModeChange, onAdd, o
           />
           <button
             onClick={() => onRemove(rule.id)}
-            className="text-content-muted hover:text-semantic-error text-xs px-0.5"
+            className="text-content-muted hover:text-semantic-error text-xs px-0.5 inline-flex items-center"
           >
-            &times;
+            <X size={12} />
           </button>
         </div>
       ))}

@@ -10,6 +10,7 @@ import HealthCheck from '../components/HealthCheck'
 import { useToastStore } from '../stores/toastStore'
 import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
+import { Settings as SettingsIcon, Palette, Folder, AppWindow } from 'lucide-react'
 
 const THEMES = [
   { value: 'aomori', label: 'Aomori' },
@@ -38,46 +39,22 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   {
     id: 'general',
     label: 'General',
-    icon: (
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" />
-      </svg>
-    ),
+    icon: <SettingsIcon size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
   {
     id: 'appearance',
     label: 'Appearance',
-    icon: (
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="8.5" />
-        <circle cx="8.5" cy="10" r="1" fill="currentColor" stroke="none" />
-        <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
-        <circle cx="15.5" cy="10" r="1" fill="currentColor" stroke="none" />
-        <path d="M12 20.5c1.5 0 2-1 2-2s-1-1.5-1-2.5 1-1.5 2.5-1.5S20 12 20 10.5" />
-      </svg>
-    ),
+    icon: <Palette size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
   {
     id: 'project',
     label: 'Project',
-    icon: (
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      </svg>
-    ),
+    icon: <Folder size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
   {
     id: 'testing',
     label: 'Testing Browser',
-    icon: (
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="M3 8 H21" />
-        <circle cx="6" cy="6" r="0.5" fill="currentColor" stroke="none" />
-        <circle cx="8" cy="6" r="0.5" fill="currentColor" stroke="none" />
-      </svg>
-    ),
+    icon: <AppWindow size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
 ]
 

@@ -197,7 +197,7 @@ export default function App() {
               } ${stagedCount > 0 ? 'has-staged' : ''}`
             }
           >
-            {/* Jorōgumo — hand-drawn spider glyph (no icon library in this project) */}
+            {/* Jorōgumo — hand-drawn spider mascot (kept custom; no lucide equivalent) */}
             <svg
               className="deaddrop-glyph"
               viewBox="0 0 24 24"

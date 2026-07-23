@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { ChevronDown } from 'lucide-react'
 import { copyText } from '../lib/clipboard'
 
 type Encoding = 'url' | 'base64' | 'hex' | 'html'
@@ -309,7 +310,7 @@ export default function Transform() {
             <div key={section.id} className="flex flex-col flex-1 min-h-0">
               {idx > 0 && (
                 <div className="flex items-center justify-center py-1 flex-shrink-0">
-                  <div className="text-content-muted text-xs">&#9660;</div>
+                  <div className="text-content-muted inline-flex items-center"><ChevronDown size={14} /></div>
                 </div>
               )}
               <div className="bg-surface-card border border-border rounded p-3 flex flex-col flex-1 min-h-0">

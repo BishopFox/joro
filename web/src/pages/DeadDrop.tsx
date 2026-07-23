@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { X, Inbox } from 'lucide-react'
 import FlaggedRequestModal from '../components/FlaggedRequestModal'
 import type { FlaggedRequest } from '../stores/teamFlaggedStore'
 import { StagedRequest, useDeadDropStore } from '../stores/deadDropStore'
@@ -234,10 +235,10 @@ export default function DeadDrop() {
                     />
                     <button
                       onClick={() => remove(s.id)}
-                      className="shrink-0 px-1.5 text-content-muted hover:text-semantic-error text-sm"
+                      className="shrink-0 px-1.5 text-content-muted hover:text-semantic-error inline-flex items-center"
                       title="Remove"
                     >
-                      ✕
+                      <X size={14} />
                     </button>
                   </li>
                 ))}
@@ -325,7 +326,8 @@ export default function DeadDrop() {
         <FlaggedRequestModal
           flagged={viewing.flagged}
           onClose={() => setViewing(null)}
-          title="📥 Dead Drop Request"
+          title="Dead Drop Request"
+          icon={<Inbox size={13} aria-hidden="true" />}
           byline="shared by"
         />
       )}

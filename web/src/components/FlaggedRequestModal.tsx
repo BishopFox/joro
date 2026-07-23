@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
+import { Flag, X, WrapText } from 'lucide-react'
 import { ResponseRender, usePrettyJson } from './ResponseRender'
 import type { FlaggedRequest } from '../stores/teamFlaggedStore'
 
@@ -19,13 +20,15 @@ type Props = {
   onClose: () => void
   title?: string
   byline?: string
+  icon?: ReactNode
 }
 
 export default function FlaggedRequestModal({
   flagged,
   onClose,
-  title = '🚩 Flagged Request',
+  title = 'Flagged Request',
   byline = 'flagged by',
+  icon = <Flag size={13} aria-hidden="true" />,
 }: Props) {
   const navigate = useNavigate()
   const [respTab, setRespTab] = useState<'raw' | 'render'>('raw')
@@ -70,7 +73,8 @@ export default function FlaggedRequestModal({
       >
         {/* Header */}
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border">
-          <span className="text-xs font-semibold text-content-primary uppercase tracking-wide">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-content-primary uppercase tracking-wide">
+            {icon}
             {title}
           </span>
           <span className="text-xs text-content-secondary truncate max-w-[45%]">
@@ -99,9 +103,9 @@ export default function FlaggedRequestModal({
             </button>
             <button
               onClick={onClose}
-              className="px-2 py-1 text-content-secondary hover:text-content-primary text-sm"
+              className="px-2 py-1 text-content-secondary hover:text-content-primary inline-flex items-center"
             >
-              ✕
+              <X size={16} />
             </button>
           </div>
         </div>
@@ -129,11 +133,11 @@ export default function FlaggedRequestModal({
               <button
                 onClick={() => setWrapReq((w) => !w)}
                 title="Line wrapping"
-                className={`ml-auto w-6 h-5 flex items-center justify-center text-[10px] rounded-sm font-semibold leading-none ${
+                className={`ml-auto w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
                   wrapReq ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
                 }`}
               >
-                ↩
+                <WrapText size={12} />
               </button>
             </div>
             <div className="flex-1 relative min-h-0">
@@ -180,11 +184,11 @@ export default function FlaggedRequestModal({
                 <button
                   onClick={() => setWrapResp((w) => !w)}
                   title="Line wrapping"
-                  className={`ml-auto w-6 h-5 flex items-center justify-center text-[10px] rounded-sm font-semibold leading-none ${
+                  className={`ml-auto w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
                     wrapResp ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
                   }`}
                 >
-                  ↩
+                  <WrapText size={12} />
                 </button>
               )}
               {respTab === 'render' && (

@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
+import { useEffect, useState, useRef, useMemo, useCallback, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { ChevronLeft, ChevronRight, Flag, WrapText, Pilcrow, CornerDownRight, X, Plus } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view'
 import type { Range } from '@codemirror/state'
@@ -297,18 +298,18 @@ export default function ManipulateHTTP() {
             {tabs.length > 1 && (
               <button
                 onClick={(e) => { e.stopPropagation(); removeTab(t.id) }}
-                className="text-content-muted hover:text-semantic-error ml-1 leading-none"
+                className="text-content-muted hover:text-semantic-error ml-1 leading-none inline-flex items-center"
               >
-                &times;
+                <X size={12} />
               </button>
             )}
           </div>
         ))}
         <button
           onClick={() => addTab()}
-          className="px-2 py-1.5 text-xs text-content-muted hover:text-content-secondary shrink-0"
+          className="px-2 py-1.5 text-content-muted hover:text-content-secondary shrink-0 inline-flex items-center"
         >
-          +
+          <Plus size={14} />
         </button>
       </div>
 
@@ -332,18 +333,18 @@ export default function ManipulateHTTP() {
           <button
             onClick={() => goBack(tab.id)}
             disabled={!canGoBack}
-            className="text-xs px-1.5 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary font-semibold disabled:opacity-30"
+            className="px-1.5 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary disabled:opacity-30 inline-flex items-center"
           >
-            ◀
+            <ChevronLeft size={14} />
           </button>
         </Tooltip>
         <Tooltip content="Next request">
           <button
             onClick={() => goForward(tab.id)}
             disabled={!canGoForward}
-            className="text-xs px-1.5 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary font-semibold disabled:opacity-30"
+            className="px-1.5 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary disabled:opacity-30 inline-flex items-center"
           >
-            ▶
+            <ChevronRight size={14} />
           </button>
         </Tooltip>
         <button
@@ -357,9 +358,9 @@ export default function ManipulateHTTP() {
           <Tooltip content="Flag this request to the team">
             <button
               onClick={flagToTeam}
-              className="text-xs px-2 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary font-semibold"
+              className="text-xs px-2 py-1.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary font-semibold inline-flex items-center gap-1"
             >
-              🚩 Flag
+              <Flag size={13} /> Flag
             </button>
           </Tooltip>
         )}
@@ -372,10 +373,10 @@ export default function ManipulateHTTP() {
           <div className="flex items-center gap-1 px-2 py-1 bg-surface-card border-b border-border shrink-0">
             <span className="text-xs text-content-muted">Request</span>
             <div className="flex items-center gap-1 ml-auto">
-              <SquareToggle label="↩" title="Line wrapping" active={tab.wrapReq} onClick={() => updateTab(tab.id, { wrapReq: !tab.wrapReq })} />
+              <SquareToggle label={<WrapText size={12} />} title="Line wrapping" active={tab.wrapReq} onClick={() => updateTab(tab.id, { wrapReq: !tab.wrapReq })} />
               <SquareToggle label="CL" title="Auto-update Content-Length" active={tab.updateContentLength} onClick={() => updateTab(tab.id, { updateContentLength: !tab.updateContentLength })} />
-              <SquareToggle label="¶" title="Show non-printable characters" active={tab.showNonPrintable} onClick={() => updateTab(tab.id, { showNonPrintable: !tab.showNonPrintable })} />
-              <SquareToggle label="↪" title="Follow redirects" active={tab.followRedirects} onClick={() => updateTab(tab.id, { followRedirects: !tab.followRedirects })} />
+              <SquareToggle label={<Pilcrow size={12} />} title="Show non-printable characters" active={tab.showNonPrintable} onClick={() => updateTab(tab.id, { showNonPrintable: !tab.showNonPrintable })} />
+              <SquareToggle label={<CornerDownRight size={12} />} title="Follow redirects" active={tab.followRedirects} onClick={() => updateTab(tab.id, { followRedirects: !tab.followRedirects })} />
               <SquareToggle label="gz" title="Decompress response" active={tab.decompress} onClick={() => updateTab(tab.id, { decompress: !tab.decompress })} />
             </div>
           </div>
@@ -423,7 +424,7 @@ export default function ManipulateHTTP() {
             </div>
             <div className="flex items-center gap-1 ml-auto">
               {respTab === 'raw' ? (
-                <SquareToggle label="↩" title="Line wrapping" active={tab.wrapResp} onClick={() => updateTab(tab.id, { wrapResp: !tab.wrapResp })} />
+                <SquareToggle label={<WrapText size={12} />} title="Line wrapping" active={tab.wrapResp} onClick={() => updateTab(tab.id, { wrapResp: !tab.wrapResp })} />
               ) : (
                 <SquareToggle label="{ }" title="Pretty-print JSON" active={prettyJson} onClick={() => setPrettyJson(!prettyJson)} />
               )}
@@ -491,7 +492,7 @@ export default function ManipulateHTTP() {
   )
 }
 
-function SquareToggle({ label, title, active, onClick }: { label: string; title: string; active: boolean; onClick: () => void }) {
+function SquareToggle({ label, title, active, onClick }: { label: ReactNode; title: string; active: boolean; onClick: () => void }) {
   return (
     <Tooltip content={title}>
       <button

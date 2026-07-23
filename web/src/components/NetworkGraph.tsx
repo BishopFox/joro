@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, useMemo } from 'react'
+import { Server, Monitor, Plus, Minus } from 'lucide-react'
 import { Tooltip } from './Tooltip'
 
 export interface SliverSession {
@@ -57,13 +58,7 @@ function osIcon(os: string, x: number, y: number) {
     )
   }
 
-  return (
-    <g transform={`translate(${ix},${iy}) scale(${size / 16})`}>
-      <rect x="1" y="1" width="14" height="10" rx="1" fill="none" stroke="var(--color-content-primary)" strokeWidth="1.5" />
-      <line x1="5" y1="13" x2="11" y2="13" stroke="var(--color-content-primary)" strokeWidth="1.5" />
-      <line x1="8" y1="11" x2="8" y2="13" stroke="var(--color-content-primary)" strokeWidth="1.5" />
-    </g>
-  )
+  return <Monitor x={ix} y={iy} width={size} height={size} color="var(--color-content-primary)" />
 }
 
 function truncate(text: string, maxLen: number): string {
@@ -146,16 +141,8 @@ function screenToSVG(svg: SVGSVGElement, clientX: number, clientY: number) {
 }
 
 function serverIcon(x: number, y: number, color: string) {
-  return (
-    <g transform={`translate(${x - 8},${y - 10})`}>
-      <rect x="0" y="0" width="16" height="5" rx="1" fill="none" stroke={color} strokeWidth="1.2" />
-      <circle cx="12" cy="2.5" r="1" fill={color} />
-      <rect x="0" y="7" width="16" height="5" rx="1" fill="none" stroke={color} strokeWidth="1.2" />
-      <circle cx="12" cy="9.5" r="1" fill={color} />
-      <rect x="0" y="14" width="16" height="5" rx="1" fill="none" stroke={color} strokeWidth="1.2" />
-      <circle cx="12" cy="16.5" r="1" fill={color} />
-    </g>
-  )
+  const size = 18
+  return <Server x={x - size / 2} y={y - size / 2} width={size} height={size} color={color} />
 }
 
 export default function NetworkGraph({
@@ -340,17 +327,17 @@ export default function NetworkGraph({
         <Tooltip content="Zoom in">
           <button
             onClick={() => setZoom(z => Math.min(MAX_ZOOM, z * 1.2))}
-            className="w-6 h-6 flex items-center justify-center rounded bg-surface-input border border-border text-content-secondary text-xs hover:bg-surface-hover"
+            className="w-6 h-6 flex items-center justify-center rounded bg-surface-input border border-border text-content-secondary hover:bg-surface-hover"
           >
-            +
+            <Plus size={14} />
           </button>
         </Tooltip>
         <Tooltip content="Zoom out">
           <button
             onClick={() => setZoom(z => Math.max(MIN_ZOOM, z / 1.2))}
-            className="w-6 h-6 flex items-center justify-center rounded bg-surface-input border border-border text-content-secondary text-xs hover:bg-surface-hover"
+            className="w-6 h-6 flex items-center justify-center rounded bg-surface-input border border-border text-content-secondary hover:bg-surface-hover"
           >
-            &minus;
+            <Minus size={14} />
           </button>
         </Tooltip>
         <Tooltip content="Reset zoom & pan">

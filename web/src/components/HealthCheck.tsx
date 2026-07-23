@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Check } from 'lucide-react'
 import { api } from '../lib/api'
 import { getBrowserPrefs } from '../lib/browserPrefs'
 import { useToastStore } from '../stores/toastStore'
@@ -18,7 +19,7 @@ function StepMark({ done, n }: { done: boolean; n: number }) {
           : 'border border-border text-content-muted'
       }`}
     >
-      {done ? '✓' : n}
+      {done ? <Check size={14} /> : n}
     </span>
   )
 }
