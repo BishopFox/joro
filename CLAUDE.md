@@ -138,6 +138,8 @@ npm run build     # output to web/dist/ (embedded into Go binary)
 
 **npm registry:** machine may be on a private registry. If `npm install` fails, check `npm config get registry` and `npm config delete registry`.
 
+**Icons: `lucide-react`.** All UI icons come from `lucide-react` via direct named imports (`import { Filter, X } from 'lucide-react'`) — no wrapper component, no shared icons file. Size/weight per call site with `size={N}` / `strokeWidth={N}`; `color` defaults to `currentColor`, so semantic text-color classes tint icons for free (never hardcode icon colors). **Do not reintroduce emoji or Unicode/HTML-entity glyphs (🚩 ⚙ ↩ ✕ ▶ …) as icons** — use a Lucide component. Two intentional exceptions stay hand-drawn (no Lucide equivalent): the Jorōgumo spider mascot (`App.tsx`, Dead Drop nav) and the Windows/Tux/Apple OS brand marks in `NetworkGraph.tsx`'s `osIcon`. Icons rendered inside the graph's SVG coordinate space (`NetworkGraph.tsx` `osIcon`/`serverIcon`) use a nested `<svg x= y= width= height=>` viewport rather than a bare Lucide element. Typographic separators (`&bull;`, `&middot;`) are text, not icons — leave them.
+
 ---
 
 ## API Reference
