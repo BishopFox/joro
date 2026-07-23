@@ -11,6 +11,7 @@ import { useRequestStore } from '../stores/requestStore'
 import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
 import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
+import ConfirmModal from '../components/ConfirmModal'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
@@ -54,6 +55,10 @@ export default function Map() {
   const [respTab, setRespTab] = useState<'raw' | 'render'>('raw')
   const [prettyJson, setPrettyJson] = usePrettyJson()
   const [detailMenu, setDetailMenu] = useState<{ x: number; y: number } | null>(null)
+
+  // Inline delete on tree rows.
+  type DeleteTarget = { kind: 'host' | 'endpoint'; origin: string; path?: string }
+  const [confirmDelete, setConfirmDelete] = useState<DeleteTarget | null>(null)
 
   // Resizable splits.
   const mainSplit = useResizable('horizontal', 0.35)
@@ -151,6 +156,27 @@ export default function Map() {
     } else {
       toggleEndpoint(epKey)
     }
+  }
+
+  async function performDelete(target: DeleteTarget) {
+    const { kind, origin, path } = target
+    try {
+      await api.deleteSitemapNode(origin, kind === 'endpoint' ? path : undefined)
+    } catch {
+      // ignore — a failed delete leaves the tree unchanged
+    }
+    // Clear the detail panel if the selected request belonged to the deleted node.
+    // Variant keys are `${origin}${path}:${index}`; the trailing ':' on the
+    // endpoint prefix keeps /api from matching /apiv2.
+    const prefix = kind === 'endpoint' ? `${origin}${path ?? ''}:` : origin
+    if (selectedKey && selectedKey.startsWith(prefix)) {
+      setSelectedDetail(null)
+      setSelectedKey(null)
+      setDetailError(null)
+    }
+    await fetchSitemap()
+    // History shares the underlying store — force it to reload on next view.
+    useRequestStore.getState().invalidate()
   }
 
   const totalEndpoints = hosts.reduce((sum, h) => sum + h.endpoints.length, 0)
@@ -269,15 +295,26 @@ export default function Map() {
               return (
                 <div key={host.origin}>
                   {/* Host row */}
-                  <button
-                    onClick={() => toggleHost(host.origin)}
-                    className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-sm hover:bg-surface-hover transition-colors"
-                  >
-                    <span className={`text-[10px] text-content-muted transition-transform ${hostExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
-                    <span className="text-xs font-semibold text-content-primary">{host.origin}</span>
-                    <span className="text-[10px] text-content-muted ml-1">({host.count})</span>
-                    <span className="text-[10px] text-content-muted ml-auto">{host.endpoints.length} {host.endpoints.length === 1 ? 'endpoint' : 'endpoints'}</span>
-                  </button>
+                  <div className="group flex items-center rounded-sm hover:bg-surface-hover transition-colors">
+                    <button
+                      onClick={() => toggleHost(host.origin)}
+                      className="flex items-center gap-2 flex-1 min-w-0 text-left px-2 py-1.5"
+                    >
+                      <span className={`text-[10px] text-content-muted transition-transform ${hostExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
+                      <span className="text-xs font-semibold text-content-primary">{host.origin}</span>
+                      <span className="text-[10px] text-content-muted ml-1">({host.count})</span>
+                      <span className="text-[10px] text-content-muted ml-auto">{host.endpoints.length} {host.endpoints.length === 1 ? 'endpoint' : 'endpoints'}</span>
+                    </button>
+                    <Tooltip content="Delete host">
+                      <button
+                        onClick={() => setConfirmDelete({ kind: 'host', origin: host.origin })}
+                        aria-label="Delete host"
+                        className="px-2 py-1.5 text-content-muted hover:text-semantic-error text-xs leading-none shrink-0"
+                      >
+                        &#10005;
+                      </button>
+                    </Tooltip>
+                  </div>
 
                   {/* Endpoints */}
                   {hostExpanded && (
@@ -289,25 +326,38 @@ export default function Map() {
                         const singleVariantSelected = !hasMultipleVariants && ep.variants.length === 1 && selectedKey === `${epKey}:0`
                         return (
                           <div key={ep.path}>
-                            <button
-                              onClick={() => handleEndpointClick(host, ep)}
-                              className={`flex items-center gap-2 w-full text-left px-2 py-1 rounded-sm transition-colors hover:bg-surface-hover cursor-pointer ${
+                            <div
+                              className={`group flex items-center rounded-sm transition-colors hover:bg-surface-hover ${
                                 singleVariantSelected ? 'bg-surface-hover' : ''
                               }`}
                             >
-                              {hasMultipleVariants ? (
-                                <span className={`text-[10px] text-content-muted transition-transform ${epExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
-                              ) : (
-                                <span className="text-[10px] text-content-muted">&bull;</span>
-                              )}
-                              <span className="text-xs text-content-primary font-mono">{ep.path || '/'}</span>
-                              <span className="flex items-center gap-1 ml-1">
-                                {ep.methods.map((m) => (
-                                  <span key={m} className={`text-[10px] font-bold ${METHOD_COLORS[m] ?? 'text-content-secondary'}`}>{m}</span>
-                                ))}
-                              </span>
-                              <span className="text-[10px] text-content-muted ml-auto">({ep.count})</span>
-                            </button>
+                              <button
+                                onClick={() => handleEndpointClick(host, ep)}
+                                className="flex items-center gap-2 flex-1 min-w-0 text-left px-2 py-1 cursor-pointer"
+                              >
+                                {hasMultipleVariants ? (
+                                  <span className={`text-[10px] text-content-muted transition-transform ${epExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
+                                ) : (
+                                  <span className="text-[10px] text-content-muted">&bull;</span>
+                                )}
+                                <span className="text-xs text-content-primary font-mono">{ep.path || '/'}</span>
+                                <span className="flex items-center gap-1 ml-1">
+                                  {ep.methods.map((m) => (
+                                    <span key={m} className={`text-[10px] font-bold ${METHOD_COLORS[m] ?? 'text-content-secondary'}`}>{m}</span>
+                                  ))}
+                                </span>
+                                <span className="text-[10px] text-content-muted ml-auto">({ep.count})</span>
+                              </button>
+                              <Tooltip content="Delete endpoint">
+                                <button
+                                  onClick={() => setConfirmDelete({ kind: 'endpoint', origin: host.origin, path: ep.path })}
+                                  aria-label="Delete endpoint"
+                                  className="px-2 py-1 text-content-muted hover:text-semantic-error text-xs leading-none shrink-0"
+                                >
+                                  &#10005;
+                                </button>
+                              </Tooltip>
+                            </div>
 
                             {/* Variants */}
                             {epExpanded && hasMultipleVariants && (
@@ -500,6 +550,24 @@ export default function Map() {
             { label: 'Copy Raw Request', onClick: () => copyRaw('request') },
             { label: 'Copy Raw Response', onClick: () => copyRaw('response') },
           ]}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete from site map"
+          message={
+            confirmDelete.kind === 'host'
+              ? `Delete all captured requests for ${confirmDelete.origin}? They will also be removed from History.`
+              : `Delete all captured requests for ${confirmDelete.path || '/'} on ${confirmDelete.origin}? They will also be removed from History.`
+          }
+          confirmLabel="Delete"
+          onConfirm={() => {
+            const target = confirmDelete
+            setConfirmDelete(null)
+            performDelete(target)
+          }}
+          onClose={() => setConfirmDelete(null)}
         />
       )}
     </div>

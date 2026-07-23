@@ -233,6 +233,13 @@ export const api = {
     ).toString()
     return req<{ hosts: SitemapHost[] }>('GET', `/sitemap${qs ? `?${qs}` : ''}`)
   },
+  // Delete a site-map node's underlying requests. Omit path for host-level
+  // deletion; pass a path (including '') to scope to a single endpoint.
+  deleteSitemapNode: (origin: string, path?: string) => {
+    const qs = new URLSearchParams({ host: origin })
+    if (path !== undefined) qs.set('path', path)
+    return req<{ deleted: number }>('DELETE', `/sitemap?${qs.toString()}`)
+  },
 
   // History
   listRequests: (params: Record<string, string | number>) => {

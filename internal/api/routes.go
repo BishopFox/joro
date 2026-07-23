@@ -80,6 +80,7 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 
 	// Sitemap
 	mux.HandleFunc("GET /api/v1/sitemap", s.handleGetSitemap)
+	mux.HandleFunc("DELETE /api/v1/sitemap", s.handleDeleteSitemap)
 
 	// HTTP history
 	mux.HandleFunc("GET /api/v1/requests", s.handleListRequests)

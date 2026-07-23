@@ -514,6 +514,37 @@ func (s *Store) Sitemap(f RequestFilter) []SitemapHost {
 	return hosts
 }
 
+// DeleteSitemapNode removes all captured requests belonging to a site-map node.
+// origin is required (scheme://host[:port]) and is compared using the same
+// derivation as Sitemap (u.Scheme + "://" + u.Host). When matchPath is true, only
+// requests whose URL path == path are removed (endpoint-level); otherwise every
+// request for the origin is removed (host-level). All matching requests are removed
+// regardless of status code (including the 404s the site map hides) so no orphaned
+// history rows are left behind for a node the operator just removed. Requests whose
+// URL cannot be parsed are always kept. Returns the number of requests removed.
+func (s *Store) DeleteSitemapNode(origin, path string, matchPath bool) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	kept := s.items[:0]
+	removed := 0
+	for _, r := range s.items {
+		u, err := url.Parse(r.URL)
+		if err != nil {
+			kept = append(kept, r)
+			continue
+		}
+		match := u.Scheme+"://"+u.Host == origin && (!matchPath || u.Path == path)
+		if match {
+			removed++
+			continue
+		}
+		kept = append(kept, r)
+	}
+	s.items = kept
+	return removed
+}
+
 // Clear removes all stored requests.
 func (s *Store) Clear() {
 	s.mu.Lock()
