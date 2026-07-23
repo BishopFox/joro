@@ -164,8 +164,13 @@ export default function ProjectSwitcher() {
 
           <div className="border-t border-border-subtle mt-1 pt-1">
             {active !== '' && (
-              <button onClick={handleSave} className="w-full text-left px-3 py-1.5 hover:bg-surface-hover text-accent-tertiary">
-                💾 Save project
+              <button onClick={handleSave} className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-surface-hover text-accent-tertiary text-left">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                  <polyline points="17 21 17 13 7 13 7 21" />
+                  <polyline points="7 3 7 8 15 8" />
+                </svg>
+                Save project
               </button>
             )}
             <button onClick={() => setCreating(true)} className="w-full text-left px-3 py-1.5 hover:bg-surface-hover text-accent-secondary">
