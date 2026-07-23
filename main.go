@@ -30,7 +30,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.6.0"
+var version = "v1.7.0"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -376,6 +376,9 @@ func runProxyMode(ctx context.Context, cfg config.Config) {
 		UpdateAvailable: updateAvailable,
 		LatestVersion:   latestVersion,
 	}, cancel)
+
+	// Periodically save the active project when auto-save is enabled.
+	apiSrv.StartAutoSaveLoop(ctx)
 
 	// Start proxy server.
 	proxyDone := make(chan struct{})
