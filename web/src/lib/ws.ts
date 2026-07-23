@@ -202,6 +202,11 @@ function handleMessage(msg: WSMessage) {
       sliverEventListeners.forEach((fn) => fn(ev))
       break
     }
+    case 'mythic.event': {
+      const ev = msg.data as MythicEvent
+      mythicEventListeners.forEach((fn) => fn(ev))
+      break
+    }
     case 'system.update.available': {
       const info = msg.data as { version: string; commit: string; updateAvailable: boolean; latestVersion: string }
       useUpdateStore.getState().setInfo(info)
@@ -268,6 +273,23 @@ const sliverEventListeners = new Set<SliverEventListener>()
 export function onSliverEvent(fn: SliverEventListener): () => void {
   sliverEventListeners.add(fn)
   return () => { sliverEventListeners.delete(fn) }
+}
+
+// ---------------------------------------------------------------------------
+// Mythic event listener API
+// ---------------------------------------------------------------------------
+
+export type MythicEvent = {
+  eventType: string
+  callback?: { id: number; display_id: number; user: string; host: string; os: string; architecture: string; ip: string; payload_type: string }
+}
+
+type MythicEventListener = (ev: MythicEvent) => void
+const mythicEventListeners = new Set<MythicEventListener>()
+
+export function onMythicEvent(fn: MythicEventListener): () => void {
+  mythicEventListeners.add(fn)
+  return () => { mythicEventListeners.delete(fn) }
 }
 
 // ---------------------------------------------------------------------------

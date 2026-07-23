@@ -17,6 +17,12 @@ interface ExecutorState {
   configText: string
   sliverConnected: boolean
   activeSessionName: string
+  mythicUrl: string
+  mythicUsername: string
+  mythicPassword: string
+  mythicApiToken: string
+  mythicConnected: boolean
+  activeCallbackName: string
   pluginStatus: Record<string, PluginProviderStatus>
   pluginConfigValues: Record<string, Record<string, string>>
   outputByMode: Record<string, OutputLine[]>
@@ -31,6 +37,12 @@ interface ExecutorState {
   setConfigText: (v: string) => void
   setSliverConnected: (v: boolean) => void
   setActiveSessionName: (v: string) => void
+  setMythicUrl: (v: string) => void
+  setMythicUsername: (v: string) => void
+  setMythicPassword: (v: string) => void
+  setMythicApiToken: (v: string) => void
+  setMythicConnected: (v: boolean) => void
+  setActiveCallbackName: (v: string) => void
   setPluginStatus: (name: string, status: PluginProviderStatus) => void
   setPluginConfigValue: (plugin: string, field: string, value: string) => void
   setCommand: (v: string) => void
@@ -49,6 +61,12 @@ export const useExecutorStore = create<ExecutorState>((set) => ({
   configText: '',
   sliverConnected: false,
   activeSessionName: '',
+  mythicUrl: '',
+  mythicUsername: '',
+  mythicPassword: '',
+  mythicApiToken: '',
+  mythicConnected: false,
+  activeCallbackName: '',
   pluginStatus: {},
   pluginConfigValues: {},
   outputByMode: {},
@@ -63,6 +81,12 @@ export const useExecutorStore = create<ExecutorState>((set) => ({
   setConfigText: (configText) => set({ configText }),
   setSliverConnected: (sliverConnected) => set({ sliverConnected }),
   setActiveSessionName: (activeSessionName) => set({ activeSessionName }),
+  setMythicUrl: (mythicUrl) => set({ mythicUrl }),
+  setMythicUsername: (mythicUsername) => set({ mythicUsername }),
+  setMythicPassword: (mythicPassword) => set({ mythicPassword }),
+  setMythicApiToken: (mythicApiToken) => set({ mythicApiToken }),
+  setMythicConnected: (mythicConnected) => set({ mythicConnected }),
+  setActiveCallbackName: (activeCallbackName) => set({ activeCallbackName }),
   setPluginStatus: (name, status) =>
     set((s) => ({ pluginStatus: { ...s.pluginStatus, [name]: status } })),
   setPluginConfigValue: (plugin, field, value) =>

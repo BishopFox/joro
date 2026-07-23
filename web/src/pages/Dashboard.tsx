@@ -12,6 +12,7 @@ import NetworkGraph from '../components/NetworkGraph'
 import FlaggedRequestModal from '../components/FlaggedRequestModal'
 import CollabSwapModal from '../components/CollabSwapModal'
 import type { SliverSession, PluginGraphData } from '../components/NetworkGraph'
+import { onMythicEvent } from '../lib/ws'
 
 interface UnifiedEvent {
   id: string
@@ -112,6 +113,9 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const [sliverSessions, setSliverSessions] = useState<SliverSession[]>([])
   const [sliverBeacons, setSliverBeacons] = useState<SliverSession[]>([])
   const [pluginGraphs, setPluginGraphs] = useState<Record<string, PluginGraphData>>({})
+  const [mythicConnected, setMythicConnected] = useState(false)
+  const [mythicUrl, setMythicUrl] = useState('')
+  const [mythicCallbacks, setMythicCallbacks] = useState<SliverSession[]>([])
 
   const settings = useSettingsStore((s) => s.settings)
   const setSettings = useSettingsStore((s) => s.setSettings)
@@ -184,6 +188,41 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
     api.systemInfo().then(setLocalHost).catch(() => {})
   }, [])
 
+  // Refresh Mythic connection + callbacks for the network graph. Local proxy
+  // calls, so safe to run even when the team server is down.
+  const refreshMythic = useCallback(async () => {
+    let status: { connected: boolean; url?: string } | null = null
+    try {
+      status = await api.mythicStatus()
+    } catch {
+      return // keep prior state on a transient failure
+    }
+    setMythicConnected(status.connected)
+    if (status.connected) {
+      setMythicUrl(status.url || '')
+      try {
+        const res = await api.mythicCallbacks()
+        setMythicCallbacks(
+          (res.callbacks || []).map((cb): SliverSession => ({
+            id: String(cb.display_id),
+            name: cb.payload_type,
+            hostname: cb.host,
+            os: cb.os,
+            arch: cb.architecture,
+            remoteAddress: cb.ip,
+            transport: cb.payload_type,
+            username: cb.user,
+          })),
+        )
+      } catch {
+        // keep prior callbacks on a transient failure
+      }
+    } else {
+      setMythicUrl('')
+      setMythicCallbacks([])
+    }
+  }, [])
+
   const fetchData = useCallback(async () => {
     // Isolate each fetch so one failure doesn't block the rest. On failure a
     // call resolves to null (the sentinel) and we KEEP the prior state instead
@@ -229,6 +268,9 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
       }
     }
 
+    // Mythic callbacks for the network graph (local proxy call).
+    refreshMythic()
+
     // Fetch plugin graph data (from exec providers that implement GraphProvider).
     try {
       const graphRes = await api.pluginGraph()
@@ -264,7 +306,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
         // ignore
       }
     }
-  }, [teamMode, setFlaggedItems])
+  }, [teamMode, setFlaggedItems, refreshMythic])
 
   // On join, load the persisted session log (chat + connect/disconnect/rename)
   // and the current active-user list.
@@ -305,6 +347,16 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
     const id = setInterval(fetchData, 5000)
     return () => clearInterval(id)
   }, [fetchData])
+
+  // Live-refresh the Mythic node group when a new callback checks in, so it
+  // shows immediately rather than waiting for the 5s poll.
+  useEffect(() => {
+    return onMythicEvent((ev) => {
+      if (ev.eventType === 'callback-new') {
+        refreshMythic()
+      }
+    })
+  }, [refreshMythic])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -497,6 +549,8 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
                 // solo mode there's no relay, so keep the graph "connected".
                 connected={settings?.listenerUrl ? teamConn === 'connected' : true}
                 pluginGraphs={Object.keys(pluginGraphs).length > 0 ? pluginGraphs : undefined}
+                mythicServer={mythicConnected ? { url: mythicUrl } : undefined}
+                mythicCallbacks={mythicCallbacks}
               />
             </div>
           </div>

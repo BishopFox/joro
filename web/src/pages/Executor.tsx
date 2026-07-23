@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
-import { onSliverEvent, onPluginEvent } from '../lib/ws'
+import { onSliverEvent, onMythicEvent, onPluginEvent } from '../lib/ws'
 import DynamicConfigForm from '../components/DynamicConfigForm'
 import { useExecutorStore, type OutputLine } from '../stores/executorStore'
 
@@ -11,12 +11,27 @@ function shortId(id: string): string {
 const EMPTY_OUTPUT: OutputLine[] = []
 const EMPTY_HISTORY: string[] = []
 
+// Mythic version the GraphQL queries are validated against; surfaced in the
+// connection UI so operators know when schema drift may cause errors.
+const MYTHIC_SUPPORTED_VERSION = 'Mythic 3.3+'
+
+// Built-in exec sub-tabs, always shown. Plugin providers (from the backend) are
+// appended after these.
+const BUILTIN_PROVIDERS = [
+  { name: 'webshell', label: 'Web Shell', builtin: true, configSchema: [] },
+  { name: 'sliver', label: 'Sliver C2', builtin: true, configSchema: [] },
+  { name: 'mythic', label: 'Mythic C2', builtin: true, configSchema: [] },
+]
+const BUILTIN_NAMES = new Set(BUILTIN_PROVIDERS.map((p) => p.name))
+
 export default function Executor() {
   const {
     execMode, providers, target, webshell, authKey,
     configText, sliverConnected, activeSessionName, pluginStatus, pluginConfigValues,
+    mythicUrl, mythicUsername, mythicPassword, mythicApiToken, mythicConnected, activeCallbackName,
     setExecMode, setProviders, setTarget, setWebshell, setAuthKey,
     setConfigText, setSliverConnected, setActiveSessionName, setPluginStatus, setPluginConfigValue,
+    setMythicUrl, setMythicUsername, setMythicPassword, setMythicApiToken, setMythicConnected, setActiveCallbackName,
     setCommand, appendOutput, popOutput, clearOutput, pushHistory,
   } = useExecutorStore()
   const output = useExecutorStore((s) => s.outputByMode[s.execMode] ?? EMPTY_OUTPUT)
@@ -44,6 +59,15 @@ export default function Executor() {
         setSliverConnected(true)
         if (res.sessionName) {
           setActiveSessionName(res.sessionName)
+        }
+      }
+    }).catch(() => {})
+
+    api.mythicStatus().then((res) => {
+      if (res.connected) {
+        setMythicConnected(true)
+        if (res.callbackName) {
+          setActiveCallbackName(res.callbackName)
         }
       }
     }).catch(() => {})
@@ -100,6 +124,20 @@ export default function Executor() {
     })
   }, [execMode, sliverConnected])
 
+  // Listen for Mythic callback events (new callbacks checking in).
+  useEffect(() => {
+    if (execMode !== 'mythic' || !mythicConnected) return
+    return onMythicEvent((ev) => {
+      if (ev.eventType === 'callback-new' && ev.callback) {
+        const cb = ev.callback
+        appendOutput({
+          type: 'out',
+          text: `[*] New callback ${cb.display_id} (${cb.payload_type}) - ${cb.user}@${cb.host} - ${cb.os}/${cb.architecture} - ${cb.ip}`,
+        })
+      }
+    })
+  }, [execMode, mythicConnected])
+
   // Listen for plugin events when using a plugin provider.
   useEffect(() => {
     const currentProvider = providers.find((p) => p.name === execMode)
@@ -151,6 +189,39 @@ export default function Executor() {
     appendOutput({ type: 'out', text: '[*] Disconnected from Sliver teamserver' })
   }
 
+  async function connectMythic() {
+    setConnecting(true)
+    try {
+      await api.mythicConnect({
+        url: mythicUrl.trim(),
+        username: mythicUsername.trim() || undefined,
+        password: mythicPassword || undefined,
+        apiToken: mythicApiToken.trim() || undefined,
+      })
+      setMythicConnected(true)
+      appendOutput({ type: 'out', text: '[*] Connected to Mythic' })
+    } catch (e) {
+      const msg = String(e)
+      if (msg.includes('already connected')) {
+        setMythicConnected(true)
+        appendOutput({ type: 'out', text: '[*] Already connected to Mythic' })
+      } else {
+        appendOutput({ type: 'err', text: `Connection failed: ${msg}` })
+      }
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  async function disconnectMythic() {
+    try {
+      await api.mythicDisconnect()
+    } catch { /* ignore */ }
+    setMythicConnected(false)
+    setActiveCallbackName('')
+    appendOutput({ type: 'out', text: '[*] Disconnected from Mythic' })
+  }
+
   function handleConfigFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -195,6 +266,8 @@ export default function Executor() {
     try {
       if (execMode === 'sliver') {
         await runSliverCommand(cmd)
+      } else if (execMode === 'mythic') {
+        await runMythicCommand(cmd)
       } else if (execMode === 'webshell') {
         const res = await api.execute(target, webshell, authKey, cmd)
         if (res.error) {
@@ -278,6 +351,75 @@ export default function Executor() {
     }
   }
 
+  async function runMythicCommand(input: string) {
+    const trimmed = input.trim()
+    const parts = trimmed.split(/\s+/)
+    const cmd = parts[0]?.toLowerCase()
+
+    // Client-side: clear
+    if (cmd === 'clear') {
+      clearOutput()
+      return
+    }
+
+    // Client-side: upload triggers a file picker
+    if (cmd === 'upload') {
+      const remotePath = parts[1]
+      if (!remotePath) {
+        appendOutput({ type: 'err', text: 'Usage: upload <remote_path>' })
+        return
+      }
+      // Remove the command echo we already added; the picker adds its own.
+      popOutput()
+      const inputEl = document.createElement('input')
+      inputEl.type = 'file'
+      inputEl.onchange = async () => {
+        const file = inputEl.files?.[0]
+        if (!file) return
+        appendOutput({ type: 'cmd', text: `> upload ${remotePath}` })
+        setRunning(true)
+        try {
+          const res = await api.mythicUpload(remotePath, file)
+          appendOutput({ type: 'out', text: `[*] Uploaded to ${res.path}` })
+        } catch (e) {
+          appendOutput({ type: 'err', text: String(e) })
+        } finally {
+          setRunning(false)
+        }
+      }
+      inputEl.click()
+      return
+    }
+
+    const res = await api.mythicCommand(trimmed)
+
+    if (res.callbackChanged) {
+      setActiveCallbackName(res.callbackName || '')
+    }
+
+    if (res.disconnected) {
+      setMythicConnected(false)
+      setActiveCallbackName('')
+    }
+
+    if (res.downloadId) {
+      const a = document.createElement('a')
+      a.href = `/api/v1/mythic/download/${res.downloadId}`
+      a.download = res.filename || 'download'
+      a.click()
+    }
+
+    if (res.error) {
+      appendOutput({ type: 'err', text: res.error })
+    }
+    if (res.output) {
+      appendOutput({ type: 'out', text: res.output })
+    }
+    if (!res.output && !res.error) {
+      appendOutput({ type: 'out', text: '[no output]' })
+    }
+  }
+
   async function runPluginCommand(providerName: string, input: string) {
     const trimmed = input.trim()
     if (trimmed.toLowerCase() === 'clear') {
@@ -316,6 +458,10 @@ export default function Executor() {
       if (activeSessionName) return `sliver (${activeSessionName}) > `
       return 'sliver > '
     }
+    if (execMode === 'mythic') {
+      if (activeCallbackName) return `mythic (${activeCallbackName}) > `
+      return 'mythic > '
+    }
     // Plugin provider prompt
     return `${execMode} > `
   }
@@ -347,7 +493,9 @@ export default function Executor() {
     ? !!target && !!webshell && !!authKey
     : execMode === 'sliver'
       ? sliverConnected
-      : (pluginStatus[execMode]?.connected ?? false)
+      : execMode === 'mythic'
+        ? mythicConnected
+        : (pluginStatus[execMode]?.connected ?? false)
   const canRun = !running && isConfigured
 
   return (
@@ -357,10 +505,7 @@ export default function Executor() {
         <div className="flex items-center gap-3 mb-2">
           <h2 className="text-xs font-semibold text-content-muted uppercase tracking-wide">Connection</h2>
           <div className="flex gap-1 bg-surface-input rounded-sm p-0.5">
-            {(providers.length > 0 ? providers : [
-              { name: 'webshell', label: 'Web Shell', builtin: true, configSchema: [] },
-              { name: 'sliver', label: 'Sliver C2', builtin: true, configSchema: [] },
-            ]).map((p) => (
+            {[...BUILTIN_PROVIDERS, ...providers.filter((p) => !BUILTIN_NAMES.has(p.name))].map((p) => (
               <button
                 key={p.name}
                 onClick={() => setExecMode(p.name)}
@@ -455,6 +600,80 @@ export default function Executor() {
               </div>
             )}
           </div>
+        ) : execMode === 'mythic' ? (
+          <div className="space-y-3">
+            {!mythicConnected ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="text-xs text-content-muted block mb-1">Server URL</label>
+                    <input
+                      value={mythicUrl}
+                      onChange={(e) => setMythicUrl(e.target.value)}
+                      placeholder="https://10.0.0.5:7443"
+                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-content-muted block mb-1">Username</label>
+                    <input
+                      value={mythicUsername}
+                      onChange={(e) => setMythicUsername(e.target.value)}
+                      placeholder="mythic_admin"
+                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-content-muted block mb-1">Password</label>
+                    <input
+                      type="password"
+                      value={mythicPassword}
+                      onChange={(e) => setMythicPassword(e.target.value)}
+                      placeholder="password"
+                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-xs text-content-muted block mb-1">API Token <span className="text-content-muted">(optional — used instead of username/password)</span></label>
+                    <input
+                      value={mythicApiToken}
+                      onChange={(e) => setMythicApiToken(e.target.value)}
+                      placeholder="apitoken value from Mythic operator settings"
+                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <p className="text-xs text-content-secondary flex-1">
+                    Tested against {MYTHIC_SUPPORTED_VERSION}. Older/newer GraphQL schemas may differ.
+                  </p>
+                  <button
+                    onClick={connectMythic}
+                    disabled={connecting || !mythicUrl.trim() || (!mythicApiToken.trim() && (!mythicUsername.trim() || !mythicPassword))}
+                    className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold disabled:opacity-50"
+                  >
+                    {connecting ? 'Connecting...' : 'Connect'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-semantic-success font-semibold">Connected</span>
+                {activeCallbackName && (
+                  <span className="text-xs text-content-secondary">
+                    Callback: <span className="text-accent-secondary font-semibold">{activeCallbackName}</span>
+                  </span>
+                )}
+                <div className="flex-1" />
+                <button
+                  onClick={disconnectMythic}
+                  className="px-3 py-1.5 rounded-sm bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary text-xs font-semibold"
+                >
+                  Disconnect
+                </button>
+              </div>
+            )}
+          </div>
         ) : (
           /* Plugin provider — render dynamic config form */
           (() => {
@@ -533,7 +752,7 @@ export default function Executor() {
           onChange={(e) => setCommand(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={!isConfigured}
-          placeholder={execMode === 'sliver' ? 'help' : 'whoami'}
+          placeholder={execMode === 'sliver' || execMode === 'mythic' ? 'help' : 'whoami'}
           className="flex-1 bg-surface-input text-xs px-3 py-1.5 rounded-sm border border-border disabled:opacity-50 font-mono"
         />
         <button

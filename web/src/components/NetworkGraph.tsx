@@ -123,6 +123,8 @@ interface NetworkGraphProps {
   deadSessions?: SliverSession[]
   connected: boolean
   pluginGraphs?: Record<string, PluginGraphData>
+  mythicServer?: { url: string }
+  mythicCallbacks?: SliverSession[]
 }
 
 const VB_W = 800
@@ -165,6 +167,8 @@ export default function NetworkGraph({
   deadSessions = [],
   connected,
   pluginGraphs: _pluginGraphs,
+  mythicServer,
+  mythicCallbacks = [],
 }: NetworkGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({})
@@ -249,6 +253,7 @@ export default function NetworkGraph({
     defaults['joro'] = { x: CX, y: CY }
     defaults['team'] = { x: CX - 220, y: CY }
     defaults['sliver'] = { x: CX + 220, y: CY - 80 }
+    defaults['mythic'] = { x: CX + 220, y: CY + 120 }
     const sPos = defaults['sliver']
     const total = nodes.length
     nodes.forEach((node, i) => {
@@ -261,8 +266,20 @@ export default function NetworkGraph({
         y: sPos.y + Math.sin(angle) * radius,
       }
     })
+    const mPos = defaults['mythic']
+    const mTotal = mythicCallbacks.length
+    mythicCallbacks.forEach((cb, i) => {
+      const angleStart = -Math.PI / 3
+      const angleEnd = Math.PI / 3
+      const angle = mTotal === 1 ? 0 : angleStart + (i / (mTotal - 1)) * (angleEnd - angleStart)
+      const radius = 160
+      defaults[`mythic-cb-${cb.id}`] = {
+        x: mPos.x + Math.cos(angle) * radius + 80,
+        y: mPos.y + Math.sin(angle) * radius,
+      }
+    })
     return defaults
-  }, [nodes])
+  }, [nodes, mythicCallbacks])
 
   // Get effective position: user-dragged position or default
   const pos = useCallback(
@@ -391,6 +408,40 @@ export default function NetworkGraph({
           style={{ animation: 'joro-edge-flow 1.5s linear infinite' }}
         />
       )}
+
+      {/* Edge: JORO → Mythic */}
+      {mythicServer && (
+        <line
+          x1={pos('joro').x}
+          y1={pos('joro').y}
+          x2={pos('mythic').x}
+          y2={pos('mythic').y}
+          stroke="var(--color-semantic-special)"
+          strokeWidth={2}
+          strokeDasharray="8 4"
+          strokeOpacity={0.9}
+          style={{ animation: 'joro-edge-flow 1.5s linear infinite' }}
+        />
+      )}
+
+      {/* Edges: Mythic → callback nodes */}
+      {mythicServer && mythicCallbacks.map((cb) => {
+        const npos = pos(`mythic-cb-${cb.id}`)
+        return (
+          <line
+            key={`mythic-edge-${cb.id}`}
+            x1={pos('mythic').x}
+            y1={pos('mythic').y}
+            x2={npos.x}
+            y2={npos.y}
+            stroke="var(--color-semantic-special)"
+            strokeWidth={2}
+            strokeDasharray="8 4"
+            strokeOpacity={0.9}
+            style={{ animation: 'joro-edge-flow 1.5s linear infinite' }}
+          />
+        )
+      })}
 
       {/* Edges: Sliver → Session/Beacon nodes */}
       {sliverServer && totalNodes > 0 && nodes.map((node) => {
@@ -591,6 +642,148 @@ export default function NetworkGraph({
             )
           })()}
         </g>
+      )}
+
+      {/* Mythic server node (draggable) */}
+      {mythicServer && (
+        <g onMouseDown={handleMouseDown('mythic')} style={{ cursor: 'grab' }}>
+          <rect
+            x={pos('mythic').x - NODE_RX}
+            y={pos('mythic').y - NODE_RY}
+            width={NODE_RX * 2}
+            height={NODE_RY * 2}
+            rx={8}
+            fill="var(--color-surface-input)"
+            stroke="var(--color-semantic-special)"
+            strokeWidth={2}
+          />
+          {serverIcon(pos('mythic').x - NODE_RX + 20, pos('mythic').y - 2, 'var(--color-semantic-special)')}
+          {(() => {
+            const textLeft = pos('mythic').x - 14
+            const textMaxW = pos('mythic').x + NODE_RX - 6 - textLeft
+            const url = mythicServer.url.replace(/^https?:\/\//, '')
+            const urlFit = fitText(url, 8, textMaxW)
+            return (
+              <>
+                <text
+                  x={textLeft}
+                  y={pos('mythic').y - 4}
+                  textAnchor="start"
+                  fill="var(--color-content-primary)"
+                  fontSize={10}
+                  fontWeight={600}
+                  fontFamily="monospace"
+                >
+                  MYTHIC
+                </text>
+                <text
+                  x={textLeft}
+                  y={pos('mythic').y + 10}
+                  textAnchor="start"
+                  fill="var(--color-content-muted)"
+                  fontSize={urlFit.fontSize}
+                  fontFamily="monospace"
+                >
+                  {urlFit.text}
+                </text>
+              </>
+            )
+          })()}
+        </g>
+      )}
+
+      {/* Mythic callback nodes (fan out from mythic, draggable) */}
+      {mythicServer && mythicCallbacks.map((cb) => {
+        const npos = pos(`mythic-cb-${cb.id}`)
+        const ip = stripPort(cb.remoteAddress)
+        return (
+          <g
+            key={`mythic-node-${cb.id}`}
+            onMouseDown={handleMouseDown(`mythic-cb-${cb.id}`)}
+            style={{ cursor: 'grab', animation: 'joro-node-pulse 3s ease-in-out infinite' }}
+          >
+            <title>{`${cb.name}\n${cb.hostname} (${cb.os}/${cb.arch})\n${cb.username}\ncallback ${cb.id}`}</title>
+            <rect
+              x={npos.x - NODE_RX}
+              y={npos.y - NODE_RY}
+              width={NODE_RX * 2}
+              height={NODE_RY * 2}
+              rx={8}
+              fill="var(--color-surface-input)"
+              stroke="var(--color-semantic-special)"
+              strokeWidth={2}
+            />
+            {osIcon(cb.os, npos.x - NODE_RX + 16, npos.y - 4)}
+            {(() => {
+              const textLeft = npos.x - 20
+              const textMaxW = npos.x + NODE_RX - 6 - textLeft
+              const nameFit = fitText(cb.name || cb.hostname, 10, textMaxW)
+              const hostFit = fitText(cb.hostname, 8, textMaxW)
+              const ipFit = fitText(ip, 7, textMaxW)
+              return (
+                <>
+                  <text
+                    x={textLeft}
+                    y={npos.y - 6}
+                    textAnchor="start"
+                    fill="var(--color-content-primary)"
+                    fontSize={nameFit.fontSize}
+                    fontWeight={600}
+                    fontFamily="monospace"
+                  >
+                    {nameFit.text}
+                  </text>
+                  <text
+                    x={textLeft}
+                    y={npos.y + 6}
+                    textAnchor="start"
+                    fill="var(--color-content-secondary)"
+                    fontSize={hostFit.fontSize}
+                    fontFamily="monospace"
+                  >
+                    {hostFit.text}
+                  </text>
+                  <text
+                    x={textLeft}
+                    y={npos.y + 17}
+                    textAnchor="start"
+                    fill="var(--color-content-muted)"
+                    fontSize={ipFit.fontSize}
+                    fontFamily="monospace"
+                  >
+                    {ipFit.text}
+                  </text>
+                </>
+              )
+            })()}
+            <text
+              x={npos.x + NODE_RX - 6}
+              y={npos.y - NODE_RY + 12}
+              textAnchor="end"
+              fill="var(--color-semantic-special)"
+              fontSize={7}
+              fontWeight={700}
+              fontFamily="monospace"
+              style={{ textTransform: 'uppercase' }}
+            >
+              AGT
+            </text>
+          </g>
+        )
+      })}
+
+      {/* Empty state for mythic */}
+      {mythicServer && mythicCallbacks.length === 0 && (
+        <text
+          x={pos('mythic').x + 80}
+          y={pos('mythic').y + NODE_RY + 20}
+          textAnchor="middle"
+          fill="var(--color-content-muted)"
+          fontSize={11}
+          fontFamily="monospace"
+        >
+          No active callbacks
+        </text>
       )}
 
       {/* Session/beacon nodes (fan out from sliver, draggable) */}

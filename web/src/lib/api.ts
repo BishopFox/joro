@@ -435,6 +435,28 @@ export const api = {
     return res.json() as Promise<{ path: string }>
   },
 
+  // Mythic C2
+  mythicStatus: () => req<{ connected: boolean; url?: string; callbackId?: number; callbackName?: string }>('GET', '/mythic/status'),
+  mythicConnect: (config: { url: string; username?: string; password?: string; apiToken?: string }) =>
+    req<{ connected: boolean }>('POST', '/mythic/connect', config),
+  mythicDisconnect: () =>
+    req<{ connected: boolean }>('POST', '/mythic/disconnect'),
+  mythicCallbacks: () =>
+    req<{ callbacks: { id: number; display_id: number; user: string; host: string; pid: number; ip: string; os: string; architecture: string; last_checkin: string; description: string; payload_type: string }[] }>('GET', '/mythic/callbacks'),
+  mythicCommand: (input: string) =>
+    req<{ output: string; error: string; downloadId?: string; filename?: string; callbackChanged?: boolean; callbackId?: number; callbackName?: string; disconnected?: boolean }>('POST', '/mythic/command', { input }),
+  mythicUpload: async (remotePath: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('remotePath', remotePath)
+    const res = await fetch(`${BASE}/mythic/upload`, { method: 'POST', body: form })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error((err as { error: string }).error || res.statusText)
+    }
+    return res.json() as Promise<{ path: string }>
+  },
+
   // Notes
   listNoteHosts: () => req<string[]>('GET', '/notes/hosts'),
   listNotes: (params: Record<string, string | number>) => {

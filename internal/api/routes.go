@@ -172,6 +172,15 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/sliver/download/{id}", s.handleSliverDownload)
 	mux.HandleFunc("POST /api/v1/sliver/upload", s.handleSliverUpload)
 
+	// Mythic C2
+	mux.HandleFunc("GET /api/v1/mythic/status", s.handleMythicStatus)
+	mux.HandleFunc("POST /api/v1/mythic/connect", s.handleMythicConnect)
+	mux.HandleFunc("POST /api/v1/mythic/disconnect", s.handleMythicDisconnect)
+	mux.HandleFunc("GET /api/v1/mythic/callbacks", s.handleMythicCallbacks)
+	mux.HandleFunc("POST /api/v1/mythic/command", s.handleMythicCommand)
+	mux.HandleFunc("GET /api/v1/mythic/download/{id}", s.handleMythicDownload)
+	mux.HandleFunc("POST /api/v1/mythic/upload", s.handleMythicUpload)
+
 	// Notes
 	mux.HandleFunc("GET /api/v1/notes/hosts", s.handleListNoteHosts)
 	mux.HandleFunc("GET /api/v1/notes", s.handleListNotes)

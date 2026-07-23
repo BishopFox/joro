@@ -21,6 +21,7 @@ import (
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/event"
 	"github.com/BishopFox/joro/internal/fuzzer"
+	"github.com/BishopFox/joro/internal/mythic"
 	"github.com/BishopFox/joro/internal/notes"
 	"github.com/BishopFox/joro/internal/plugins"
 	"github.com/BishopFox/joro/internal/proxy"
@@ -80,6 +81,7 @@ type APIServer struct {
 	xssStore       *xsshunter.Store
 	noteStore      *notes.Store
 	sliverClient   *sliver.Client
+	mythicClient   *mythic.Client
 	listenerMode   bool
 	teamServerMode bool
 	teamStore      *team.Store
@@ -145,6 +147,10 @@ func New(
 	sc.SetOnEvent(func(ev sliver.SliverEvent) {
 		hub.Broadcast() <- event.WSEvent{Type: "sliver.event", Data: ev}
 	})
+	mc := &mythic.Client{}
+	mc.SetOnEvent(func(ev mythic.MythicEvent) {
+		hub.Broadcast() <- event.WSEvent{Type: "mythic.event", Data: ev}
+	})
 	return &APIServer{
 		cfg:           cfg,
 		store:         store,
@@ -160,6 +166,7 @@ func New(
 		hub:           hub,
 		noteStore:     noteStore,
 		sliverClient:  sc,
+		mythicClient:  mc,
 		fuzzerStore:   fuzzer.NewStore(),
 		pluginManager: pluginManager,
 		listenerRelay: NewListenerRelay(hub),
