@@ -561,12 +561,11 @@ function ValueChip({ children }: { children: ReactNode }) {
   return <code className="font-mono text-[11px] bg-surface-input text-content-primary px-1.5 py-0.5 rounded-sm">{children}</code>
 }
 
-function ConfigSection({ configs, active, onSave, onLoad, onDelete }: {
+function ConfigSection({ configs, active, onSave, onLoad }: {
   configs: string[]
   active: string
   onSave: (name: string) => Promise<void>
   onLoad: (name: string) => Promise<void>
-  onDelete: (name: string) => Promise<void>
 }) {
   const [selected, setSelected] = useState('')
   const [newName, setNewName] = useState('')
@@ -632,25 +631,6 @@ function ConfigSection({ configs, active, onSave, onLoad, onDelete }: {
           className={`${btn} bg-accent-tertiary hover:bg-accent-tertiary-hover text-black`}
         >
           {saving ? '…' : 'Save'}
-        </button>
-        <button
-          disabled={!selected}
-          onClick={() => setConfirmState({
-            message: `Delete config "${selected}"?`,
-            confirmLabel: 'Delete',
-            danger: true,
-            onConfirm: async () => {
-              try {
-                await onDelete(selected)
-                setSelected('')
-                setMsg('Deleted')
-                window.setTimeout(() => setMsg(''), 3000)
-              } catch (e) { setMsg(String(e)) }
-            },
-          })}
-          className={`${btn} bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary`}
-        >
-          Delete
         </button>
       </div>
 
@@ -729,10 +709,6 @@ function ConfigManager({ theme, hiddenTabs, onSettingsLoaded }: {
       onLoad={async (name) => {
         const result = await api.loadUserConfig(name)
         onSettingsLoaded(result)
-        await refresh()
-      }}
-      onDelete={async (name) => {
-        await api.deleteUserConfig(name)
         await refresh()
       }}
     />

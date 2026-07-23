@@ -142,7 +142,6 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/configs/user", s.handleListUserConfigs)
 	mux.HandleFunc("POST /api/v1/configs/user", s.handleSaveUserConfig)
 	mux.HandleFunc("PUT /api/v1/configs/user/{name}", s.handleLoadUserConfig)
-	mux.HandleFunc("DELETE /api/v1/configs/user/{name}", s.handleDeleteUserConfig)
 	mux.HandleFunc("GET /api/v1/configs/project", s.handleListProjectConfigs)
 	mux.HandleFunc("POST /api/v1/configs/project", s.handleSaveProjectConfig)
 	mux.HandleFunc("POST /api/v1/configs/project/switch", s.handleSwitchProject)

@@ -785,20 +785,6 @@ func (s *APIServer) handleLoadUserConfig(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *APIServer) handleDeleteUserConfig(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if err := s.configStore.Delete("user", name); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
-		return
-	}
-	s.mu.Lock()
-	if s.activeUserConfig == name {
-		s.activeUserConfig = ""
-	}
-	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
-}
-
 // --- Project Config Handlers ---
 
 func (s *APIServer) handleListProjectConfigs(w http.ResponseWriter, r *http.Request) {
