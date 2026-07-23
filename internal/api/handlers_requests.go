@@ -8,12 +8,15 @@ import (
 	"github.com/BishopFox/joro/internal/proxy"
 )
 
-func (s *APIServer) handleListRequests(w http.ResponseWriter, r *http.Request) {
+// requestFilterFromQuery builds a proxy.RequestFilter from the shared request
+// query params (host/method/status/search/content/scope/...). Used by both the
+// history listing and the site map so they filter identically. Offset/Limit are
+// parsed here too; callers that don't paginate simply ignore them.
+func (s *APIServer) requestFilterFromQuery(r *http.Request) proxy.RequestFilter {
 	q := r.URL.Query()
 
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	limit, _ := strconv.Atoi(q.Get("limit"))
-
 	status, _ := strconv.Atoi(q.Get("status"))
 
 	extMode := q.Get("extMode")
@@ -39,6 +42,12 @@ func (s *APIServer) handleListRequests(w http.ResponseWriter, r *http.Request) {
 	if q.Get("scope_only") == "true" && s.scope != nil {
 		f.InScopeFunc = s.scope.InScope
 	}
+
+	return f
+}
+
+func (s *APIServer) handleListRequests(w http.ResponseWriter, r *http.Request) {
+	f := s.requestFilterFromQuery(r)
 
 	items, total := s.store.List(f)
 
@@ -76,8 +85,8 @@ func (s *APIServer) handleListRequests(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items":  summaries,
 		"total":  total,
-		"offset": offset,
-		"limit":  limit,
+		"offset": f.Offset,
+		"limit":  f.Limit,
 	})
 }
 

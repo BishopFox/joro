@@ -18,6 +18,7 @@ import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
+import { CONTENT_TYPE_OPTIONS } from '../lib/contentTypes'
 
 const HIGHLIGHT_COLORS: { key: string; label: string; swatch: string; bg: string }[] = [
   { key: 'red', label: 'Red', swatch: '#E53935', bg: 'rgba(229, 57, 53, 0.18)' },
@@ -79,16 +80,6 @@ function shortenContentType(ct: string): string {
   return semi >= 0 ? ct.substring(0, semi).trim() : ct.trim()
 }
 
-const CONTENT_TYPE_OPTIONS = [
-  { key: 'html', label: 'HTML' },
-  { key: 'json', label: 'JSON' },
-  { key: 'js', label: 'JavaScript' },
-  { key: 'xml', label: 'XML' },
-  { key: 'css', label: 'CSS' },
-  { key: 'image', label: 'Image' },
-  { key: 'font', label: 'Font' },
-  { key: 'text', label: 'Text' },
-]
 
 type HistoryTab = 'http' | 'ws'
 

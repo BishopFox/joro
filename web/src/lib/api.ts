@@ -225,7 +225,14 @@ async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: 
 
 export const api = {
   // Sitemap
-  getSitemap: () => req<{ hosts: SitemapHost[] }>('GET', '/sitemap'),
+  getSitemap: (params: Record<string, string | number> = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v !== '' && v !== 0)
+        .map(([k, v]) => [k, String(v)])
+    ).toString()
+    return req<{ hosts: SitemapHost[] }>('GET', `/sitemap${qs ? `?${qs}` : ''}`)
+  },
 
   // History
   listRequests: (params: Record<string, string | number>) => {

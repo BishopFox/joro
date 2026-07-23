@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
@@ -14,6 +14,8 @@ import ContextMenu from '../components/ContextMenu'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
+import SitemapFilterModal, { emptySitemapFilter, hasModalFilters } from '../components/SitemapFilterModal'
+import type { SitemapFilter } from '../components/SitemapFilterModal'
 
 const METHOD_COLORS: Record<string, string> = {
   GET: 'text-semantic-success',
@@ -34,6 +36,14 @@ export default function Map() {
   const [expandedEndpoints, setExpandedEndpoints] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
+  // Filter state. content/contentRegex back the inline search box; the rest are
+  // edited in the filter modal.
+  const [filter, setFilter] = useState<SitemapFilter>(emptySitemapFilter)
+  const [showFilters, setShowFilters] = useState(false)
+  const patchFilter = useCallback((patch: Partial<SitemapFilter>) => {
+    setFilter((prev) => ({ ...prev, ...patch }))
+  }, [])
+
   // Detail panel state.
   const [selectedDetail, setSelectedDetail] = useState<RequestDetail | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
@@ -49,23 +59,36 @@ export default function Map() {
   const mainSplit = useResizable('horizontal', 0.35)
   const detailSplit = useResizable('horizontal', 0.5)
 
+  // Translate filter state into query params (empty values are dropped by the
+  // API client). Content search covers URL + raw request/response bytes.
+  const params = useMemo(() => {
+    const p: Record<string, string> = {}
+    if (filter.host) p.host = filter.host
+    if (filter.method) p.method = filter.method
+    if (filter.status) p.status = filter.status
+    if (filter.contentTypes.length) p.contentType = filter.contentTypes.join(',')
+    if (filter.scopeOnly) p.scope_only = 'true'
+    if (filter.content) {
+      p.content = filter.content
+      if (filter.contentMode) p.contentMode = filter.contentMode
+      if (filter.contentRegex) p.contentRegex = 'true'
+    }
+    return p
+  }, [filter])
+
   const fetchSitemap = useCallback(async () => {
     try {
-      const data = await api.getSitemap()
+      const data = await api.getSitemap(params)
       setHosts(data.hosts ?? [])
     } catch {
       // ignore
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [params])
 
-  // Fetch on mount.
-  useEffect(() => {
-    fetchSitemap()
-  }, [fetchSitemap])
-
-  // Re-fetch when new requests arrive (debounced).
+  // Fetch immediately on mount; debounce subsequent fetches driven by filter
+  // changes (params) or new captured traffic (total).
   const total = useRequestStore((s) => s.total)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(false)
@@ -73,14 +96,17 @@ export default function Map() {
   useEffect(() => {
     if (!mountedRef.current) {
       mountedRef.current = true
+      fetchSitemap()
       return
     }
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(fetchSitemap, 1000)
+    debounceRef.current = setTimeout(fetchSitemap, 300)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [total, fetchSitemap])
+
+  const filtersActive = hasModalFilters(filter) || filter.content !== ''
 
   function toggleHost(origin: string) {
     setExpandedHosts((prev) => {
@@ -179,11 +205,50 @@ export default function Map() {
       {/* Left: Tree panel */}
       <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: mainSplit.fraction }}>
         {/* Top bar */}
-        <div className="flex items-center gap-3 px-3 py-2 border-b border-border bg-surface-card shrink-0">
-          <span className="text-xs font-semibold uppercase tracking-wide text-content-muted">Site Map</span>
-          <span className="text-xs text-content-secondary">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-surface-card shrink-0">
+          <span className="text-xs font-semibold uppercase tracking-wide text-content-muted shrink-0">Site Map</span>
+          <input
+            className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border flex-1 min-w-0"
+            placeholder={filter.contentRegex ? 'Search (regex) — URL, headers, bodies…' : 'Search — URL, headers, bodies…'}
+            value={filter.content}
+            onChange={(e) => patchFilter({ content: e.target.value })}
+          />
+          <Tooltip content="Treat the search term as a regular expression">
+            <button
+              onClick={() => patchFilter({ contentRegex: !filter.contentRegex })}
+              className={`px-2 py-1 rounded-sm text-[10px] font-semibold leading-none shrink-0 ${
+                filter.contentRegex ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
+              }`}
+            >
+              .*
+            </button>
+          </Tooltip>
+          <Tooltip content="Filters">
+            <button
+              onClick={() => setShowFilters(true)}
+              className={`relative px-2 py-1 rounded-sm text-xs leading-none shrink-0 ${
+                hasModalFilters(filter) ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
+              }`}
+            >
+              &#9776;
+              {hasModalFilters(filter) && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-accent-tertiary" />
+              )}
+            </button>
+          </Tooltip>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-border bg-surface-card shrink-0">
+          <span className="text-[10px] text-content-secondary">
             {hosts.length} {hosts.length === 1 ? 'host' : 'hosts'} &middot; {totalEndpoints} {totalEndpoints === 1 ? 'endpoint' : 'endpoints'}
           </span>
+          {filtersActive && (
+            <button
+              onClick={() => setFilter(emptySitemapFilter)}
+              className="text-[10px] text-content-muted hover:text-content-primary ml-auto"
+            >
+              Clear
+            </button>
+          )}
         </div>
 
         {/* Tree */}
@@ -192,7 +257,11 @@ export default function Map() {
             <div className="text-xs text-content-muted">Loading...</div>
           )}
           {!loading && hosts.length === 0 && (
-            <div className="text-xs text-content-muted">No requests captured yet. Browse through the proxy to populate the site map.</div>
+            <div className="text-xs text-content-muted">
+              {filtersActive
+                ? 'No endpoints match the current filter.'
+                : 'No requests captured yet. Browse through the proxy to populate the site map.'}
+            </div>
           )}
           <div className="space-y-0.5">
             {hosts.map((host) => {
@@ -407,6 +476,15 @@ export default function Map() {
           </div>
         )}
       </div>
+
+      {showFilters && (
+        <SitemapFilterModal
+          filter={filter}
+          onChange={patchFilter}
+          onClose={() => setShowFilters(false)}
+          onClear={() => setFilter(emptySitemapFilter)}
+        />
+      )}
 
       {detailMenu && selectedDetail && (
         <ContextMenu

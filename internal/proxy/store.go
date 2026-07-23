@@ -103,27 +103,43 @@ var contentTypeKeywords = map[string]string{
 	"text":       "text/",
 }
 
-// List returns a filtered, paginated slice along with the total matching count.
-func (s *Store) List(f RequestFilter) ([]*CapturedRequest, int) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+// requestMatcher holds the precompiled state for a RequestFilter so a single
+// filter can be applied to many requests without recompiling regexes or
+// rebuilding lookup sets. Shared by List (history) and Sitemap.
+type requestMatcher struct {
+	f              RequestFilter
+	extSet         map[string]struct{}
+	includeMode    bool
+	ctMatches      []string
+	contentExclude bool
+	contentActive  bool
+	contentRe      *regexp.Regexp
+	contentNeedle  string
+}
+
+// newRequestMatcher precompiles the filter's extension set, content-type
+// keywords, and content regex/needle.
+func newRequestMatcher(f RequestFilter) *requestMatcher {
+	m := &requestMatcher{
+		f:              f,
+		includeMode:    strings.EqualFold(f.ExtMode, "include"),
+		contentExclude: strings.EqualFold(f.ContentMode, "exclude"),
+		contentActive:  f.Content != "",
+	}
 
 	// Build extensions set if provided.
-	var extSet map[string]struct{}
-	includeMode := strings.EqualFold(f.ExtMode, "include")
 	if f.Exclude != "" {
 		parts := strings.Split(f.Exclude, ",")
-		extSet = make(map[string]struct{}, len(parts))
+		m.extSet = make(map[string]struct{}, len(parts))
 		for _, p := range parts {
 			ext := strings.TrimSpace(p)
 			if ext != "" {
-				extSet[strings.ToLower(ext)] = struct{}{}
+				m.extSet[strings.ToLower(ext)] = struct{}{}
 			}
 		}
 	}
 
 	// Resolve content type keywords (comma-separated) to MIME substrings.
-	var ctMatches []string
 	if f.ContentType != "" {
 		for _, raw := range strings.Split(f.ContentType, ",") {
 			kw := strings.ToLower(strings.TrimSpace(raw))
@@ -131,95 +147,110 @@ func (s *Store) List(f RequestFilter) ([]*CapturedRequest, int) {
 				continue
 			}
 			if mapped, ok := contentTypeKeywords[kw]; ok {
-				ctMatches = append(ctMatches, mapped)
+				m.ctMatches = append(m.ctMatches, mapped)
 			} else {
-				ctMatches = append(ctMatches, kw)
+				m.ctMatches = append(m.ctMatches, kw)
 			}
 		}
 	}
 
 	// Prepare content matching (searches raw request + response bytes).
 	// Include mode keeps matching requests; exclude mode drops them.
-	contentExclude := strings.EqualFold(f.ContentMode, "exclude")
-	var contentRe *regexp.Regexp
-	var contentNeedle string
-	contentActive := f.Content != ""
-	if contentActive {
+	if m.contentActive {
 		if f.ContentRegex {
 			// An invalid pattern matches nothing (regex stays nil).
-			contentRe, _ = regexp.Compile(f.Content)
+			m.contentRe, _ = regexp.Compile(f.Content)
 		} else {
-			contentNeedle = strings.ToLower(f.Content)
+			m.contentNeedle = strings.ToLower(f.Content)
 		}
 	}
 
+	return m
+}
+
+// match reports whether a request satisfies the filter (host, method, status,
+// URL search, extensions, content-type, raw content, scope).
+func (m *requestMatcher) match(r *CapturedRequest) bool {
+	f := m.f
+	if f.Host != "" && r.Host != f.Host {
+		return false
+	}
+	if f.Method != "" && !strings.EqualFold(r.Method, f.Method) {
+		return false
+	}
+	if f.Status != 0 && r.StatusCode != f.Status {
+		return false
+	}
+	if f.Search != "" && !strings.Contains(strings.ToLower(r.URL), strings.ToLower(f.Search)) {
+		return false
+	}
+	if len(m.extSet) > 0 {
+		if u, err := url.Parse(r.URL); err == nil {
+			ext := strings.ToLower(path.Ext(u.Path))
+			_, found := m.extSet[ext]
+			if m.includeMode && !found {
+				return false
+			}
+			if !m.includeMode && found {
+				return false
+			}
+		} else if m.includeMode {
+			return false
+		}
+	}
+	if len(m.ctMatches) > 0 {
+		ct := strings.ToLower(r.ContentType)
+		matched := false
+		for _, kw := range m.ctMatches {
+			if strings.Contains(ct, kw) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	if m.contentActive {
+		var matched bool
+		if f.ContentRegex {
+			matched = m.contentRe != nil && (m.contentRe.Match(r.ReqRaw) || m.contentRe.Match(r.RespRaw))
+		} else {
+			matched = strings.Contains(strings.ToLower(string(r.ReqRaw)), m.contentNeedle) ||
+				strings.Contains(strings.ToLower(string(r.RespRaw)), m.contentNeedle)
+		}
+		if m.contentExclude {
+			if matched {
+				return false
+			}
+		} else if !matched {
+			return false
+		}
+	}
+	if f.InScopeFunc != nil {
+		reqPath := "/"
+		if u, err := url.Parse(r.URL); err == nil {
+			reqPath = u.Path
+		}
+		if !f.InScopeFunc(r.Host, r.Method, reqPath) {
+			return false
+		}
+	}
+	return true
+}
+
+// List returns a filtered, paginated slice along with the total matching count.
+func (s *Store) List(f RequestFilter) ([]*CapturedRequest, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	matcher := newRequestMatcher(f)
+
 	var filtered []*CapturedRequest
 	for _, r := range s.items {
-		if f.Host != "" && r.Host != f.Host {
-			continue
+		if matcher.match(r) {
+			filtered = append(filtered, r)
 		}
-		if f.Method != "" && !strings.EqualFold(r.Method, f.Method) {
-			continue
-		}
-		if f.Status != 0 && r.StatusCode != f.Status {
-			continue
-		}
-		if f.Search != "" && !strings.Contains(strings.ToLower(r.URL), strings.ToLower(f.Search)) {
-			continue
-		}
-		if len(extSet) > 0 {
-			if u, err := url.Parse(r.URL); err == nil {
-				ext := strings.ToLower(path.Ext(u.Path))
-				_, found := extSet[ext]
-				if includeMode && !found {
-					continue
-				}
-				if !includeMode && found {
-					continue
-				}
-			} else if includeMode {
-				continue
-			}
-		}
-		if len(ctMatches) > 0 {
-			ct := strings.ToLower(r.ContentType)
-			matched := false
-			for _, m := range ctMatches {
-				if strings.Contains(ct, m) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				continue
-			}
-		}
-		if contentActive {
-			var matched bool
-			if f.ContentRegex {
-				matched = contentRe != nil && (contentRe.Match(r.ReqRaw) || contentRe.Match(r.RespRaw))
-			} else {
-				matched = strings.Contains(strings.ToLower(string(r.ReqRaw)), contentNeedle) ||
-					strings.Contains(strings.ToLower(string(r.RespRaw)), contentNeedle)
-			}
-			if contentExclude {
-				if matched {
-					continue
-				}
-			} else if !matched {
-				continue
-			}
-		}
-		if f.InScopeFunc != nil {
-			reqPath := "/"
-			if u, err := url.Parse(r.URL); err == nil {
-				reqPath = u.Path
-			}
-			if !f.InScopeFunc(r.Host, r.Method, reqPath) {
-				continue
-			}
-		}
-		filtered = append(filtered, r)
 	}
 
 	total := len(filtered)
@@ -342,12 +373,17 @@ type SitemapHost struct {
 	Count     int               `json:"count"`
 }
 
-// Sitemap builds an aggregated site map from all captured requests.
-// Hosts are keyed by origin (scheme://host:port). Within each host,
-// endpoints are grouped by path with observed methods and query param names.
-func (s *Store) Sitemap() []SitemapHost {
+// Sitemap builds an aggregated site map from captured requests matching the
+// given filter. Hosts are keyed by origin (scheme://host:port). Within each
+// host, endpoints are grouped by path with observed methods and query param
+// names. Requests that returned 404 are always excluded so endpoints that do
+// not actually exist on a host never appear in the map (a status of 0, i.e. no
+// response captured, is kept).
+func (s *Store) Sitemap(f RequestFilter) []SitemapHost {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	matcher := newRequestMatcher(f)
 
 	type endpointKey struct {
 		origin string
@@ -372,6 +408,10 @@ func (s *Store) Sitemap() []SitemapHost {
 	hostOrder := make(map[string]struct{})
 
 	for _, r := range s.items {
+		// Never surface endpoints that don't exist (404), and honor the filter.
+		if r.StatusCode == 404 || !matcher.match(r) {
+			continue
+		}
 		u, err := url.Parse(r.URL)
 		if err != nil {
 			continue
