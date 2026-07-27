@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import ProjectBrowser from '../components/ProjectBrowser'
 import { Settings, useSettingsStore } from '../stores/settingsStore'

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { Flag, WrapText, ChevronUp, ChevronDown } from 'lucide-react'
 import type { CapturedWSMessage } from '../lib/api'
 import CodeMirror from '@uiw/react-codemirror'

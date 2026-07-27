@@ -23,7 +23,7 @@ function MenuList({ items, x, y, onClose, isSubmenu }: { items: MenuItem[]; x: n
   const [pos, setPos] = useState({ x, y })
   const [openSub, setOpenSub] = useState<number | null>(null)
   const [subPos, setSubPos] = useState({ x: 0, y: 0 })
-  const hoverTimer = useRef<ReturnType<typeof setTimeout>>()
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     if (!ref.current) return

@@ -1,4 +1,4 @@
-import type { NavigateFunction } from 'react-router-dom'
+import type { NavigateFunction } from 'react-router'
 import type { MenuItem } from '../components/ContextMenu'
 import { copyText } from './clipboard'
 

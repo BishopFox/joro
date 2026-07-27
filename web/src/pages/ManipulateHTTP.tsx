@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo, useCallback, type ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import { ChevronLeft, ChevronRight, Flag, WrapText, Pilcrow, CornerDownRight, X, Plus } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view'
