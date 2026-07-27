@@ -147,7 +147,10 @@ npm run build     # output to web/dist/ (embedded into Go binary)
 All under `/api/v1/`. Request/response shapes are JSON unless noted. WebSocket events stream from `/ws`.
 
 **History & intercept**
-- `GET/DELETE /requests`, `GET /requests/:id` — paginated history with filters; raw bytes base64. Filters: `host`, `method`, `status`, `search` (URL substring), `exclude`+`extMode` (file extensions), `contentType`, `scope_only`, and `content`+`contentMode` (`include`/`exclude`) +`contentRegex` (`true`) — matches a string (case-insensitive) or regex against the **raw request + response bytes**. Content search is server-side only (raw bytes aren't in the WS summary), so live-streamed rows bypass it until reload — same as the other body/URL filters.
+- `GET/DELETE /requests`, `GET /requests/:id` — paginated history with filters; raw bytes base64. Filters: `host`, `method`, `status`, `search` (URL substring), `exclude`+`extMode` (file extensions), `contentType`, `scope_only`, and `content`+`contentMode` (`include`/`exclude`) +`contentRegex` (`true`) — matches a string (case-insensitive) or regex against the **raw request + response bytes**.
+  - `method` — comma-separated, case-insensitive, OR'd: `method=GET,POST`.
+  - `status` — comma-separated expression OR'ing classes (`4xx`), exact codes (`403`), inclusive ranges (`500-599`), and `none` (no response captured, `StatusCode == 0`): `status=4xx,5xx,403,500-599`. A bare `status=200` still works. Unparsable tokens are skipped, and an expression with no parsable token means no filter (so a half-typed value degrades rather than blanking the table). `status=0` means `none`, **not** "any". Parser: `parseStatusFilter` in `internal/proxy/statusfilter.go`.
+  - Live-streamed rows honor `method`, `status`, and `exclude`+`extMode` client-side (`requestStore.addItem`/`addItems` → `matchesLiveFilter`). `host`, `search`, `contentType`, `content*`, and `scope_only` are server-side only (raw bytes and scope rules aren't in the WS summary), so those bypass live rows until reload.
 - `GET /intercept`, `PUT /intercept/enabled`, `POST /intercept/:id/{forward,drop}` — queue control; forward accepts modified `reqRaw` base64
 
 **Manipulate**
@@ -279,6 +282,7 @@ Tracked via `go.mod` / `go.sum` only — repo does **not** vendor (see "no vendo
 - **`web/dist/` embedded** via `//go:embed dist`. Populated by `npm run build` before Go compiles — `make build` runs the frontend first, and the goreleaser `before:` hook does the same. Bare `go build ./...` requires `npm run build` to have run.
 - **Noise filter is separate from scope.** Silently tunnels common browser background traffic (captive portal, telemetry, OCSP, safe browsing) without capture. Enabled by default. Checked **before** scope — noisy hosts never MITM'd regardless of scope rules.
 - **Two-level scope filtering.** L1 (CONNECT): host pattern only — out-of-scope hosts tunneled raw without MITM. L2 (request): host + method + path after TLS termination — out-of-scope requests forwarded without capture/intercept. Disabled by default; enabled with no rules blocks everything (safe default). Exclude rules override include rules.
+- **History/Site Map method + status filters are multi-value, and shared between the two pages.** `web/src/lib/requestFilters.ts` is the single source for `HTTP_METHOD_OPTIONS`, `STATUS_CLASS_OPTIONS`, `buildStatusExpr` (chips + codes box → the `status` query param), `parseStatusExpr`/`matchesStatus` (a **hand-maintained mirror of `parseStatusFilter` in `internal/proxy/statusfilter.go` — keep in sync**, including its lenient skip-bad-tokens semantics: a strict mirror would blank the table mid-typing while the server still returns rows), and `matchesLiveFilter`, the client-side predicate `requestStore.addItem`/`addItems` apply to live `request.captured` rows. `matchesLiveFilter` covers **only** method/status/extension — the WS summary has no raw bytes or scope context, and mixing enforcement levels would make the row count disagree with the server's `total`. UI: `MultiSelectDropdown.tsx` (method popover) + `StatusFilter.tsx` (class chips + debounced codes box) are used by both History's filter bar and `SitemapFilterModal`; the store's `RequestFilter` and `SitemapFilter` both name the fields `methods`/`statusClasses`/`statusCodes` so the controls' patch objects drop straight into either setter. Method/status are deliberately **not** persisted to `localStorage` (unlike `exclude`/`content*`) — they're per-investigation, and History has no "filters active" badge, so a silently restored `4xx` would read as "the proxy stopped capturing". `MultiSelectDropdown`'s panel is `position: fixed` (to escape the filter bar and the site-map modal card) but **not** portaled, so click-outside is one `contains` check and a panel click inside the modal can't reach the backdrop's dismiss handler; it also `stopPropagation()`s ArrowUp/ArrowDown, since History installs a document-level row-navigation listener that only bails on `tagName === 'INPUT'`.
 - **Listener mode is mutually exclusive with proxy mode.** `--listener` starts DNS + HTTP callback servers + reduced API/UI. No CA, proxy, or intercept. Data in `~/.joro/callbacks.db`.
 - **Token entropy:** 12 hex chars = 48 bits. Correlated by leftmost subdomain label.
 - **Callback listeners are capture-only and pure-stdlib.** DNS uses `miekg/dns`; HTTP/SMTP/FTP/LDAP use only `net`/`bufio`/`crypto/tls` (no third-party protocol libs — supply-chain risk). `internal/callback/{ftp,ldap}.go` clone the `SMTPServer` shape (struct + `Start(ctx)` + `acceptLoop` + per-conn goroutine + optional implicit-TLS via shared `*tls.Config`). **FTP** is a fake server that captures USER/PASS + path args and refuses the data channel (`PASV`/`PORT` → `502`); it never opens a second socket or completes a transfer. **LDAP** hand-rolls a minimal BER TLV reader (`readTLV`/`readRawMessage` in `ldap.go` — *not* `encoding/asn1`, which is too DER-strict) to pull the bind DN / search baseObject (where JNDI/Log4Shell payloads land), then replies with canned success `BindResponse`/`SearchResultDone` echoing the messageID. Both `handleConnection`s open with `defer recover()` (untrusted network input) and cap message/line sizes before allocating. New protocols reuse existing `Interaction` columns (`Type`/`SourceIP`/`RawRequest`/`Headers`) — **no schema change**; the frontend `Callbacks.tsx` already renders `ftp`/`ldap` badges + a generic detail view, so **no frontend change**.
@@ -362,15 +366,16 @@ To add a new theme: create `web/src/themes/<name>.css` with all `--color-*` vari
 
 ## Testing
 
-No automated tests yet. Manual verification:
+Limited automated coverage (`go test ./...` — currently `internal/callback/listeners_test.go` and `internal/proxy/statusfilter_test.go`); mostly manual verification:
 
-1. `go build ./...` compiles cleanly
+1. `go build ./...` compiles cleanly, `go test ./...` passes
 2. `./joro` prints `Proxy listening on :8080` and `UI available at http://localhost:9090`
 3. Browser proxy → `localhost:8080`; import `~/.joro/ca.crt`
 4. Browse HTTPS site; requests appear in History
-5. Enable Intercept; next request pauses; edit and forward
-6. Manipulate (HTTP): paste raw, send, verify response + timing
-7. Manipulate (WS): connect to `wss://echo.websocket.events/`, send text/binary/ping, verify echo, disconnect
-8. Generate PHP/ASHX shell, verify auth key + content
-9. Execute: enter target + shell + key, run `whoami`
-10. Plugins: `./joro --build-plugin examples/plugins/hello-feature --install`, restart, verify load; upload via UI + "Restart Now" + verify
+5. History filters: pick two methods from the Method dropdown, toggle a status class, type `403,500-599` in the codes box — table narrows, and live rows that don't match stop appearing
+6. Enable Intercept; next request pauses; edit and forward
+7. Manipulate (HTTP): paste raw, send, verify response + timing
+8. Manipulate (WS): connect to `wss://echo.websocket.events/`, send text/binary/ping, verify echo, disconnect
+9. Generate PHP/ASHX shell, verify auth key + content
+10. Execute: enter target + shell + key, run `whoami`
+11. Plugins: `./joro --build-plugin examples/plugins/hello-feature --install`, restart, verify load; upload via UI + "Restart Now" + verify

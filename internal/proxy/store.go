@@ -33,8 +33,8 @@ type CapturedRequest struct {
 // RequestFilter holds optional filter criteria for listing requests.
 type RequestFilter struct {
 	Host         string
-	Method       string
-	Status       int
+	Method       string // comma-separated methods, e.g. "GET,POST" (empty = any)
+	Status       string // status expression, e.g. "4xx,5xx,403,500-599" (see parseStatusFilter)
 	Search       string
 	Exclude      string    // comma-separated file extensions, e.g. ".css,.png,.jpg"
 	ExtMode      string    // "exclude" (default) or "include"
@@ -110,6 +110,8 @@ type requestMatcher struct {
 	f              RequestFilter
 	extSet         map[string]struct{}
 	includeMode    bool
+	methodSet      map[string]struct{}
+	status         statusMatcher
 	ctMatches      []string
 	contentExclude bool
 	contentActive  bool
@@ -117,8 +119,8 @@ type requestMatcher struct {
 	contentNeedle  string
 }
 
-// newRequestMatcher precompiles the filter's extension set, content-type
-// keywords, and content regex/needle.
+// newRequestMatcher precompiles the filter's extension set, method set, status
+// expression, content-type keywords, and content regex/needle.
 func newRequestMatcher(f RequestFilter) *requestMatcher {
 	m := &requestMatcher{
 		f:              f,
@@ -138,6 +140,22 @@ func newRequestMatcher(f RequestFilter) *requestMatcher {
 			}
 		}
 	}
+
+	// Build the method set (comma-separated, case-insensitive).
+	if f.Method != "" {
+		for _, p := range strings.Split(f.Method, ",") {
+			mth := strings.ToUpper(strings.TrimSpace(p))
+			if mth == "" {
+				continue
+			}
+			if m.methodSet == nil {
+				m.methodSet = make(map[string]struct{}, 4)
+			}
+			m.methodSet[mth] = struct{}{}
+		}
+	}
+
+	m.status = parseStatusFilter(f.Status)
 
 	// Resolve content type keywords (comma-separated) to MIME substrings.
 	if f.ContentType != "" {
@@ -175,10 +193,12 @@ func (m *requestMatcher) match(r *CapturedRequest) bool {
 	if f.Host != "" && r.Host != f.Host {
 		return false
 	}
-	if f.Method != "" && !strings.EqualFold(r.Method, f.Method) {
-		return false
+	if len(m.methodSet) > 0 {
+		if _, ok := m.methodSet[strings.ToUpper(r.Method)]; !ok {
+			return false
+		}
 	}
-	if f.Status != 0 && r.StatusCode != f.Status {
+	if !m.status.match(r.StatusCode) {
 		return false
 	}
 	if f.Search != "" && !strings.Contains(strings.ToLower(r.URL), strings.ToLower(f.Search)) {

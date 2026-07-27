@@ -18,6 +18,7 @@ import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
 import SitemapFilterModal, { emptySitemapFilter, hasModalFilters } from '../components/SitemapFilterModal'
 import type { SitemapFilter } from '../components/SitemapFilterModal'
+import { buildStatusExpr } from '../lib/requestFilters'
 
 const METHOD_COLORS: Record<string, string> = {
   GET: 'text-semantic-success',
@@ -70,8 +71,9 @@ export default function Map() {
   const params = useMemo(() => {
     const p: Record<string, string> = {}
     if (filter.host) p.host = filter.host
-    if (filter.method) p.method = filter.method
-    if (filter.status) p.status = filter.status
+    if (filter.methods.length) p.method = filter.methods.join(',')
+    const statusExpr = buildStatusExpr(filter.statusClasses, filter.statusCodes)
+    if (statusExpr) p.status = statusExpr
     if (filter.contentTypes.length) p.contentType = filter.contentTypes.join(',')
     if (filter.scopeOnly) p.scope_only = 'true'
     if (filter.content) {

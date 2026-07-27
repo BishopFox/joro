@@ -20,6 +20,9 @@ import { copyText } from '../lib/clipboard'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
 import { CONTENT_TYPE_OPTIONS } from '../lib/contentTypes'
+import { HTTP_METHOD_OPTIONS, buildStatusExpr } from '../lib/requestFilters'
+import MultiSelectDropdown from '../components/MultiSelectDropdown'
+import StatusFilter from '../components/StatusFilter'
 
 const HIGHLIGHT_COLORS: { key: string; label: string; swatch: string; bg: string }[] = [
   { key: 'red', label: 'Red', swatch: '#E53935', bg: 'rgba(229, 57, 53, 0.18)' },
@@ -545,14 +548,15 @@ function HTTPHistory() {
 
   async function load() {
     setLoading(true)
+    const statusExpr = buildStatusExpr(filter.statusClasses, filter.statusCodes)
     try {
       const data = await api.listRequests({
         offset: filter.offset,
         limit: filter.limit,
         ...(filter.host && { host: filter.host }),
-        ...(filter.method && { method: filter.method }),
+        ...(filter.methods.length > 0 && { method: filter.methods.join(',') }),
         ...(filter.search && { search: filter.search }),
-        ...(filter.status && { status: filter.status }),
+        ...(statusExpr && { status: statusExpr }),
         ...(filter.exclude && filter.extMode && { exclude: filter.exclude }),
         ...(filter.exclude && filter.extMode && { extMode: filter.extMode }),
         ...(filter.content && filter.contentMode && { content: filter.content }),
@@ -600,26 +604,18 @@ function HTTPHistory() {
                 />
               </Tooltip>
             </label>
-            <label className="flex items-center gap-1.5">
-              <span className="text-xs text-content-muted">Method</span>
-              <Tooltip content="Filter by HTTP method (e.g. GET, POST)">
-                <input
-                  className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-20 lg:w-24"
-                  value={filter.method}
-                  onChange={(e) => setFilter({ method: e.target.value })}
-                />
-              </Tooltip>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <span className="text-xs text-content-muted">Status</span>
-              <Tooltip content="Filter by response status code (e.g. 200, 404)">
-                <input
-                  className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-20"
-                  value={filter.status}
-                  onChange={(e) => setFilter({ status: e.target.value })}
-                />
-              </Tooltip>
-            </label>
+            <MultiSelectDropdown
+              label="Method"
+              options={HTTP_METHOD_OPTIONS}
+              selected={filter.methods}
+              onChange={(methods) => setFilter({ methods })}
+              tooltip="Filter by HTTP method — select any number"
+            />
+            <StatusFilter
+              classes={filter.statusClasses}
+              codes={filter.statusCodes}
+              onChange={setFilter}
+            />
             <label className="flex items-center gap-1.5 flex-1 min-w-0">
               <span className="text-xs text-content-muted">URL</span>
               <Tooltip content="Search within request URLs">

@@ -1,12 +1,18 @@
 import { CONTENT_TYPE_OPTIONS } from '../lib/contentTypes'
+import { HTTP_METHOD_OPTIONS } from '../lib/requestFilters'
+import MultiSelectDropdown from './MultiSelectDropdown'
+import StatusFilter from './StatusFilter'
 
 // SitemapFilter mirrors the subset of the backend RequestFilter that the site
 // map exposes. `content`/`contentRegex` back the inline search box on the map;
-// the rest are edited in this modal.
+// the rest are edited in this modal. methods/statusClasses/statusCodes match the
+// field names in requestStore's RequestFilter so the shared filter controls work
+// against both.
 export interface SitemapFilter {
   host: string
-  method: string
-  status: string
+  methods: string[]
+  statusClasses: string[]
+  statusCodes: string
   contentTypes: string[]
   scopeOnly: boolean
   contentMode: '' | 'include' | 'exclude'
@@ -16,8 +22,9 @@ export interface SitemapFilter {
 
 export const emptySitemapFilter: SitemapFilter = {
   host: '',
-  method: '',
-  status: '',
+  methods: [],
+  statusClasses: [],
+  statusCodes: '',
   contentTypes: [],
   scopeOnly: false,
   contentMode: '',
@@ -31,8 +38,9 @@ export const emptySitemapFilter: SitemapFilter = {
 export function hasModalFilters(f: SitemapFilter): boolean {
   return (
     f.host !== '' ||
-    f.method !== '' ||
-    f.status !== '' ||
+    f.methods.length > 0 ||
+    f.statusClasses.length > 0 ||
+    f.statusCodes !== '' ||
     f.contentTypes.length > 0 ||
     f.scopeOnly ||
     f.contentMode !== ''
@@ -49,7 +57,7 @@ type Props = {
 export default function SitemapFilterModal({ filter, onChange, onClose, onClear }: Props) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="bg-surface-card border border-border rounded p-4 w-[28rem] space-y-3" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-surface-card border border-border rounded p-4 w-[32rem] space-y-3" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center">
           <h3 className="text-sm font-semibold text-content-primary">Filter site map</h3>
           <button
@@ -71,24 +79,20 @@ export default function SitemapFilterModal({ filter, onChange, onClose, onClear 
               onChange={(e) => onChange({ host: e.target.value })}
             />
           </label>
-          <label className="flex items-center gap-1.5">
-            <span className="text-xs text-content-muted">Method</span>
-            <input
-              className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-24"
-              placeholder="GET"
-              value={filter.method}
-              onChange={(e) => onChange({ method: e.target.value })}
-            />
-          </label>
-          <label className="flex items-center gap-1.5">
-            <span className="text-xs text-content-muted">Status</span>
-            <input
-              className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-20"
-              placeholder="200"
-              value={filter.status}
-              onChange={(e) => onChange({ status: e.target.value })}
-            />
-          </label>
+          <MultiSelectDropdown
+            label="Method"
+            options={HTTP_METHOD_OPTIONS}
+            selected={filter.methods}
+            onChange={(methods) => onChange({ methods })}
+            tooltip="Filter by HTTP method — select any number"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <StatusFilter
+            classes={filter.statusClasses}
+            codes={filter.statusCodes}
+            onChange={onChange}
+          />
         </div>
 
         {/* Response type */}

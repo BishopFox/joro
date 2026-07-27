@@ -17,7 +17,6 @@ func (s *APIServer) requestFilterFromQuery(r *http.Request) proxy.RequestFilter 
 
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	status, _ := strconv.Atoi(q.Get("status"))
 
 	extMode := q.Get("extMode")
 	if extMode == "" {
@@ -27,7 +26,7 @@ func (s *APIServer) requestFilterFromQuery(r *http.Request) proxy.RequestFilter 
 	f := proxy.RequestFilter{
 		Host:         q.Get("host"),
 		Method:       q.Get("method"),
-		Status:       status,
+		Status:       q.Get("status"),
 		Search:       q.Get("search"),
 		Exclude:      q.Get("exclude"),
 		ExtMode:      extMode,

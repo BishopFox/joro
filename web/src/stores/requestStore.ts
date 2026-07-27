@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
+import { LiveFilterFields, matchesLiveFilter } from '../lib/requestFilters'
 
 export interface RequestSummary {
   id: string
@@ -46,13 +47,12 @@ export interface RequestDetail extends RequestSummary {
   respRaw: string  // base64
 }
 
-export interface RequestFilter {
+// RequestFilter extends LiveFilterFields (methods/statusClasses/statusCodes/
+// exclude/extMode) — that subset is what live-streamed rows can be filtered on
+// client-side; the rest is server-only.
+export interface RequestFilter extends LiveFilterFields {
   host: string
-  method: string
   search: string
-  status: string
-  exclude: string
-  extMode: 'exclude' | 'include' | ''
   content: string
   contentMode: 'exclude' | 'include' | ''
   contentRegex: boolean
@@ -122,50 +122,18 @@ export const useRequestStore = create<RequestState>((set) => ({
   reloadCounter: 0,
   sortColumn: initialSort.column,
   sortDir: initialSort.dir,
-  filter: { host: '', method: '', search: '', status: '', exclude: localStorage.getItem('joro-history-exclude') ?? DEFAULT_EXCLUDE, extMode: (localStorage.getItem('joro-history-extMode') as 'exclude' | 'include' | '') ?? 'exclude', content: localStorage.getItem('joro-history-content') ?? '', contentMode: (localStorage.getItem('joro-history-contentMode') as 'exclude' | 'include' | '') ?? 'include', contentRegex: localStorage.getItem('joro-history-contentRegex') === 'true', contentTypes: [], scopeOnly: false, offset: 0, limit: 0 },
+  filter: { host: '', methods: [], search: '', statusClasses: [], statusCodes: '', exclude: localStorage.getItem('joro-history-exclude') ?? DEFAULT_EXCLUDE, extMode: (localStorage.getItem('joro-history-extMode') as 'exclude' | 'include' | '') ?? 'exclude', content: localStorage.getItem('joro-history-content') ?? '', contentMode: (localStorage.getItem('joro-history-contentMode') as 'exclude' | 'include' | '') ?? 'include', contentRegex: localStorage.getItem('joro-history-contentRegex') === 'true', contentTypes: [], scopeOnly: false, offset: 0, limit: 0 },
 
   addItem: (item) =>
     set((s) => {
-      const { exclude, extMode } = s.filter
-      if (exclude && extMode) {
-        const exts = new Set(exclude.split(',').map(e => e.trim().toLowerCase()))
-        try {
-          const dotIdx = new URL(item.url).pathname.lastIndexOf('.')
-          if (dotIdx >= 0) {
-            const ext = new URL(item.url).pathname.substring(dotIdx).toLowerCase()
-            const found = exts.has(ext)
-            if (extMode === 'exclude' && found) return s
-            if (extMode === 'include' && !found) return s
-          } else if (extMode === 'include') {
-            return s
-          }
-        } catch { /* allow through */ }
-      }
+      if (!matchesLiveFilter(item, s.filter)) return s
       const merged = sortRequestItems([...s.items, item], s.sortColumn, s.sortDir)
       return { items: merged, total: s.total + 1 }
     }),
 
   addItems: (newItems) =>
     set((s) => {
-      const { exclude, extMode } = s.filter
-      let filtered = newItems
-      if (exclude && extMode) {
-        const exts = new Set(exclude.split(',').map(e => e.trim().toLowerCase()))
-        filtered = newItems.filter((item) => {
-          try {
-            const dotIdx = new URL(item.url).pathname.lastIndexOf('.')
-            if (dotIdx >= 0) {
-              const ext = new URL(item.url).pathname.substring(dotIdx).toLowerCase()
-              const found = exts.has(ext)
-              if (extMode === 'exclude' && found) return false
-              if (extMode === 'include' && !found) return false
-            } else if (extMode === 'include') {
-              return false
-            }
-          } catch { /* allow through */ }
-          return true
-        })
-      }
+      const filtered = newItems.filter((item) => matchesLiveFilter(item, s.filter))
       if (filtered.length === 0) return s
       const merged = sortRequestItems([...s.items, ...filtered], s.sortColumn, s.sortDir)
       // Dev-mode invariant: if we're sorting by seq, the merged array must be
