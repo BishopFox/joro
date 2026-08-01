@@ -108,6 +108,30 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/fuzzer/campaigns/{id}", s.handleFuzzerDeleteCampaign)
 	mux.HandleFunc("POST /api/v1/fuzzer/wordlist", s.handleFuzzerUploadWordlist)
 
+	// Passive detection. Unlike the other rule collections below, detect rules
+	// have a PUT (a rule's ID is referenced by every finding it produced) and a
+	// test endpoint.
+	mux.HandleFunc("GET /api/v1/detect", s.handleGetDetect)
+	mux.HandleFunc("PUT /api/v1/detect/enabled", s.handleSetDetectEnabled)
+	mux.HandleFunc("GET /api/v1/detect/config", s.handleGetDetectConfig)
+	mux.HandleFunc("PUT /api/v1/detect/config", s.handleSetDetectConfig)
+	mux.HandleFunc("GET /api/v1/detect/findings", s.handleListFindings)
+	mux.HandleFunc("DELETE /api/v1/detect/findings", s.handleClearFindings)
+	mux.HandleFunc("GET /api/v1/detect/findings/{id}", s.handleGetFinding)
+	mux.HandleFunc("PUT /api/v1/detect/findings/{id}", s.handleUpdateFinding)
+	mux.HandleFunc("DELETE /api/v1/detect/findings/{id}", s.handleDeleteFinding)
+	mux.HandleFunc("GET /api/v1/detect/rules", s.handleListDetectRules)
+	mux.HandleFunc("POST /api/v1/detect/rules", s.handleAddDetectRule)
+	mux.HandleFunc("POST /api/v1/detect/rules/test", s.handleTestDetectRule)
+	mux.HandleFunc("PUT /api/v1/detect/rules/{id}", s.handleUpdateDetectRule)
+	mux.HandleFunc("DELETE /api/v1/detect/rules/{id}", s.handleDeleteDetectRule)
+	mux.HandleFunc("PUT /api/v1/detect/rules/{id}/enabled", s.handleSetDetectRuleEnabled)
+	mux.HandleFunc("PUT /api/v1/detect/rules/{id}/severity", s.handleSetDetectRuleSeverity)
+	mux.HandleFunc("POST /api/v1/detect/rules/{id}/reset", s.handleResetDetectRule)
+	mux.HandleFunc("POST /api/v1/detect/scan", s.handleStartDetectScan)
+	mux.HandleFunc("GET /api/v1/detect/scan", s.handleGetDetectScan)
+	mux.HandleFunc("POST /api/v1/detect/scan/cancel", s.handleCancelDetectScan)
+
 	// Web shell generator
 	mux.HandleFunc("POST /api/v1/generate", s.handleGenerate)
 

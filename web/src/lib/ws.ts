@@ -1,4 +1,5 @@
 import { useCallbackStore, type CallbackInteraction } from '../stores/callbackStore'
+import { useDetectStore, type Finding, type DetectSummary } from '../stores/detectStore'
 import { useFuzzStore, type FuzzResult } from '../stores/fuzzStore'
 import { useToastStore } from '../stores/toastStore'
 import { useInterceptStore } from '../stores/interceptStore'
@@ -51,6 +52,31 @@ function flushFuzzResultBuffer() {
   for (const [campaignId, results] of byCampaign) {
     store.addResultsToCampaign(campaignId, results)
   }
+}
+
+// Findings are RAF-batched, as request captures are: each upsert re-sorts the
+// list and rebuilds an id map, and a rescan emits them in a tight burst.
+let findingBuffer: Finding[] = []
+let findingRafScheduled = false
+
+function flushFindingBuffer() {
+  findingRafScheduled = false
+  if (findingBuffer.length === 0) return
+  const batch = findingBuffer
+  findingBuffer = []
+  useDetectStore.getState().upsertFindings(batch)
+}
+
+// Scan progress is coalesced to the newest value per frame; a rescan reports
+// faster than the UI can paint.
+let pendingScanProgress: { scanned: number; total: number; findingsNew: number } | null = null
+let scanProgressRafScheduled = false
+
+function flushScanProgress() {
+  scanProgressRafScheduled = false
+  if (!pendingScanProgress) return
+  useDetectStore.getState().setScan(pendingScanProgress)
+  pendingScanProgress = null
 }
 
 export function connectWS() {
@@ -244,6 +270,73 @@ function handleMessage(msg: WSMessage) {
     case 'fuzzer.complete': {
       const d = msg.data as { campaignId: string; status: string }
       useFuzzStore.getState().setCampaignStatus(d.campaignId, d.status === 'stopped' ? 'stopped' : 'completed')
+      break
+    }
+    case 'detect.finding': {
+      const d = msg.data as { finding: Finding; isNew: boolean }
+      findingBuffer.push(d.finding)
+      if (!findingRafScheduled) {
+        findingRafScheduled = true
+        requestAnimationFrame(flushFindingBuffer)
+      }
+      break
+    }
+    case 'detect.summary': {
+      useDetectStore.getState().setSummary(msg.data as DetectSummary)
+      break
+    }
+    case 'detect.scan.started': {
+      const d = msg.data as { jobId: string; kind: string; total: number }
+      useDetectStore.getState().setScan({
+        running: true,
+        jobId: d.jobId,
+        kind: d.kind,
+        scanned: 0,
+        total: d.total,
+        findingsNew: 0,
+        status: 'running',
+      })
+      break
+    }
+    case 'detect.scan.progress': {
+      const d = msg.data as { scanned: number; total: number; findingsNew: number }
+      pendingScanProgress = { scanned: d.scanned, total: d.total, findingsNew: d.findingsNew }
+      if (!scanProgressRafScheduled) {
+        scanProgressRafScheduled = true
+        requestAnimationFrame(flushScanProgress)
+      }
+      break
+    }
+    case 'detect.scan.complete': {
+      const d = msg.data as {
+        status: string
+        scanned: number
+        findingsNew: number
+      }
+      useDetectStore.getState().setScan({
+        running: false,
+        scanned: d.scanned,
+        findingsNew: d.findingsNew,
+        status: d.status,
+      })
+      // Completion is toasted; the start is not, since the operator clicked it.
+      useToastStore
+        .getState()
+        .addToast(
+          `Detection scan ${d.status} — ${d.findingsNew} new finding${d.findingsNew === 1 ? '' : 's'}`,
+          'info'
+        )
+      // Per-finding events are suppressed during a rescan, so reload the table.
+      useDetectStore.getState().invalidate()
+      break
+    }
+    case 'detect.findings.cleared': {
+      useDetectStore.getState().clearAll()
+      break
+    }
+    case 'detect.rules.changed': {
+      // Force the rules view to refetch on next mount.
+      useDetectStore.setState({ rulesLoaded: false })
       break
     }
     default:

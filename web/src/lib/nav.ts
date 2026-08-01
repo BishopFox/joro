@@ -8,6 +8,7 @@ export const NAV: NavEntry[] = [
   { to: '/dashboard',  label: 'Dashboard' },
   { to: '/map',        label: 'Map',        proxyOnly: true },
   { to: '/history',    label: 'History',    proxyOnly: true },
+  { to: '/detect',     label: 'Detect',     proxyOnly: true },
   { to: '/intercept',  label: 'Intercept',  proxyOnly: true },
   { to: '/manipulate', label: 'Manipulate', proxyOnly: true },
   { to: '/fuzz',       label: 'Fuzz',       proxyOnly: true },

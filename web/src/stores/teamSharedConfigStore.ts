@@ -22,6 +22,8 @@ export interface SharedConfigPayload {
   replaceRules: { target: string; matchType: string; match: string; replace: string }[]
   customDataEnabled: boolean
   customDataItems: { type: string; name: string; value: string }[]
+  // Custom detection rules travel with the bundle; findings do not.
+  detectRules?: Record<string, unknown>[]
 }
 
 interface TeamSharedConfigState {

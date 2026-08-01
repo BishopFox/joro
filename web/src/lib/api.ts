@@ -2,6 +2,14 @@ import type { CallbackInteraction, CallbackToken } from '../stores/callbackStore
 import type { ChatMessage, ActiveUser } from '../stores/teamStore'
 import type { FlaggedSummary, FlaggedRequest } from '../stores/teamFlaggedStore'
 import type { SharedConfigSummary, SharedConfig, SharedConfigPayload } from '../stores/teamSharedConfigStore'
+import type {
+  Finding,
+  FindingOccurrence,
+  DetectRule,
+  DetectConfig,
+  DetectSummary,
+  ScanState,
+} from '../stores/detectStore'
 
 export interface CollabRequest {
   id: string
@@ -20,6 +28,7 @@ export interface ProjectMeta {
   sizeBytes: number
   requestCount: number
   noteCount: number
+  findingCount: number
   autoSave: boolean
   saveHistory: boolean
   active: boolean
@@ -594,10 +603,13 @@ export const api = {
   getCollab: (id: string) => req<CollabRequest>('GET', `/team/collab/${id}`),
   acceptCollab: (id: string) => req<{ status: string }>('POST', `/team/collab/${id}/accept`, {}),
   gatherCurrentRules: async (): Promise<SharedConfigPayload> => {
-    const [scope, replace, custom] = await Promise.all([
+    const [scope, replace, custom, detect] = await Promise.all([
       api.getScope(),
       api.getReplace(),
       api.getCustomData(),
+      // Detection is unavailable in listener mode, so a failure here must not
+      // block the bundle.
+      api.listDetectRules().catch(() => null),
     ])
     return {
       scopeEnabled: scope.enabled,
@@ -606,6 +618,10 @@ export const api = {
       replaceRules: replace.rules.map(({ target, matchType, match, replace }) => ({ target, matchType, match, replace })),
       customDataEnabled: custom.enabled,
       customDataItems: custom.items.map(({ type, name, value }) => ({ type, name, value })),
+      // Only custom rules travel; built-ins exist on every install.
+      detectRules: (detect?.rules ?? [])
+        .filter((r) => !r.builtin)
+        .map((r) => ({ ...r, id: undefined })),
     }
   },
 
@@ -633,6 +649,98 @@ export const api = {
     const qs = instanceId ? `?instance_id=${encodeURIComponent(instanceId)}` : ''
     return req<unknown>('DELETE', `/plugin/${plugin}/interact/interactions${qs}`)
   },
+
+  // Detect (passive vulnerability detection)
+  getDetect: () =>
+    req<{
+      enabled: boolean
+      config: DetectConfig
+      summary: DetectSummary
+      scan: ScanState
+      cursor: number
+      ruleCount: number
+      activeRules: number
+    }>('GET', '/detect'),
+  setDetectEnabled: (enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', '/detect/enabled', { enabled }),
+  getDetectConfig: () => req<DetectConfig>('GET', '/detect/config'),
+  updateDetectConfig: (patch: Partial<DetectConfig>) =>
+    req<DetectConfig>('PUT', '/detect/config', patch),
+
+  listFindings: (params: Record<string, string | number>) => {
+    const qs = new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v !== '' && v !== 0)
+        .map(([k, v]) => [k, String(v)])
+    ).toString()
+    return req<{ items: Finding[]; total: number; offset: number; limit: number }>(
+      'GET',
+      `/detect/findings${qs ? `?${qs}` : ''}`
+    )
+  },
+  getFinding: (id: string) =>
+    req<{
+      finding: Finding
+      notes: string
+      occurrences: FindingOccurrence[]
+      rule: DetectRule | null
+    }>('GET', `/detect/findings/${id}`),
+  updateFinding: (
+    id: string,
+    patch: { falsePositive?: boolean; notes?: string; severity?: string }
+  ) => req<Finding>('PUT', `/detect/findings/${id}`, patch),
+  deleteFinding: (id: string) => req<unknown>('DELETE', `/detect/findings/${id}`),
+  clearFindings: (onlyFalsePositives = false) =>
+    req<{ deleted: number }>(
+      'DELETE',
+      `/detect/findings${onlyFalsePositives ? '?fp=true' : ''}`
+    ),
+
+  listDetectRules: () =>
+    req<{
+      rules: DetectRule[]
+      builtinCount: number
+      userCount: number
+      activeCount: number
+      categories: string[]
+      postFilters: string[]
+    }>('GET', '/detect/rules'),
+  addDetectRule: (rule: Partial<DetectRule>) =>
+    req<DetectRule>('POST', '/detect/rules', rule),
+  updateDetectRule: (id: string, rule: Partial<DetectRule>) =>
+    req<DetectRule>('PUT', `/detect/rules/${id}`, rule),
+  deleteDetectRule: (id: string) => req<unknown>('DELETE', `/detect/rules/${id}`),
+  setDetectRuleEnabled: (id: string, enabled: boolean) =>
+    req<unknown>('PUT', `/detect/rules/${id}/enabled`, { enabled }),
+  setDetectRuleSeverity: (id: string, severity: string) =>
+    req<unknown>('PUT', `/detect/rules/${id}/severity`, { severity }),
+  resetDetectRule: (id: string) => req<DetectRule>('POST', `/detect/rules/${id}/reset`),
+  testDetectRule: (body: {
+    pattern: string
+    sample: string
+    captureGroup?: number
+    minEntropy?: number
+    minLength?: number
+  }) =>
+    req<{
+      valid: boolean
+      error?: string
+      groups?: number
+      truncated?: boolean
+      matches?: {
+        match: string
+        redacted: string
+        offset: number
+        length: number
+        entropy: number
+        passes: boolean
+      }[]
+    }>('POST', '/detect/rules/test', body),
+
+  startDetectScan: (opts?: { scope?: string; host?: string; purge?: boolean }) =>
+    req<ScanState>('POST', '/detect/scan', opts ?? {}),
+  getDetectScan: () => req<ScanState>('GET', '/detect/scan'),
+  cancelDetectScan: () => req<{ status: string }>('POST', '/detect/scan/cancel'),
 
   // Highlights
   getHighlights: () => req<{ highlights: Record<string, string> }>('GET', '/highlights'),

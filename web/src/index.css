@@ -91,6 +91,14 @@ div:has(> .cm-editor) {
 ::-webkit-scrollbar-thumb { background: var(--color-content-muted); border-radius: 9999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-surface-hover); }
 
+/* Detection evidence highlight in CodeMirror */
+.cm-detect-match {
+  background: var(--color-semantic-error-bg);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* FUZZ keyword highlighting in CodeMirror (per-position colors) */
 .cm-fuzz-keyword,
 .cm-fuzz-pos-0 {

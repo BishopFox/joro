@@ -132,7 +132,7 @@ func sendH1Raw(ctx context.Context, raw []byte, scheme, host, proto string, opts
 	duration := time.Since(start)
 
 	if opts.Decompress {
-		if decoded, ok := tryDecompress(resp.Header.Get("Content-Encoding"), bodyBytes); ok {
+		if decoded, ok := TryDecompress(resp.Header.Get("Content-Encoding"), bodyBytes); ok {
 			bodyBytes = decoded
 			resp.Header.Del("Content-Encoding")
 			resp.Header.Del("Transfer-Encoding")
@@ -218,7 +218,7 @@ func sendH2(ctx context.Context, raw []byte, scheme, host string, opts SendOptio
 	resp.Body.Close()
 
 	if opts.Decompress {
-		if decoded, ok := tryDecompress(resp.Header.Get("Content-Encoding"), bodyBytes); ok {
+		if decoded, ok := TryDecompress(resp.Header.Get("Content-Encoding"), bodyBytes); ok {
 			bodyBytes = decoded
 			resp.Header.Del("Content-Encoding")
 			resp.Header.Del("Transfer-Encoding")
@@ -423,9 +423,9 @@ func buildSimpleGet(proto, host, path string) []byte {
 	return fmt.Appendf(nil, "GET %s %s\r\nHost: %s\r\nAccept: */*\r\n\r\n", path, proto, host)
 }
 
-// tryDecompress decodes gzip / deflate response bodies. Returns (decoded, true)
+// TryDecompress decodes gzip / deflate response bodies. Returns (decoded, true)
 // on success, or (original, false) if the encoding is empty or unsupported.
-func tryDecompress(encoding string, body []byte) ([]byte, bool) {
+func TryDecompress(encoding string, body []byte) ([]byte, bool) {
 	enc := strings.ToLower(strings.TrimSpace(encoding))
 	if enc == "" {
 		return body, false

@@ -19,6 +19,14 @@ type statusMatcher struct {
 	ranges  [][2]int
 }
 
+// NewStatusPredicate compiles a status expression into a standalone predicate
+// for packages outside proxy. An empty or fully unparsable expression yields a
+// predicate matching every status, as parseStatusFilter does.
+func NewStatusPredicate(expr string) func(int) bool {
+	sm := parseStatusFilter(expr)
+	return sm.match
+}
+
 // parseStatusFilter compiles a status expression. Unparsable tokens are skipped
 // silently, so a half-typed value degrades to the tokens that do parse rather
 // than matching nothing. An expression with no parsable token is inactive

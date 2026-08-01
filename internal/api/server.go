@@ -19,6 +19,7 @@ import (
 	"github.com/BishopFox/joro/internal/cert"
 	"github.com/BishopFox/joro/internal/config"
 	"github.com/BishopFox/joro/internal/configstore"
+	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/event"
 	"github.com/BishopFox/joro/internal/fuzzer"
 	"github.com/BishopFox/joro/internal/mythic"
@@ -90,6 +91,16 @@ type APIServer struct {
 	fuzzerStore   *fuzzer.Store
 	pluginManager *plugins.Manager
 
+	// Passive detection. All three are nil in listener and team-server mode; the
+	// detect routes are gated on proxy mode in registerRoutes, so only the shared
+	// config paths need nil guards.
+	detectEngine   *detect.Engine
+	detectFindings *detect.Store
+	detectScanner  *detect.Scanner
+	// detectCtx is the server-lifetime context, so a rescan job can outlive the
+	// HTTP request that started it. Guarded by mu.
+	detectCtx context.Context
+
 	listenerRelay *ListenerRelay
 	configStore   *configstore.Store
 
@@ -151,6 +162,10 @@ func New(
 	mc.SetOnEvent(func(ev mythic.MythicEvent) {
 		hub.Broadcast() <- event.WSEvent{Type: "mythic.event", Data: ev}
 	})
+	// Detection is constructed here rather than injected from main.go; the proxy
+	// holds no reference to it, since the scanner pulls from the capture store.
+	detectEngine := detect.NewEngine()
+	detectFindings := detect.NewStore(0)
 	return &APIServer{
 		cfg:           cfg,
 		store:         store,
@@ -169,6 +184,12 @@ func New(
 		mythicClient:  mc,
 		fuzzerStore:   fuzzer.NewStore(),
 		pluginManager: pluginManager,
+
+		detectEngine:   detectEngine,
+		detectFindings: detectFindings,
+		detectScanner: detect.NewScanner(
+			detectEngine, detectFindings, store, scope, hub.Broadcast()),
+
 		listenerRelay: NewListenerRelay(hub),
 		configStore:   configstore.NewStore(cfg.DataDir),
 		buildInfo:     buildInfo,

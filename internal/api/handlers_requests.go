@@ -115,5 +115,9 @@ func (s *APIServer) handleGetRequest(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleClearRequests(w http.ResponseWriter, r *http.Request) {
 	s.store.Clear()
+	// Clear zeroes the store's sequence counter, so the detection cursor must be
+	// reset with it.
+	s.resetDetectCursor(0)
+	s.clearDetectFindingsWithHistory()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
 }

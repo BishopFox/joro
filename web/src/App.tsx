@@ -16,6 +16,7 @@ import { NAV } from './lib/nav'
 import { currentTheme } from './lib/theme'
 import Callbacks from './pages/Callbacks'
 import History from './pages/History'
+import Detect from './pages/Detect'
 import Intercept from './pages/Intercept'
 import Manipulate from './pages/Manipulate'
 import Fuzz from './pages/Fuzz'
@@ -251,6 +252,7 @@ export default function App() {
           } />
           <Route path="/map" element={<Map />} />
           <Route path="/history" element={<History />} />
+          <Route path="/detect" element={<Detect />} />
           <Route path="/intercept" element={<Intercept />} />
           <Route path="/manipulate" element={<Manipulate />} />
           <Route path="/fuzz" element={<Fuzz />} />

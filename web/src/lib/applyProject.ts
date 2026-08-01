@@ -1,4 +1,5 @@
 import { api } from './api'
+import { useDetectStore } from '../stores/detectStore'
 import { useRequestStore } from '../stores/requestStore'
 import { useSettingsStore, type Settings } from '../stores/settingsStore'
 
@@ -9,6 +10,10 @@ import { useSettingsStore, type Settings } from '../stores/settingsStore'
 // by those pages when they next mount, so it isn't touched here.
 export function applyProjectResp(_resp: unknown): void {
   useRequestStore.getState().invalidate()
+  // Findings live in the project file, so a switch or import drops the previous
+  // project's findings.
+  useDetectStore.getState().clearAll()
+  useDetectStore.getState().invalidate()
   api
     .getSettings()
     .then((s) => useSettingsStore.getState().setSettings(s as Settings))

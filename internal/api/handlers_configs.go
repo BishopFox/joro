@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BishopFox/joro/internal/configstore"
+	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/proxy"
 	"github.com/hashicorp/go-uuid"
 )
@@ -81,25 +82,117 @@ type projectCapturedRequest struct {
 	RespRaw     []byte `json:"respRaw,omitempty"`
 }
 
+// projectDetectConfig mirrors detect.Config for the project file.
+type projectDetectConfig struct {
+	ScopeOnly                bool     `json:"scopeOnly"`
+	ScanRequests             bool     `json:"scanRequests"`
+	PersistFindings          bool     `json:"persistFindings"`
+	ClearFindingsWithHistory bool     `json:"clearFindingsWithHistory"`
+	MaxBodyScanBytes         int      `json:"maxBodyScanBytes"`
+	MaxRequestBodyScanBytes  int      `json:"maxRequestBodyScanBytes"`
+	SkipContentTypes         []string `json:"skipContentTypes,omitempty"`
+	SkipExtensions           []string `json:"skipExtensions,omitempty"`
+	ExcludeHosts             []string `json:"excludeHosts,omitempty"`
+}
+
+// projectDetectRule is a custom detection rule as persisted. Unlike the scope,
+// noise, replace, and custom-data DTOs, this one keeps ID: Finding.RuleID
+// references it and Finding.ID derives from it.
+type projectDetectRule struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description,omitempty"`
+	Remediation    string   `json:"remediation,omitempty"`
+	Category       string   `json:"category"`
+	Severity       string   `json:"severity"`
+	Confidence     string   `json:"confidence"`
+	Target         string   `json:"target"`
+	Pattern        string   `json:"pattern"`
+	Literal        string   `json:"literal,omitempty"`
+	CaptureGroup   int      `json:"captureGroup,omitempty"`
+	PostFilters    []string `json:"postFilters,omitempty"`
+	GroupBy        string   `json:"groupBy,omitempty"`
+	ContentTypes   []string `json:"contentTypes,omitempty"`
+	StatusCodes    string   `json:"statusCodes,omitempty"`
+	Scheme         string   `json:"scheme,omitempty"`
+	MinLength      int      `json:"minLength,omitempty"`
+	MinEntropy     float64  `json:"minEntropy,omitempty"`
+	MaxPerResponse int      `json:"maxPerResponse,omitempty"`
+	RedactEvidence bool     `json:"redactEvidence,omitempty"`
+	Enabled        bool     `json:"enabled"`
+}
+
+// projectDetectOccurrence is a trimmed sighting record.
+type projectDetectOccurrence struct {
+	RequestID  string `json:"requestId"`
+	Seq        int    `json:"seq"`
+	Method     string `json:"method"`
+	URL        string `json:"url"`
+	StatusCode int    `json:"statusCode"`
+	Timestamp  string `json:"timestamp"`
+	Offset     int    `json:"offset"`
+	Part       string `json:"part,omitempty"`
+}
+
+// projectDetectFinding is a finding as persisted. ID is preserved: it is the
+// dedupe identity (a hash of rule, host, and grouping dimension), so a reloaded
+// project merges with a subsequent scan.
+type projectDetectFinding struct {
+	ID                 string                    `json:"id"`
+	RuleID             string                    `json:"ruleId"`
+	RuleName           string                    `json:"ruleName"`
+	Category           string                    `json:"category"`
+	Severity           string                    `json:"severity"`
+	Confidence         string                    `json:"confidence"`
+	Target             string                    `json:"target"`
+	Host               string                    `json:"host"`
+	Method             string                    `json:"method"`
+	URL                string                    `json:"url"`
+	RequestID          string                    `json:"requestId,omitempty"`
+	Detail             string                    `json:"detail,omitempty"`
+	Evidence           string                    `json:"evidence"`
+	RawEvidence        string                    `json:"rawEvidence,omitempty"`
+	EvidenceOffset     int                       `json:"evidenceOffset,omitempty"`
+	EvidenceLength     int                       `json:"evidenceLength,omitempty"`
+	EvidencePart       string                    `json:"evidencePart,omitempty"`
+	FirstSeen          string                    `json:"firstSeen"`
+	LastSeen           string                    `json:"lastSeen"`
+	Count              int                       `json:"count"`
+	FalsePositive      bool                      `json:"falsePositive,omitempty"`
+	Notes              string                    `json:"notes,omitempty"`
+	Truncated          bool                      `json:"truncated,omitempty"`
+	SeverityOverridden bool                      `json:"severityOverridden,omitempty"`
+	Occurrences        []projectDetectOccurrence `json:"occurrences,omitempty"`
+}
+
 type projectConfigFile struct {
-	Version           int                      `json:"version"`
-	AutoSave          bool                     `json:"autoSave"`
-	SaveHistory       bool                     `json:"saveHistory"`
-	ListenerURL       string                   `json:"listenerUrl"`
-	TeamToken         string                   `json:"teamToken"`
-	TeamNickname      string                   `json:"teamNickname"`
-	ScopeEnabled      bool                     `json:"scopeEnabled"`
-	ScopeRules        []projectScopeRule       `json:"scopeRules"`
-	NoiseEnabled      bool                     `json:"noiseEnabled"`
-	NoisePatterns     []projectNoisePattern    `json:"noisePatterns"`
-	ReplaceEnabled    bool                     `json:"replaceEnabled"`
-	ReplaceRules      []projectReplaceRule     `json:"replaceRules"`
-	CustomDataEnabled bool                     `json:"customDataEnabled"`
-	CustomDataItems   []projectCustomItem      `json:"customDataItems"`
-	Notes             []projectNote            `json:"notes"`
-	Highlights        map[string]string        `json:"highlights,omitempty"`
-	RequestHistory    []projectCapturedRequest `json:"requestHistory,omitempty"`
-	PluginStates      map[string]string        `json:"pluginStates,omitempty"` // plugin name -> base64(opaque bytes)
+	Version           int                   `json:"version"`
+	AutoSave          bool                  `json:"autoSave"`
+	SaveHistory       bool                  `json:"saveHistory"`
+	ListenerURL       string                `json:"listenerUrl"`
+	TeamToken         string                `json:"teamToken"`
+	TeamNickname      string                `json:"teamNickname"`
+	ScopeEnabled      bool                  `json:"scopeEnabled"`
+	ScopeRules        []projectScopeRule    `json:"scopeRules"`
+	NoiseEnabled      bool                  `json:"noiseEnabled"`
+	NoisePatterns     []projectNoisePattern `json:"noisePatterns"`
+	ReplaceEnabled    bool                  `json:"replaceEnabled"`
+	ReplaceRules      []projectReplaceRule  `json:"replaceRules"`
+	CustomDataEnabled bool                  `json:"customDataEnabled"`
+	CustomDataItems   []projectCustomItem   `json:"customDataItems"`
+
+	// Passive detection (schema v5).
+	DetectEnabled           bool                   `json:"detectEnabled"`
+	DetectConfig            *projectDetectConfig   `json:"detectConfig,omitempty"`
+	DetectDisabledRules     []string               `json:"detectDisabledRules,omitempty"`
+	DetectSeverityOverrides map[string]string      `json:"detectSeverityOverrides,omitempty"`
+	DetectRules             []projectDetectRule    `json:"detectRules,omitempty"`
+	DetectFindings          []projectDetectFinding `json:"detectFindings,omitempty"`
+
+	Notes          []projectNote            `json:"notes"`
+	Highlights     map[string]string        `json:"highlights,omitempty"`
+	RequestHistory []projectCapturedRequest `json:"requestHistory,omitempty"`
+	PluginStates   map[string]string        `json:"pluginStates,omitempty"` // plugin name -> base64(opaque bytes)
 }
 
 // encodePluginStates base64-encodes each blob for transport inside a JSON
@@ -222,8 +315,10 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		projectFresh = s.pluginManager.ExportProjectStates()
 	}
 
+	dEnabled, dCfg, dDisabled, dOverrides, dRules, dFindings := s.detectStateForProject()
+
 	return projectConfigFile{
-		Version:           4,
+		Version:           5,
 		AutoSave:          autoSave,
 		SaveHistory:       saveHistory,
 		ListenerURL:       listenerURL,
@@ -237,10 +332,18 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		ReplaceRules:      pReplaceRules,
 		CustomDataEnabled: s.customData.IsEnabled(),
 		CustomDataItems:   pCustomItems,
-		Notes:             pNotes,
-		Highlights:        pHighlights,
-		RequestHistory:    pReqs,
-		PluginStates:      encodePluginStates(mergePluginStates(projectGhost, projectFresh)),
+
+		DetectEnabled:           dEnabled,
+		DetectConfig:            dCfg,
+		DetectDisabledRules:     dDisabled,
+		DetectSeverityOverrides: dOverrides,
+		DetectRules:             dRules,
+		DetectFindings:          dFindings,
+
+		Notes:          pNotes,
+		Highlights:     pHighlights,
+		RequestHistory: pReqs,
+		PluginStates:   encodePluginStates(mergePluginStates(projectGhost, projectFresh)),
 	}
 }
 
@@ -251,6 +354,11 @@ func normalizeProjectConfig(cfg *projectConfigFile) {
 	if cfg.Version < 4 {
 		cfg.AutoSave = true
 		cfg.SaveHistory = true
+	}
+	if cfg.Version < 5 {
+		// A nil DetectConfig means the engine defaults, with detection enabled.
+		cfg.DetectEnabled = true
+		cfg.DetectConfig = nil
 	}
 }
 
@@ -263,6 +371,7 @@ type projectMeta struct {
 	SizeBytes    int64  `json:"sizeBytes"`
 	RequestCount int    `json:"requestCount"`
 	NoteCount    int    `json:"noteCount"`
+	FindingCount int    `json:"findingCount"`
 	AutoSave     bool   `json:"autoSave"`
 	SaveHistory  bool   `json:"saveHistory"`
 	Active       bool   `json:"active"`
@@ -322,6 +431,7 @@ func (s *APIServer) backfillProjectMeta(name string) projectMeta {
 			m.NoteCount++
 		}
 	}
+	m.FindingCount = len(cfg.DetectFindings)
 	m.AutoSave = cfg.AutoSave
 	m.SaveHistory = cfg.SaveHistory
 	s.writeProjectMeta(name, m)
@@ -376,7 +486,7 @@ func (s *APIServer) liveStateSignature() string {
 	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%d/rp%d/cd%d/no%d",
 		reqCount, lastSeq, noteCount, maxNoteUpdate, hlCount,
 		len(s.scope.Rules()), len(s.replace.Rules()),
-		len(s.customData.Items()), len(s.noise.Patterns()))
+		len(s.customData.Items()), len(s.noise.Patterns())) + s.detectSignature()
 }
 
 // saveProject snapshots live state to the named project's .joro (respecting its
@@ -403,6 +513,7 @@ func (s *APIServer) saveProject(name string) error {
 	s.writeProjectMeta(name, projectMeta{
 		RequestCount: len(cfg.RequestHistory),
 		NoteCount:    noteCount,
+		FindingCount: len(cfg.DetectFindings),
 		AutoSave:     autoSave,
 		SaveHistory:  saveHistory,
 	})
@@ -432,6 +543,9 @@ func (s *APIServer) resetLiveProjectState() {
 		_ = s.noteStore.ClearAll()
 	}
 	s.store.Clear()
+	// Clear zeroes the store's sequence counter; resetDetectLiveState moves the
+	// detection cursor back to zero with it.
+	s.resetDetectLiveState()
 
 	s.mu.Lock()
 	s.highlights = make(map[string]string)
@@ -599,6 +713,12 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 		s.store.Clear()
 	}
 
+	// Both branches above rewrite the store's sequence counter, so park the scan
+	// cursor at the restored high-water mark, not at zero. Loaded history is
+	// re-examined by an explicit rescan.
+	detectResp := s.applyDetectProjectConfig(cfg)
+	s.resetDetectCursor(s.store.LastSeq())
+
 	var unknownPluginStates []string
 	if s.pluginManager != nil {
 		unknownPluginStates = s.pluginManager.ApplyProjectStates(decodedPluginStates)
@@ -620,6 +740,7 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	s.writeProjectMeta(name, projectMeta{
 		RequestCount: len(cfg.RequestHistory),
 		NoteCount:    noteCount,
+		FindingCount: len(cfg.DetectFindings),
 		AutoSave:     autoSave,
 		SaveHistory:  saveHistory,
 	})
@@ -644,6 +765,9 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 		"customDataEnabled": cfg.CustomDataEnabled,
 		"customDataItems":   customItems,
 		"historyRestored":   true,
+	}
+	for k, v := range detectResp {
+		resp[k] = v
 	}
 	if len(unknownPluginStates) > 0 {
 		resp["unknownPluginStates"] = unknownPluginStates
@@ -1085,6 +1209,10 @@ type sharedConfigPayload struct {
 	ReplaceRules      []projectReplaceRule `json:"replaceRules"`
 	CustomDataEnabled bool                 `json:"customDataEnabled"`
 	CustomDataItems   []projectCustomItem  `json:"customDataItems"`
+
+	// Custom detection rules are shared. Findings are not: they carry per-operator
+	// triage and their evidence can reference live secrets.
+	DetectRules []projectDetectRule `json:"detectRules,omitempty"`
 }
 
 // handleExportProjectConfig returns the current live project config as a
@@ -1220,14 +1348,61 @@ func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Reque
 	s.customData.SetItems(customItems)
 	s.customData.SetEnabled(body.Config.CustomDataEnabled || (merge && s.customData.IsEnabled()))
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	// Custom detection rules. Incoming rules get fresh IDs; no local finding
+	// references them yet.
+	resp := map[string]any{
 		"scopeEnabled":      s.scope.IsEnabled(),
 		"scopeRules":        s.scope.Rules(),
 		"replaceEnabled":    s.replace.IsEnabled(),
 		"replaceRules":      s.replace.Rules(),
 		"customDataEnabled": s.customData.IsEnabled(),
 		"customDataItems":   s.customData.Items(),
-	})
+	}
+	if s.detectEngine != nil && len(body.Config.DetectRules) > 0 {
+		detectRules := make([]detect.Rule, 0, len(body.Config.DetectRules))
+		if merge {
+			detectRules = append(detectRules, s.detectEngine.UserRules()...)
+		}
+		for _, r := range body.Config.DetectRules {
+			if merge && containsDetectRule(detectRules, r) {
+				continue
+			}
+			rule := detect.Rule{
+				ID: proxy.GenerateID(), Name: r.Name, Description: r.Description,
+				Remediation: r.Remediation, Kind: detect.KindRegex,
+				Category: detect.Category(r.Category), Severity: detect.Severity(r.Severity),
+				Confidence: detect.Confidence(r.Confidence), Target: detect.Target(r.Target),
+				Pattern: r.Pattern, Literal: r.Literal, CaptureGroup: r.CaptureGroup,
+				PostFilters: r.PostFilters, GroupBy: detect.GroupBy(r.GroupBy),
+				ContentTypes: r.ContentTypes, StatusCodes: r.StatusCodes, Scheme: r.Scheme,
+				MinLength: r.MinLength, MinEntropy: r.MinEntropy,
+				MaxPerResponse: r.MaxPerResponse, RedactEvidence: r.RedactEvidence,
+				Enabled: true,
+			}
+			// A shared rule with an invalid pattern is skipped; the apply continues.
+			if detect.ValidateRule(&rule) != nil {
+				continue
+			}
+			detectRules = append(detectRules, rule)
+		}
+		s.detectEngine.SetUserRules(detectRules)
+		s.broadcastDetectRules()
+		resp["detectRules"] = s.detectEngine.UserRules()
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// containsDetectRule reports whether an equivalent rule is already present,
+// compared on the behavioral fields rather than on ID.
+func containsDetectRule(rules []detect.Rule, r projectDetectRule) bool {
+	for _, x := range rules {
+		if x.Name == r.Name && string(x.Category) == r.Category &&
+			string(x.Target) == r.Target && x.Pattern == r.Pattern {
+			return true
+		}
+	}
+	return false
 }
 
 func containsScopeRule(rules []proxy.ScopeRule, r projectScopeRule) bool {

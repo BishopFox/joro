@@ -313,6 +313,29 @@ func (s *Store) All() []*CapturedRequest {
 	return out
 }
 
+// SinceSeq returns requests with Seq > seq, oldest first, at most limit
+// (limit <= 0 means no limit). Items are stored in Seq order, so this scans
+// backwards from the newest and stops at the first already-seen record.
+//
+// The returned pointers are shared with the store; a CapturedRequest is never
+// mutated after Add. Requests evicted from the ring buffer before being read are
+// absent, so callers must tolerate gaps in the sequence numbers.
+func (s *Store) SinceSeq(seq, limit int) []*CapturedRequest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	start := len(s.items)
+	for start > 0 && s.items[start-1].Seq > seq {
+		start--
+	}
+	out := s.items[start:]
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	cp := make([]*CapturedRequest, len(out))
+	copy(cp, out)
+	return cp
+}
+
 // LoadItems replaces all stored requests with the given items.
 // If more items are provided than maxSize, only the last maxSize are kept.
 func (s *Store) LoadItems(items []*CapturedRequest) {
