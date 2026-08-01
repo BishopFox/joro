@@ -382,7 +382,7 @@ export const api = {
 
   // Config save/load
   listUserConfigs: () => req<{ configs: string[]; active: string }>('GET', '/configs/user'),
-  saveUserConfig: (name: string, theme?: string, hiddenTabs?: string[]) => req<{ status: string; name: string }>('POST', '/configs/user', { name, theme, hiddenTabs }),
+  saveUserConfig: (name: string, theme?: string, hiddenTabs?: string[], dashboardLayout?: unknown) => req<{ status: string; name: string }>('POST', '/configs/user', { name, theme, hiddenTabs, dashboardLayout }),
   loadUserConfig: (name: string) => req<unknown>('PUT', `/configs/user/${name}`),
   listProjectConfigs: () => req<{ configs: string[]; active: string; projects: ProjectMeta[] }>('GET', '/configs/project'),
   saveProjectConfig: (name: string) => req<{ status: string; name: string }>('POST', '/configs/project', { name }),

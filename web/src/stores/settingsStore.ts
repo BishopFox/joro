@@ -33,3 +33,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   settings: null,
   setSettings: (settings) => set({ settings }),
 }))
+
+// isTeamMode reports whether we're joined to a team server. A listener URL on
+// its own is not enough — without a token and nickname the app shows the login
+// screen instead.
+export function isTeamMode(s: Settings | null | undefined): boolean {
+  return Boolean(s?.listenerUrl && s.teamToken && s.teamNickname)
+}

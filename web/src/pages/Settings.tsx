@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import ProjectBrowser from '../components/ProjectBrowser'
-import { Settings, useSettingsStore } from '../stores/settingsStore'
+import { Settings, isTeamMode, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useHiddenTabsStore } from '../stores/hiddenTabsStore'
+import { useDashboardLayoutStore } from '../stores/dashboardLayoutStore'
+import DashboardLayoutSettings from '../components/DashboardLayoutSettings'
 import ConfirmModal from '../components/ConfirmModal'
 import HealthCheck from '../components/HealthCheck'
 import { useToastStore } from '../stores/toastStore'
@@ -125,6 +127,8 @@ export default function SettingsPage() {
   const hiddenTabs = useHiddenTabsStore((s) => s.hiddenTabs)
   const toggleTab = useHiddenTabsStore((s) => s.toggleTab)
   const [pluginTabs, setPluginTabs] = useState<Array<{ to: string; label: string }>>([])
+  const [dashboardPlugin, setDashboardPlugin] = useState<string | null>(null)
+  const dashboardLayout = useDashboardLayoutStore((s) => s.layout)
 
   // refetchLive pulls the user/machine settings into local state on mount.
   const refetchLive = useCallback(() => {
@@ -149,6 +153,11 @@ export default function SettingsPage() {
           .filter((p) => p.type === 'tab' && p.status === 'loaded')
           .map((p) => ({ to: `/plugin/${p.name}`, label: p.tabLabel || p.name }))
       )
+      // A dashboard plugin replaces the built-in dashboard entirely, so the
+      // layout editor warns rather than letting the operator configure
+      // something they can't see.
+      const dash = plugs.find((p) => p.type === 'dashboard' && p.status === 'loaded')
+      setDashboardPlugin(dash ? dash.name : null)
     }).catch(() => {})
   }, [refetchLive])
 
@@ -341,10 +350,11 @@ export default function SettingsPage() {
 
                 <Group title="User Config">
                   <p className="text-[11px] text-content-muted leading-relaxed mb-2">
-                    Save and restore machine-level preferences (SOCKS, HTTP/2, theme, hidden tabs) as named snapshots.
+                    Save and restore machine-level preferences (SOCKS, HTTP/2, theme, hidden tabs,
+                    dashboard layout) as named snapshots.
                   </p>
-                  <ConfigManager theme={theme} hiddenTabs={hiddenTabs} onSettingsLoaded={(s) => {
-                    const st = s as Settings & { theme?: string; hiddenTabs?: string[]; unknownPluginStates?: string[] }
+                  <ConfigManager theme={theme} hiddenTabs={hiddenTabs} dashboardLayout={dashboardLayout} onSettingsLoaded={(s) => {
+                    const st = s as Settings & { theme?: string; hiddenTabs?: string[]; dashboardLayout?: unknown; unknownPluginStates?: string[] }
                     setSettings(st)
                     setInterceptTimeout(st.interceptTimeout)
                     setMaxRequests(st.maxRequests || 5000)
@@ -360,6 +370,11 @@ export default function SettingsPage() {
                     }
                     if (Array.isArray(st.hiddenTabs)) {
                       useHiddenTabsStore.getState().setHiddenTabs(st.hiddenTabs)
+                    }
+                    // Absent on configs saved before dashboard layouts existed;
+                    // leave the operator's current layout alone in that case.
+                    if (st.dashboardLayout) {
+                      useDashboardLayoutStore.getState().setLayout(st.dashboardLayout)
                     }
                     setUnknownPluginStatesNotice(st.unknownPluginStates || [])
                   }} />
@@ -409,6 +424,13 @@ export default function SettingsPage() {
                     </label>
                   ))}
                 </div>
+              </Group>
+
+              <Group title="Dashboard layout">
+                <DashboardLayoutSettings
+                  liveTeamMode={isTeamMode(settings)}
+                  dashboardPlugin={dashboardPlugin}
+                />
               </Group>
             </div>
           )}
@@ -657,9 +679,10 @@ function ConfigSection({ configs, active, onSave, onLoad }: {
   )
 }
 
-function ConfigManager({ theme, hiddenTabs, onSettingsLoaded }: {
+function ConfigManager({ theme, hiddenTabs, dashboardLayout, onSettingsLoaded }: {
   theme: string
   hiddenTabs: string[]
+  dashboardLayout: unknown
   onSettingsLoaded: (s: unknown) => void
 }) {
   const [userConfigs, setUserConfigs] = useState<string[]>([])
@@ -680,7 +703,7 @@ function ConfigManager({ theme, hiddenTabs, onSettingsLoaded }: {
       configs={userConfigs}
       active={activeUser}
       onSave={async (name) => {
-        await api.saveUserConfig(name, theme, hiddenTabs)
+        await api.saveUserConfig(name, theme, hiddenTabs, dashboardLayout)
         await refresh()
       }}
       onLoad={async (name) => {

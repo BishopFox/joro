@@ -8,10 +8,11 @@ import ContextMenu from './components/ContextMenu'
 import { getSelectionMenuItems } from './lib/selectionMenu'
 import { api } from './lib/api'
 import { connectWS } from './lib/ws'
-import { Settings, useSettingsStore } from './stores/settingsStore'
+import { Settings, isTeamMode, useSettingsStore } from './stores/settingsStore'
 import { useTeamConnectionStore, type RelayState } from './stores/teamConnectionStore'
 import { useHiddenTabsStore } from './stores/hiddenTabsStore'
 import { useDeadDropStore } from './stores/deadDropStore'
+import { layoutIncludes, useDashboardLayoutStore } from './stores/dashboardLayoutStore'
 import { NAV } from './lib/nav'
 import { currentTheme } from './lib/theme'
 import Callbacks from './pages/Callbacks'
@@ -65,6 +66,8 @@ export default function App() {
   const [dashboardPlugin, setDashboardPlugin] = useState<string | null>(null)
   const hiddenTabs = useHiddenTabsStore((s) => s.hiddenTabs)
   const stagedCount = useDeadDropStore((s) => s.staged.length)
+  const activeProject = useProjectStore((s) => s.active)
+  const dashboardLayout = useDashboardLayoutStore((s) => s.layout)
 
   const checkTeamMode = useCallback(async () => {
     // Detect backend restart: if the session ID changed, clear setup state
@@ -88,7 +91,7 @@ export default function App() {
       const s = await api.getSettings() as Settings
       setSettings(s)
       if (s.listenerUrl) {
-        if (s.teamToken && s.teamNickname) {
+        if (isTeamMode(s)) {
           setTeamMode(true)
           setNeedsAuth(false)
         } else {
@@ -128,6 +131,23 @@ export default function App() {
     window.addEventListener('joro:project-changed', handler)
     return () => window.removeEventListener('joro:project-changed', handler)
   }, [checkTeamMode])
+
+  // Presence is tied to the Team Chat widget: an operator who doesn't keep chat
+  // on their dashboard isn't participating, so they announce 'offline' and the
+  // team server omits them from the roster entirely (ActiveUsersDetailed drops
+  // appear-offline users). "Displayed" means "in the active layout", not
+  // "currently mounted" — otherwise simply navigating to another tab would flip
+  // the operator offline.
+  //
+  // Pushed from App, not from a widget, so it fires on every page and survives
+  // a layout that has no team widgets at all. No relay reconnect involved.
+  const chatInLayout = layoutIncludes(dashboardLayout, teamMode ? 'team' : 'local', 'team-chat')
+  useEffect(() => {
+    if (!teamMode) return
+    const project = settings?.shareProjectName ? activeProject : ''
+    const status = chatInLayout ? settings?.teamStatus || 'online' : 'offline'
+    api.updatePresence({ status, project }).catch(() => {})
+  }, [teamMode, chatInLayout, settings?.teamStatus, settings?.shareProjectName, activeProject])
 
   const [globalCtxMenu, setGlobalCtxMenu] = useState<{ x: number; y: number } | null>(null)
 

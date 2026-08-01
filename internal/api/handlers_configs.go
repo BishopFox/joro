@@ -33,7 +33,12 @@ type userConfigFile struct {
 	DisableUpdateChecks bool              `json:"disableUpdateChecks"`
 	Theme               string            `json:"theme"`
 	HiddenTabs          []string          `json:"hiddenTabs,omitempty"`
-	PluginStates        map[string]string `json:"pluginStates,omitempty"` // plugin name -> base64(opaque bytes)
+	// DashboardLayout is the operator's dashboard widget layout, opaque to Go
+	// (same treatment as PluginStates): adding a widget or a preset is a
+	// frontend-only change. Absent on v3 and earlier files, in which case the
+	// frontend keeps whatever layout it already has.
+	DashboardLayout json.RawMessage   `json:"dashboardLayout,omitempty"`
+	PluginStates    map[string]string `json:"pluginStates,omitempty"` // plugin name -> base64(opaque bytes)
 }
 
 // --- Project Config ---
@@ -791,9 +796,10 @@ func (s *APIServer) handleListUserConfigs(w http.ResponseWriter, r *http.Request
 
 func (s *APIServer) handleSaveUserConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name       string   `json:"name"`
-		Theme      string   `json:"theme"`
-		HiddenTabs []string `json:"hiddenTabs"`
+		Name            string          `json:"name"`
+		Theme           string          `json:"theme"`
+		HiddenTabs      []string        `json:"hiddenTabs"`
+		DashboardLayout json.RawMessage `json:"dashboardLayout"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -806,7 +812,7 @@ func (s *APIServer) handleSaveUserConfig(w http.ResponseWriter, r *http.Request)
 
 	s.mu.RLock()
 	cfg := userConfigFile{
-		Version:             3,
+		Version:             4,
 		SOCKSHost:           s.settings.SOCKSHost,
 		SOCKSPort:           s.settings.SOCKSPort,
 		SOCKSUsername:       s.settings.SOCKSUsername,
@@ -819,6 +825,7 @@ func (s *APIServer) handleSaveUserConfig(w http.ResponseWriter, r *http.Request)
 		DisableUpdateChecks: s.settings.DisableUpdateChecks,
 		Theme:               body.Theme,
 		HiddenTabs:          body.HiddenTabs,
+		DashboardLayout:     body.DashboardLayout,
 	}
 	ghost := s.pendingUserPluginStates
 	s.mu.RUnlock()
@@ -897,13 +904,15 @@ func (s *APIServer) handleLoadUserConfig(w http.ResponseWriter, r *http.Request)
 	// Return settings + theme so frontend can update.
 	resp := struct {
 		Settings
-		Theme               string   `json:"theme"`
-		HiddenTabs          []string `json:"hiddenTabs,omitempty"`
-		UnknownPluginStates []string `json:"unknownPluginStates,omitempty"`
+		Theme               string          `json:"theme"`
+		HiddenTabs          []string        `json:"hiddenTabs,omitempty"`
+		DashboardLayout     json.RawMessage `json:"dashboardLayout,omitempty"`
+		UnknownPluginStates []string        `json:"unknownPluginStates,omitempty"`
 	}{
 		Settings:            settings,
 		Theme:               cfg.Theme,
 		HiddenTabs:          cfg.HiddenTabs,
+		DashboardLayout:     cfg.DashboardLayout,
 		UnknownPluginStates: unknownPluginStates,
 	}
 	writeJSON(w, http.StatusOK, resp)

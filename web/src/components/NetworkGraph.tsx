@@ -104,11 +104,6 @@ function stripPort(addr: string): string {
   return addr
 }
 
-export interface PluginGraphData {
-  server?: { label: string; host: string; port: number }
-  nodes: SliverSession[] // same shape as SliverSession (id, name, hostname, os, arch, remoteAddress, transport, username)
-}
-
 interface NetworkGraphProps {
   localHost?: { hostname: string; ip: string }
   teamServer?: { url: string }
@@ -117,7 +112,6 @@ interface NetworkGraphProps {
   beacons: SliverSession[]
   deadSessions?: SliverSession[]
   connected: boolean
-  pluginGraphs?: Record<string, PluginGraphData>
   mythicServer?: { url: string }
   mythicCallbacks?: SliverSession[]
 }
@@ -153,7 +147,6 @@ export default function NetworkGraph({
   beacons,
   deadSessions = [],
   connected,
-  pluginGraphs: _pluginGraphs,
   mythicServer,
   mythicCallbacks = [],
 }: NetworkGraphProps) {
