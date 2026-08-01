@@ -166,7 +166,7 @@ func analyzerRules() []Rule {
 		an("insecure-transport-html", "Page served over plain HTTP", "insecureTransportHTML",
 			CategoryHeaders, SeverityInfo,
 			"An HTML document delivered without TLS."),
-		perURL(an("mixed-content-reference", "Mixed content reference", "mixedContent",
+		perURL(an("mixed-content-reference", "Mixed content referenced", "mixedContent",
 			CategoryHeaders, SeverityInfo,
 			"An HTTPS page references a subresource over plain HTTP. XML namespace and schema URLs are excluded, without which this rule fires on every inline SVG.")),
 		an("cache-control-authenticated", "Authenticated response is cacheable", "cacheControlAuthenticated",
