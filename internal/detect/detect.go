@@ -25,10 +25,14 @@ import (
 // Severity ranks how much a finding matters. The rubric for assigning it to a
 // new rule:
 //
-//   - Info:     not directly exploitable on its own — exposed panels, missing
-//     headers, information disclosure, analytics keys, identifiers
-//     that are not credentials.
-//   - Low:      an exposed configuration file or similar.
+//   - Info:     not directly exploitable, and discloses nothing beyond a surface
+//     or an identity — exposed panels, missing headers, software and
+//     version fingerprints, analytics keys, identifiers that are not
+//     credentials.
+//   - Low:      a real if minor weakness, or disclosure of something more than an
+//     identity — an exposed configuration file, a verbose error or debug
+//     page, a directory listing, a disclosed filesystem path, a CORS or
+//     redirect misconfiguration.
 //   - Medium:   anything not covered by the other bands.
 //   - High:     account credentials, sensitive API keys, database connection
 //     strings, low-level PII (phone number, date of birth).
@@ -39,6 +43,10 @@ import (
 //
 // Every credential is High; none is Critical. A rule that detects a surface
 // (an admin console, an absent header) is Info.
+//
+// The Info/Low line runs through what the match itself gives away, which matters
+// most for error pages: one that leaks source paths, stack frames, or settings is
+// Low, while one that only names the framework or an exception class is Info.
 //
 // Severity is orthogonal to Confidence: a low-confidence match on a national ID
 // is still Critical, a certain match on a Server header is still Info.
