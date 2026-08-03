@@ -359,6 +359,13 @@ type Config struct {
 	ExcludeHosts []string `json:"excludeHosts"`
 }
 
+// DefaultOHTTPContentTypes are the Oblivious HTTP media types never scanned.
+// OHTTP bodies are HPKE-encrypted to a gateway key the proxy never holds, so
+// they are opaque by design rather than a codec gap; skipping them by content
+// type keeps them out of the skippedBinary "unreadable" count. Exported so the
+// project-config backfill adds the same values these defaults ship.
+var DefaultOHTTPContentTypes = []string{"message/ohttp-", "application/ohttp-keys"}
+
 // DefaultConfig returns the shipped engine configuration.
 func DefaultConfig() Config {
 	return Config{
@@ -368,11 +375,11 @@ func DefaultConfig() Config {
 		ClearFindingsWithHistory: false,
 		MaxBodyScanBytes:         1 << 20,
 		MaxRequestBodyScanBytes:  256 << 10,
-		SkipContentTypes: []string{
+		SkipContentTypes: append([]string{
 			"image/", "font/", "video/", "audio/",
 			"application/octet-stream", "application/pdf", "application/zip",
 			"application/wasm", "application/x-7z", "application/x-rar",
-		},
+		}, DefaultOHTTPContentTypes...),
 		SkipExtensions: []string{
 			".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico",
 			".svg", ".woff", ".woff2", ".ttf", ".otf", ".eot",

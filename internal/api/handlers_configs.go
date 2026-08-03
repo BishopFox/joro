@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/BishopFox/joro/internal/configstore"
@@ -323,7 +324,7 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 	dEnabled, dCfg, dDisabled, dOverrides, dRules, dFindings := s.detectStateForProject()
 
 	return projectConfigFile{
-		Version:           5,
+		Version:           6,
 		AutoSave:          autoSave,
 		SaveHistory:       saveHistory,
 		ListenerURL:       listenerURL,
@@ -364,6 +365,33 @@ func normalizeProjectConfig(cfg *projectConfigFile) {
 		// A nil DetectConfig means the engine defaults, with detection enabled.
 		cfg.DetectEnabled = true
 		cfg.DetectConfig = nil
+	}
+	if cfg.Version < 6 {
+		backfillOHTTPDefaults(cfg)
+	}
+}
+
+// backfillOHTTPDefaults adds the v6 Mozilla-OHTTP defaults to a config written
+// before they shipped. A saved project replaces the live noise list and detect
+// config wholesale, so a newly shipped default would otherwise never reach an
+// existing project. Appends only the specific missing entries rather than
+// unioning the whole default list, which would resurrect entries the operator
+// deliberately deleted.
+func backfillOHTTPDefaults(cfg *projectConfigFile) {
+	if !slices.ContainsFunc(cfg.NoisePatterns, func(p projectNoisePattern) bool {
+		return p.Pattern == proxy.OHTTPNoisePattern
+	}) {
+		cfg.NoisePatterns = append(cfg.NoisePatterns, projectNoisePattern{Pattern: proxy.OHTTPNoisePattern})
+	}
+
+	// A nil DetectConfig already means "engine defaults", which include these.
+	if cfg.DetectConfig == nil {
+		return
+	}
+	for _, ct := range detect.DefaultOHTTPContentTypes {
+		if !slices.Contains(cfg.DetectConfig.SkipContentTypes, ct) {
+			cfg.DetectConfig.SkipContentTypes = append(cfg.DetectConfig.SkipContentTypes, ct)
+		}
 	}
 }
 

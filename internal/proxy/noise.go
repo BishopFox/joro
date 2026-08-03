@@ -20,6 +20,10 @@ type NoiseFilter struct {
 	patterns []NoisePattern
 }
 
+// OHTTPNoisePattern matches Mozilla's Oblivious HTTP relays. Exported so the
+// project-config backfill adds the same string this default ships.
+const OHTTPNoisePattern = "mozilla-ohttp*.fastly-edge.com"
+
 // defaultNoisePatterns returns the curated list of common browser noise hosts.
 func defaultNoisePatterns() []NoisePattern {
 	hosts := []string{
@@ -29,6 +33,10 @@ func defaultNoisePatterns() []NoisePattern {
 		"*.mozilla.org",
 		"*.mozilla.net",
 		"*.mozgcp.net",
+		// Mozilla's OHTTP relay is hosted on Fastly, so the *.mozilla.*
+		// globs above miss it. Bodies are HPKE-encrypted to the gateway and
+		// cannot be decrypted here. Covers the prod, Fakespot, and dev relays.
+		OHTTPNoisePattern,
 		// Chrome
 		"safebrowsing.googleapis.com",
 		"safebrowsing-cache.google.com",

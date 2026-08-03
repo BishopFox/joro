@@ -14,32 +14,11 @@ import {
 } from '../stores/manipulateWSStore'
 import { Tooltip } from '../components/Tooltip'
 import { copyText } from '../lib/clipboard'
+import { b64ToBytes, bytesToB64, bytesToHex, hexToBytes } from '../lib/bytes'
 
 function b64Encode(s: string) { try { return btoa(unescape(encodeURIComponent(s))) } catch { return btoa(s) } }
 function b64Decode(s: string) {
   try { return decodeURIComponent(escape(atob(s))) } catch { return atob(s) }
-}
-function b64ToBytes(s: string): Uint8Array {
-  const bin = atob(s)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
-function bytesToB64(b: Uint8Array): string {
-  let s = ''
-  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i])
-  return btoa(s)
-}
-function bytesToHex(b: Uint8Array): string {
-  return Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join(' ')
-}
-function hexToBytes(hex: string): Uint8Array | null {
-  const clean = hex.replace(/\s+|0x/g, '')
-  if (clean.length % 2 !== 0) return null
-  if (!/^[0-9a-fA-F]*$/.test(clean)) return null
-  const out = new Uint8Array(clean.length / 2)
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16)
-  return out
 }
 
 function formatSize(bytes: number): string {
