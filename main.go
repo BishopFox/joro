@@ -30,7 +30,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.9.1"
+var version = "v1.10.0"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
