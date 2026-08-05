@@ -90,6 +90,8 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	// Intercept
 	mux.HandleFunc("GET /api/v1/intercept", s.handleGetInterceptQueue)
 	mux.HandleFunc("PUT /api/v1/intercept/enabled", s.handleToggleIntercept)
+	mux.HandleFunc("PUT /api/v1/intercept/responses", s.handleToggleInterceptResponses)
+	mux.HandleFunc("POST /api/v1/intercept/release", s.handleReleaseIntercepts)
 	mux.HandleFunc("POST /api/v1/intercept/{id}/forward", s.handleForwardRequest)
 	mux.HandleFunc("POST /api/v1/intercept/{id}/drop", s.handleDropRequest)
 

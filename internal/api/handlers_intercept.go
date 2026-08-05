@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/BishopFox/joro/internal/proxy"
 )
@@ -12,27 +13,41 @@ func (s *APIServer) handleGetInterceptQueue(w http.ResponseWriter, r *http.Reque
 	pending := s.intercept.List()
 
 	type item struct {
-		ID     string `json:"id"`
-		Method string `json:"method"`
-		URL    string `json:"url"`
-		Host   string `json:"host"`
-		ReqRaw string `json:"reqRaw"` // base64
+		ID       string    `json:"id"`
+		Kind     string    `json:"kind"`
+		Method   string    `json:"method"`
+		URL      string    `json:"url"`
+		Host     string    `json:"host"`
+		Protocol string    `json:"protocol,omitempty"`
+		Status   int       `json:"status,omitempty"`
+		PausedAt time.Time `json:"pausedAt"`
+		ReqRaw   string    `json:"reqRaw"`            // base64
+		RespRaw  string    `json:"respRaw,omitempty"` // base64, response pauses only
 	}
 
 	items := make([]item, 0, len(pending))
 	for _, p := range pending {
-		items = append(items, item{
-			ID:     p.ID,
-			Method: p.Method,
-			URL:    p.URL,
-			Host:   p.Host,
-			ReqRaw: base64.StdEncoding.EncodeToString(p.ReqRaw),
-		})
+		it := item{
+			ID:       p.ID,
+			Kind:     string(p.Kind),
+			Method:   p.Method,
+			URL:      p.URL,
+			Host:     p.Host,
+			Protocol: p.Protocol,
+			Status:   p.Status,
+			PausedAt: p.PausedAt,
+			ReqRaw:   base64.StdEncoding.EncodeToString(p.ReqRaw),
+		}
+		if len(p.RespRaw) > 0 {
+			it.RespRaw = base64.StdEncoding.EncodeToString(p.RespRaw)
+		}
+		items = append(items, it)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled": s.intercept.IsEnabled(),
-		"items":   items,
+		"enabled":          s.intercept.IsEnabled(),
+		"responsesEnabled": s.intercept.IsResponseEnabled(),
+		"items":            items,
 	})
 }
 
@@ -54,15 +69,70 @@ func (s *APIServer) handleToggleIntercept(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]bool{"enabled": body.Enabled})
 }
 
+// handleToggleInterceptResponses toggles response interception. This is a
+// separate route from PUT /intercept/enabled rather than a second field on it: a
+// shared body would let a client sending only one phase clobber the other to
+// false via the zero value.
+func (s *APIServer) handleToggleInterceptResponses(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	s.setInterceptResponses(body.Enabled)
+
+	writeJSON(w, http.StatusOK, map[string]bool{"enabled": body.Enabled})
+}
+
+// setInterceptResponses updates the queue and the Settings mirror together, so
+// the two cannot drift. The queue is set outside s.mu because disabling drains
+// pending pauses.
+func (s *APIServer) setInterceptResponses(enabled bool) {
+	s.mu.Lock()
+	s.settings.InterceptResponses = enabled
+	s.mu.Unlock()
+
+	if s.intercept != nil {
+		s.intercept.SetResponseEnabled(enabled)
+	}
+}
+
+// handleReleaseIntercepts forwards every pending pause unmodified. This is the
+// recovery path when several paused responses have stalled an origin: browsers
+// cap concurrent connections per host, so the alternative is resolving each by
+// hand or waiting out the auto-forward timeout.
+//
+// Forward-only by design — a bulk drop is destructive with no undo.
+func (s *APIServer) handleReleaseIntercepts(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Kind string `json:"kind"` // "request" | "response"; empty means both
+	}
+	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+
+	switch proxy.InterceptKind(body.Kind) {
+	case proxy.KindRequest, proxy.KindResponse, "":
+	default:
+		writeError(w, http.StatusBadRequest, "kind must be request, response, or omitted")
+		return
+	}
+
+	released := s.intercept.DrainAll(proxy.InterceptKind(body.Kind))
+	writeJSON(w, http.StatusOK, map[string]int{"released": released})
+}
+
 func (s *APIServer) handleForwardRequest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var body struct {
-		ReqRaw string `json:"reqRaw"` // base64-encoded modified raw request; optional
+		ReqRaw  string `json:"reqRaw"`  // base64-encoded modified raw request; optional
+		RespRaw string `json:"respRaw"` // base64-encoded modified raw response; optional
 	}
 	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
 
-	var modifiedReq []byte
+	var modifiedReq, modifiedResp []byte
 	if body.ReqRaw != "" {
 		var err error
 		modifiedReq, err = base64.StdEncoding.DecodeString(body.ReqRaw)
@@ -71,10 +141,20 @@ func (s *APIServer) handleForwardRequest(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	if body.RespRaw != "" {
+		var err error
+		modifiedResp, err = base64.StdEncoding.DecodeString(body.RespRaw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid respRaw base64")
+			return
+		}
+	}
 
+	// Resolve is phase-agnostic: each pause site reads only the field it needs.
 	ok := s.intercept.Resolve(id, proxy.InterceptDecision{
-		Action:  proxy.ActionForward,
-		ReqData: modifiedReq,
+		Action:   proxy.ActionForward,
+		ReqData:  modifiedReq,
+		RespData: modifiedResp,
 	})
 	if !ok {
 		writeError(w, http.StatusNotFound, "request not found in queue")

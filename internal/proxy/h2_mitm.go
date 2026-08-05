@@ -69,8 +69,12 @@ func (h *Handler) h2Stream(w http.ResponseWriter, r *http.Request, hostname, hos
 	start := timeNow()
 
 	if h.intercept.IsEnabled() {
-		h.emit(eventInterceptQueued(id, r.Method, r.URL.String(), hostname, "HTTP/2", rawReq))
-		decision, _ := h.intercept.Pause(id, r.Method, r.URL.String(), hostname, "HTTP/2", rawReq)
+		meta := InterceptMeta{
+			ID: id, Method: r.Method, URL: r.URL.String(), Host: hostname,
+			Protocol: "HTTP/2", ReqRaw: rawReq,
+		}
+		h.emit(eventInterceptQueued(KindRequest, meta))
+		decision, _ := h.intercept.Pause(meta)
 		h.emit(eventInterceptResolved(id, decision.Action))
 
 		if decision.Action == ActionDrop {
@@ -124,22 +128,48 @@ func (h *Handler) h2Stream(w http.ResponseWriter, r *http.Request, hostname, hos
 	respBody, _ := io.ReadAll(resp.Body)
 	resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
+	// Compute the final response first and write it once, at the bottom. Writing
+	// inside these branches would put a write above the intercept drop below,
+	// which would forward the real response while http.Error logged a
+	// superfluous-WriteHeader warning — a drop that silently does not drop.
+	outHeaders := stripResponseHopHeaders(resp)
 	if h.replace != nil && h.replace.IsEnabled() && h.replace.HasResponseRules() {
-		stripped := stripResponseHopHeaders(resp)
-		newHeaders, newBody := applyResponseReplaceRaw(h.replace, stripped, respBody)
-		copyHeadersToWriter(w, newHeaders)
-		w.WriteHeader(resp.StatusCode)
-		w.Write(newBody) //nolint:errcheck
-		respBody = newBody
-		resp.Header = newHeaders
-	} else {
-		stripHopHeaders(resp)
-		copyHeadersToWriter(w, resp.Header)
-		w.WriteHeader(resp.StatusCode)
-		w.Write(respBody) //nolint:errcheck
+		outHeaders, respBody = applyResponseReplaceRaw(h.replace, outHeaders, respBody)
+	}
+	resp.Header = outHeaders
+	rawResp := dumpH2Response(resp, respBody)
+
+	if h.intercept.IsResponseEnabled() && responseIsPausable(resp) &&
+		h.intercept.HasCapacityForResponse() {
+		meta := InterceptMeta{
+			ID: id, Method: r.Method, URL: r.URL.String(), Host: hostname,
+			Protocol: "HTTP/2", Status: resp.StatusCode, ReqRaw: rawReq, RespRaw: rawResp,
+		}
+		h.emit(eventInterceptQueued(KindResponse, meta))
+		decision, _ := h.intercept.PauseResponse(meta)
+		h.emit(eventInterceptResolved(id, decision.Action))
+
+		if decision.Action == ActionDrop {
+			http.Error(w, "response dropped by intercept", http.StatusForbidden)
+			return
+		}
+		if len(decision.RespData) > 0 {
+			if edited, ok := adoptEditedResponse(decision.RespData); ok {
+				body, err := io.ReadAll(edited.Body)
+				if err == nil {
+					resp.StatusCode = edited.StatusCode
+					outHeaders = edited.Header
+					respBody = body
+					resp.Header = outHeaders
+					rawResp = decision.RespData
+				}
+			}
+		}
 	}
 
-	rawResp := dumpH2Response(resp, respBody)
+	copyHeadersToWriter(w, outHeaders)
+	w.WriteHeader(resp.StatusCode)
+	w.Write(respBody) //nolint:errcheck
 
 	if h.hookRunner != nil {
 		hookInfo := sdk.RequestInfo{ID: id, Method: r.Method, URL: r.URL.String(), Host: hostname}

@@ -54,8 +54,11 @@ export default function ProxyHealthWidget() {
             ) : null}
           </Row>
           <Row label="Active project">{health.activeProject || 'none'}</Row>
-          <Row label="Intercept">
+          <Row label="Intercept requests">
             <OnOff on={!!settings?.interceptEnabled} />
+          </Row>
+          <Row label="Intercept responses">
+            <OnOff on={!!settings?.interceptResponses} />
           </Row>
           <Row label="Scope">
             <OnOff on={!!settings?.scopeEnabled} />

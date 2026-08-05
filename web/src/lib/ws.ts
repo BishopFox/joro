@@ -2,7 +2,7 @@ import { useCallbackStore, type CallbackInteraction } from '../stores/callbackSt
 import { useDetectStore, type Finding, type DetectSummary } from '../stores/detectStore'
 import { useFuzzStore, type FuzzResult } from '../stores/fuzzStore'
 import { useToastStore } from '../stores/toastStore'
-import { useInterceptStore } from '../stores/interceptStore'
+import { useInterceptStore, type InterceptKind, type PendingItem } from '../stores/interceptStore'
 import { useManipulateWSStore, type WSFrameEntry } from '../stores/manipulateWSStore'
 import { useRequestStore, type RequestSummary } from '../stores/requestStore'
 import { useTeamStore, type ChatMessage, type ActiveUser } from '../stores/teamStore'
@@ -21,6 +21,7 @@ type WSMessage = {
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let hasConnected = false
 
 let requestBuffer: RequestSummary[] = []
 let rafScheduled = false
@@ -90,6 +91,13 @@ export function connectWS() {
     if (useUpdateStore.getState().updating) {
       window.location.reload()
     }
+    // Events emitted while the socket was down are gone for good (the hub
+    // broadcast is non-blocking and has no replay), so views holding
+    // server-owned state re-sync on reconnect.
+    if (hasConnected) {
+      window.dispatchEvent(new Event('joro:ws-reconnected'))
+    }
+    hasConnected = true
   }
 
   ws.onmessage = (e) => {
@@ -120,13 +128,20 @@ function handleMessage(msg: WSMessage) {
       break
     }
     case 'intercept.queued': {
-      const item = msg.data as { id: string; method: string; url: string; host: string; reqRaw: string }
+      // Covers both phases; `kind` defaults to request so a payload from an
+      // older proxy still renders.
+      const item = msg.data as PendingItem & { kind?: InterceptKind }
       useInterceptStore.getState().addItem({
         id: item.id,
+        kind: item.kind ?? 'request',
         method: item.method,
         url: item.url,
         host: item.host,
+        protocol: item.protocol,
+        status: item.status,
+        pausedAt: item.pausedAt,
         reqRaw: item.reqRaw,
+        respRaw: item.respRaw,
       })
       break
     }

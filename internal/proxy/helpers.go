@@ -57,17 +57,37 @@ func stripHopHeaders(resp *http.Response) {
 // maxCaptureBody is the maximum response body size to capture (10 MB).
 const maxCaptureBody = 10 << 20
 
-// readAndCaptureResponse reads the response body once (with a size limit),
-// builds rawResp bytes for capture, and restores resp.Body for forwarding.
-// This avoids the double-read pattern of dumpResponse + resp.Write and
-// prevents indefinite hangs on streaming responses.
+// multiReadCloser reads from r while closing c, so a partially-consumed body can
+// be restored as "buffered prefix + unread remainder" without losing the closer.
+type multiReadCloser struct {
+	io.Reader
+	c io.Closer
+}
+
+func (m multiReadCloser) Close() error { return m.c.Close() }
+
+// readAndCaptureResponse buffers the response body for a transform that needs it
+// in hand (response Match & Replace, response interception), builds rawResp bytes
+// for capture, and restores resp.Body for forwarding. This avoids the double-read
+// pattern of dumpResponse + resp.Write.
+//
+// Returns nil when the body exceeds maxCaptureBody. resp.Body is then restored
+// intact — buffered prefix plus unread remainder — so the caller must stream it
+// through rather than buffering. Truncating and forwarding anyway would send
+// fewer bytes than Content-Length advertises, desyncing the keep-alive
+// connection so that the *next* request on it is misparsed.
 func readAndCaptureResponse(resp *http.Response) []byte {
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxCaptureBody+1))
-	resp.Body.Close()
 
 	if len(bodyBytes) > maxCaptureBody {
-		bodyBytes = bodyBytes[:maxCaptureBody]
+		// Do not close: the remainder is still needed for the streaming path.
+		resp.Body = multiReadCloser{
+			Reader: io.MultiReader(bytes.NewReader(bodyBytes), resp.Body),
+			c:      resp.Body,
+		}
+		return nil
 	}
+	resp.Body.Close()
 
 	// Restore body for forwarding (caller re-establishes framing).
 	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -208,13 +228,64 @@ func parseRequest(raw []byte) (*http.Request, error) {
 	return http.ReadRequest(bufio.NewReader(bytes.NewReader(raw)))
 }
 
+// parseResponse reconstructs an *http.Response from raw bytes.
+func parseResponse(raw []byte) (*http.Response, error) {
+	return http.ReadResponse(bufio.NewReader(bytes.NewReader(raw)), nil)
+}
+
+// adoptEditedResponse turns operator-edited raw response bytes into a response
+// ready to write, returning false if the edit cannot be used.
+//
+// Content-Length is recomputed from the actual body first, so the common edit —
+// changing body text without touching the header — cannot advertise the wrong
+// length and desync the connection. The body is then read eagerly: any framing
+// the edit implies but does not satisfy (a hand-typed Transfer-Encoding: chunked
+// over a plain body) fails here, before anything has been written, so the caller
+// can fall back to the original response instead of dying mid-write with a
+// half-sent message.
+func adoptEditedResponse(raw []byte) (*http.Response, bool) {
+	resp, err := parseResponse(UpdateContentLength(raw))
+	if err != nil {
+		return nil, false
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, false
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	resp.TransferEncoding = nil
+	return resp, true
+}
+
+// responseIsPausable reports whether a response can be buffered for an intercept
+// pause without stalling. Indefinite streams would never finish buffering, and
+// bodiless statuses have nothing to edit (rewriting their framing is a spec
+// hazard). Callers still handle the oversized case via readAndCaptureResponse.
+func responseIsPausable(resp *http.Response) bool {
+	if resp.StatusCode < 200 || resp.StatusCode == http.StatusNoContent ||
+		resp.StatusCode == http.StatusNotModified {
+		return false
+	}
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	for _, streaming := range []string{"text/event-stream", "multipart/x-mixed-replace", "application/grpc"} {
+		if strings.Contains(ct, streaming) {
+			return false
+		}
+	}
+	return true
+}
+
 // copyBody copies src to dst, discarding any error.
 func copyBody(dst io.Writer, src io.Reader) {
 	io.Copy(dst, src) //nolint:errcheck
 }
 
 // UpdateContentLength recalculates the Content-Length header from the body size
-// in a raw HTTP request. Used by the manipulate handler and fuzzer.
+// in a raw HTTP message. Used by the manipulate handler, the fuzzer, and
+// adoptEditedResponse — it parses no start line, so it serves requests and
+// responses alike.
 //
 // Accepts either CRLF or LF header terminators (CodeMirror normalizes edits to
 // LF), but always emits canonical CRLF. The body is preserved byte-for-byte —
@@ -295,14 +366,21 @@ func eventRequestCaptured(r *CapturedRequest) event.WSEvent {
 	return event.WSEvent{Type: "request.captured", Data: r}
 }
 
-func eventInterceptQueued(id, method, url, host, protocol string, raw []byte) event.WSEvent {
+// eventInterceptQueued announces a paused request or response. It takes the same
+// InterceptMeta the queue does, so the bytes the operator sees cannot drift from
+// the bytes the queue holds. reqRaw is populated for both kinds, so the payload
+// stays well-formed for any consumer that predates response interception.
+func eventInterceptQueued(kind InterceptKind, m InterceptMeta) event.WSEvent {
 	return event.WSEvent{Type: "intercept.queued", Data: map[string]any{
-		"id":       id,
-		"method":   method,
-		"url":      url,
-		"host":     host,
-		"protocol": protocol,
-		"reqRaw":   raw,
+		"id":       m.ID,
+		"kind":     string(kind),
+		"method":   m.Method,
+		"url":      m.URL,
+		"host":     m.Host,
+		"protocol": m.Protocol,
+		"status":   m.Status,
+		"reqRaw":   m.ReqRaw,
+		"respRaw":  m.RespRaw,
 	}}
 }
 

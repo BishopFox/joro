@@ -5,6 +5,7 @@ export interface Settings {
   proxyPort: number
   uiPort: number
   interceptEnabled: boolean
+  interceptResponses: boolean
   interceptTimeout: number
   listenerUrl: string
   teamStatus: string

@@ -38,6 +38,7 @@ type Settings struct {
 	ProxyPort           int    `json:"proxyPort"`
 	UIPort              int    `json:"uiPort"`
 	InterceptEnabled    bool   `json:"interceptEnabled"`
+	InterceptResponses  bool   `json:"interceptResponses"`
 	InterceptTimeout    int    `json:"interceptTimeout"` // seconds
 	ListenerURL         string `json:"listenerUrl"`
 	TeamStatus          string `json:"teamStatus"`
@@ -200,6 +201,7 @@ func New(
 			ProxyPort:           cfg.ProxyPort,
 			UIPort:              cfg.UIPort,
 			InterceptEnabled:    false,
+			InterceptResponses:  false,
 			InterceptTimeout:    60,
 			HTTP2Enabled:        true,
 			KeepAliveEnabled:    false,

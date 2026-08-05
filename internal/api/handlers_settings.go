@@ -40,6 +40,7 @@ func (s *APIServer) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		InterceptEnabled    *bool   `json:"interceptEnabled"`
+		InterceptResponses  *bool   `json:"interceptResponses"`
 		InterceptTimeout    *int    `json:"interceptTimeout"`
 		ListenerURL         *string `json:"listenerUrl"`
 		TeamStatus          *string `json:"teamStatus"`
@@ -65,6 +66,10 @@ func (s *APIServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request)
 	if body.InterceptEnabled != nil && s.intercept != nil {
 		s.settings.InterceptEnabled = *body.InterceptEnabled
 		s.intercept.SetEnabled(*body.InterceptEnabled)
+	}
+	if body.InterceptResponses != nil && s.intercept != nil {
+		s.settings.InterceptResponses = *body.InterceptResponses
+		s.intercept.SetResponseEnabled(*body.InterceptResponses)
 	}
 	if body.InterceptTimeout != nil && *body.InterceptTimeout > 0 && s.intercept != nil {
 		s.settings.InterceptTimeout = *body.InterceptTimeout

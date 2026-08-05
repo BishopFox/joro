@@ -95,8 +95,12 @@ func (h *Handler) mitm(clientConn net.Conn, hostname, hostPort string) {
 		rawReq, _ := dumpRequest(req, true)
 
 		if h.intercept.IsEnabled() {
-			h.emit(eventInterceptQueued(id, req.Method, req.URL.String(), hostname, "HTTP/1.1", rawReq))
-			decision, _ := h.intercept.Pause(id, req.Method, req.URL.String(), hostname, "HTTP/1.1", rawReq)
+			meta := InterceptMeta{
+				ID: id, Method: req.Method, URL: req.URL.String(), Host: hostname,
+				Protocol: "HTTP/1.1", ReqRaw: rawReq,
+			}
+			h.emit(eventInterceptQueued(KindRequest, meta))
+			decision, _ := h.intercept.Pause(meta)
 			h.emit(eventInterceptResolved(id, decision.Action))
 
 			if decision.Action == ActionDrop {
@@ -169,27 +173,53 @@ func (h *Handler) mitm(clientConn net.Conn, hostname, hostPort string) {
 		var rawResp []byte
 		connClose := req.Close
 
-		if h.replace != nil && h.replace.IsEnabled() && h.replace.HasResponseRules() {
-			// Buffered path: need full body to apply response replace rules.
-			resp = applyResponseReplace(h.replace, resp)
-			rawResp = readAndCaptureResponse(resp)
+		hasRespRules := h.replace != nil && h.replace.IsEnabled() && h.replace.HasResponseRules()
+		wantPause := h.intercept.IsResponseEnabled() && responseIsPausable(resp) &&
+			h.intercept.HasCapacityForResponse()
 
-			resp.Proto = "HTTP/1.1"
-			resp.ProtoMajor = 1
-			resp.ProtoMinor = 1
-			resp.Close = false
-			resp.Header.Del("Connection")
-			if resp.ContentLength < 0 {
-				resp.TransferEncoding = []string{"chunked"}
-			}
-			if err := resp.Write(tlsConn); err != nil {
-				resp.Body.Close()
-				return
-			}
-			resp.Body.Close()
-		} else {
+		if hasRespRules {
+			resp = applyResponseReplace(h.replace, resp)
+		}
+		if hasRespRules || wantPause {
+			// Buffered path: both response rules and the intercept pause need the
+			// full body in hand. nil means the body was too large to buffer, so
+			// fall through to streaming with the body restored intact.
+			rawResp = readAndCaptureResponse(resp)
+		}
+
+		if rawResp == nil {
 			// Streaming path: forward headers+body immediately.
 			rawResp = streamAndCaptureResponse(resp, tlsConn)
+		} else {
+			if wantPause {
+				meta := InterceptMeta{
+					ID: id, Method: req.Method, URL: req.URL.String(), Host: hostname,
+					Protocol: "HTTP/1.1", Status: resp.StatusCode, ReqRaw: rawReq, RespRaw: rawResp,
+				}
+				h.emit(eventInterceptQueued(KindResponse, meta))
+				decision, _ := h.intercept.PauseResponse(meta)
+				h.emit(eventInterceptResolved(id, decision.Action))
+
+				if decision.Action == ActionDrop {
+					resp.Body.Close()
+					// writeSimpleResponse announces Connection: close, so return
+					// rather than continue: looping would block in ReadRequest
+					// until the client hangs up, contradicting our own header.
+					writeSimpleResponse(tlsConn, http.StatusForbidden, "response dropped by intercept")
+					return
+				}
+				if len(decision.RespData) > 0 {
+					// A rejected edit forwards the original unmodified, matching
+					// the request path's parse-failure fallback.
+					if edited, ok := adoptEditedResponse(decision.RespData); ok {
+						resp = edited
+						rawResp = decision.RespData
+					}
+				}
+			}
+			if err := writeBufferedResponse(tlsConn, resp); err != nil {
+				return
+			}
 		}
 
 		// Run plugin response hooks.
@@ -222,6 +252,24 @@ func (h *Handler) mitm(clientConn net.Conn, hostname, hostPort string) {
 			return
 		}
 	}
+}
+
+// writeBufferedResponse writes a fully-buffered response to the client and
+// closes its body. The proxy controls connection framing to the browser: the
+// MITM loop keeps the conn alive, so never rely on connection-close to delimit
+// the body, and force chunked when the length is unknown.
+func writeBufferedResponse(dst net.Conn, resp *http.Response) error {
+	resp.Proto = "HTTP/1.1"
+	resp.ProtoMajor = 1
+	resp.ProtoMinor = 1
+	resp.Close = false
+	resp.Header.Del("Connection")
+	if resp.ContentLength < 0 {
+		resp.TransferEncoding = []string{"chunked"}
+	}
+	err := resp.Write(dst)
+	resp.Body.Close()
+	return err
 }
 
 // writeSimpleResponse sends a minimal HTTP response over conn.

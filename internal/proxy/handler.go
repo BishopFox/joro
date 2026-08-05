@@ -151,21 +151,37 @@ func (h *Handler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	rawReq, _ := dumpRequest(r, true)
 
+	// Captured before any re-parse: dumpRequest emits server-form, so a request
+	// rebuilt from those bytes loses the upstream target.
+	origScheme, origHost := r.URL.Scheme, r.URL.Host
+
 	if h.intercept.IsEnabled() {
-		h.emit(eventInterceptQueued(id, r.Method, r.URL.String(), r.Host, "HTTP/1.1", rawReq))
-		decision, _ := h.intercept.Pause(id, r.Method, r.URL.String(), r.Host, "HTTP/1.1", rawReq)
+		meta := InterceptMeta{
+			ID: id, Method: r.Method, URL: r.URL.String(), Host: r.Host,
+			Protocol: "HTTP/1.1", ReqRaw: rawReq,
+		}
+		h.emit(eventInterceptQueued(KindRequest, meta))
+		decision, _ := h.intercept.Pause(meta)
 		h.emit(eventInterceptResolved(id, decision.Action))
 		if decision.Action == ActionDrop {
 			http.Error(w, "request dropped by intercept", http.StatusForbidden)
 			return
 		}
 		if len(decision.ReqData) > 0 {
-			var err error
-			r, err = parseRequest(decision.ReqData)
+			modified, err := parseRequest(decision.ReqData)
 			if err != nil {
 				http.Error(w, "invalid modified request", http.StatusBadRequest)
 				return
 			}
+			// The raw dump is server-form (path only), so the re-parsed URL has
+			// no scheme or host and RoundTrip would fail with "unsupported
+			// protocol scheme". Restore them from the original request, as the
+			// HTTPS MITM path does.
+			modified.URL.Scheme = origScheme
+			modified.URL.Host = origHost
+			modified.RequestURI = ""
+			r = modified
+			rawReq = decision.ReqData
 		}
 	}
 
@@ -212,10 +228,52 @@ func (h *Handler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var rawResp []byte
 
-	if h.replace != nil && h.replace.IsEnabled() && h.replace.HasResponseRules() {
-		// Buffered path: need full body to apply response replace rules.
+	hasRespRules := h.replace != nil && h.replace.IsEnabled() && h.replace.HasResponseRules()
+	wantPause := h.intercept.IsResponseEnabled() && responseIsPausable(resp) &&
+		h.intercept.HasCapacityForResponse()
+
+	if hasRespRules {
 		resp = applyResponseReplace(h.replace, resp)
+	}
+	if hasRespRules || wantPause {
+		// Buffered path: both response rules and the intercept pause need the
+		// full body in hand. nil means the body was too large to buffer, so fall
+		// through to streaming with the body restored intact.
 		rawResp = readAndCaptureResponse(resp)
+	}
+
+	if rawResp == nil {
+		// Streaming path: forward headers+body immediately.
+		rawResp = streamAndCaptureHTTP(resp, w)
+	} else {
+		if wantPause {
+			meta := InterceptMeta{
+				ID: id, Method: r.Method, URL: r.URL.String(), Host: r.Host,
+				Protocol: "HTTP/1.1", Status: resp.StatusCode, ReqRaw: rawReq, RespRaw: rawResp,
+			}
+			h.emit(eventInterceptQueued(KindResponse, meta))
+			decision, _ := h.intercept.PauseResponse(meta)
+			h.emit(eventInterceptResolved(id, decision.Action))
+
+			if decision.Action == ActionDrop {
+				// Nothing has been written to w yet, so this is a clean drop.
+				http.Error(w, "response dropped by intercept", http.StatusForbidden)
+				return
+			}
+			if len(decision.RespData) > 0 {
+				if edited, ok := adoptEditedResponse(decision.RespData); ok {
+					resp = edited
+					rawResp = decision.RespData
+				}
+			}
+		}
+		// Let net/http compute framing from the buffered body: it sets
+		// Content-Length or chunks as appropriate, so a stale upstream value
+		// (or a chunked upstream's Transfer-Encoding, which this path never
+		// strips) cannot desync the response.
+		resp.Header.Del("Content-Length")
+		resp.Header.Del("Transfer-Encoding")
+		resp.Header.Del("Connection")
 		for k, vv := range resp.Header {
 			for _, v := range vv {
 				w.Header().Add(k, v)
@@ -223,9 +281,6 @@ func (h *Handler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(resp.StatusCode)
 		copyBody(w, resp.Body)
-	} else {
-		// Streaming path: forward headers+body immediately.
-		rawResp = streamAndCaptureHTTP(resp, w)
 	}
 
 	// Run plugin response hooks.

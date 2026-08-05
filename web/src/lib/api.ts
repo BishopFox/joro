@@ -1,4 +1,5 @@
 import type { CallbackInteraction, CallbackToken } from '../stores/callbackStore'
+import type { InterceptKind, PendingItem } from '../stores/interceptStore'
 import type { ChatMessage, ActiveUser } from '../stores/teamStore'
 import type { FlaggedSummary, FlaggedRequest } from '../stores/teamFlaggedStore'
 import type { SharedConfigSummary, SharedConfig, SharedConfigPayload } from '../stores/teamSharedConfigStore'
@@ -265,10 +266,17 @@ export const api = {
   clearRequests: () => req<unknown>('DELETE', '/requests'),
 
   // Intercept
-  getIntercept: () => req<{ enabled: boolean; items: unknown[] }>('GET', '/intercept'),
-  setInterceptEnabled: (enabled: boolean) => req<unknown>('PUT', '/intercept/enabled', { enabled }),
-  forwardRequest: (id: string, reqRaw?: string) =>
-    req<unknown>('POST', `/intercept/${id}/forward`, reqRaw ? { reqRaw } : {}),
+  getIntercept: () =>
+    req<{ enabled: boolean; responsesEnabled: boolean; items: PendingItem[] }>('GET', '/intercept'),
+  setInterceptEnabled: (enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', '/intercept/enabled', { enabled }),
+  setInterceptResponses: (enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', '/intercept/responses', { enabled }),
+  // Forwards every pending pause unmodified. Omit kind to release both phases.
+  releaseIntercepts: (kind?: InterceptKind) =>
+    req<{ released: number }>('POST', '/intercept/release', kind ? { kind } : {}),
+  forwardIntercept: (id: string, patch: { reqRaw?: string; respRaw?: string }) =>
+    req<unknown>('POST', `/intercept/${id}/forward`, patch),
   dropRequest: (id: string) => req<unknown>('POST', `/intercept/${id}/drop`),
 
   // Manipulate
