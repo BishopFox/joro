@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,6 +14,90 @@ type ScopeRule struct {
 	Methods []string `json:"methods"` // e.g. ["POST","PUT"], empty = all
 	Path    string   `json:"path"`    // path glob: "/api/*", empty = all
 	Include bool     `json:"include"` // true=include, false=exclude
+}
+
+// Field bounds for a scope rule. A host glob has no reason to exceed the 253-byte
+// DNS name limit by much, and a path glob is bounded by a realistic request target.
+const (
+	MaxScopePatternLen = 256
+	MaxScopePathLen    = 1024
+	MaxScopeMethods    = 16
+)
+
+// ValidateScopeRule normalizes a rule in place and reports whether it is usable.
+//
+// matchRule treats filepath.Match's ErrBadPattern as "no match", so without this a
+// malformed glob is accepted and then silently matches nothing. The same is true of
+// a host pattern carrying a scheme or path: '/' never appears in a hostname, and
+// Match's '*' does not cross '/', so such a pattern can never match either.
+func ValidateScopeRule(r *ScopeRule) error {
+	// matchRule lowercases the host pattern before matching, so store it lowercased:
+	// that makes two case-differing patterns compare equal for dedupe instead of both
+	// being kept. The path is matched case-sensitively and is left alone.
+	r.Pattern = strings.ToLower(strings.TrimSpace(r.Pattern))
+	r.Path = strings.TrimSpace(r.Path)
+
+	if r.Pattern == "" {
+		return fmt.Errorf("pattern is required")
+	}
+	if len(r.Pattern) > MaxScopePatternLen {
+		return fmt.Errorf("host pattern exceeds %d bytes", MaxScopePatternLen)
+	}
+	if strings.Contains(r.Pattern, "/") {
+		return fmt.Errorf("host pattern must be a hostname without a scheme or path; put the path in the path field")
+	}
+	if err := validateGlob(r.Pattern); err != nil {
+		return fmt.Errorf("invalid host pattern: %w", err)
+	}
+
+	if len(r.Path) > MaxScopePathLen {
+		return fmt.Errorf("path pattern exceeds %d bytes", MaxScopePathLen)
+	}
+	if r.Path != "" {
+		if err := validateGlob(r.Path); err != nil {
+			return fmt.Errorf("invalid path pattern: %w", err)
+		}
+	}
+
+	// Uppercase and drop blanks so rules from the UI form and from an import
+	// compare equal. matchRule itself is case-insensitive.
+	methods := make([]string, 0, len(r.Methods))
+	for _, m := range r.Methods {
+		m = strings.ToUpper(strings.TrimSpace(m))
+		if m == "" {
+			continue
+		}
+		if !isMethodToken(m) {
+			return fmt.Errorf("invalid method %q", m)
+		}
+		methods = append(methods, m)
+	}
+	if len(methods) > MaxScopeMethods {
+		return fmt.Errorf("at most %d methods per rule", MaxScopeMethods)
+	}
+	r.Methods = methods
+
+	return nil
+}
+
+// validateGlob reports whether a pattern is syntactically valid. Match validates the
+// remainder of a pattern even once the match has failed, so any sample name works.
+func validateGlob(pattern string) error {
+	_, err := filepath.Match(pattern, "")
+	return err
+}
+
+// isMethodToken reports whether s looks like an HTTP method name.
+func isMethodToken(s string) bool {
+	if len(s) == 0 || len(s) > 20 {
+		return false
+	}
+	for _, c := range s {
+		if (c < 'A' || c > 'Z') && c != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // Scope manages host and request-level scope filtering.

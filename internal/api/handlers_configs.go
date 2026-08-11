@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"net/http"
@@ -492,9 +493,19 @@ func (s *APIServer) setActiveProject(name string) {
 	s.mu.Unlock()
 }
 
+// scopeSignature hashes the rules' behavioral fields so a scope edit that leaves the
+// rule count unchanged — a replace-mode import, for instance — still reads as dirty.
+func scopeSignature(rules []proxy.ScopeRule) string {
+	h := fnv.New64a()
+	for _, r := range rules {
+		fmt.Fprintf(h, "%s|%s|%t|%v\n", r.Pattern, r.Path, r.Include, r.Methods)
+	}
+	return fmt.Sprintf("%d:%x", len(rules), h.Sum64())
+}
+
 // liveStateSignature is a cheap fingerprint of the mutable project state used by
-// the auto-save loop to skip ticks when nothing changed. It counts rather than
-// diffs, so a same-count in-place edit between ticks is not detected.
+// the auto-save loop to skip ticks when nothing changed. Apart from scope it counts
+// rather than diffs, so a same-count in-place edit between ticks is not detected.
 func (s *APIServer) liveStateSignature() string {
 	reqCount, lastSeq := 0, 0
 	if s.store != nil {
@@ -516,9 +527,9 @@ func (s *APIServer) liveStateSignature() string {
 	s.mu.RLock()
 	hlCount := len(s.highlights)
 	s.mu.RUnlock()
-	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%d/rp%d/cd%d/no%d",
+	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%s/rp%d/cd%d/no%d",
 		reqCount, lastSeq, noteCount, maxNoteUpdate, hlCount,
-		len(s.scope.Rules()), len(s.replace.Rules()),
+		scopeSignature(s.scope.Rules()), len(s.replace.Rules()),
 		len(s.customData.Items()), len(s.noise.Patterns())) + s.detectSignature()
 }
 
@@ -1346,9 +1357,14 @@ func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Reque
 		if merge && containsScopeRule(scopeRules, r) {
 			continue
 		}
-		scopeRules = append(scopeRules, proxy.ScopeRule{
+		rule := proxy.ScopeRule{
 			ID: proxy.GenerateID(), Pattern: r.Pattern, Methods: r.Methods, Path: r.Path, Include: r.Include,
-		})
+		}
+		// A shared rule that could never match is skipped; the apply continues.
+		if proxy.ValidateScopeRule(&rule) != nil {
+			continue
+		}
+		scopeRules = append(scopeRules, rule)
 	}
 	s.scope.SetRules(scopeRules)
 	s.scope.SetEnabled(body.Config.ScopeEnabled || (merge && s.scope.IsEnabled()))

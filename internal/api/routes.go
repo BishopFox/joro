@@ -144,6 +144,7 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/scope", s.handleGetScope)
 	mux.HandleFunc("PUT /api/v1/scope/enabled", s.handleSetScopeEnabled)
 	mux.HandleFunc("POST /api/v1/scope/rules", s.handleAddScopeRule)
+	mux.HandleFunc("POST /api/v1/scope/rules/import", s.handleImportScopeRules)
 	mux.HandleFunc("DELETE /api/v1/scope/rules/{id}", s.handleDeleteScopeRule)
 
 	// Noise filter

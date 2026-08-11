@@ -453,6 +453,12 @@ export const api = {
   setScopeEnabled: (enabled: boolean) => req<unknown>('PUT', '/scope/enabled', { enabled }),
   addScopeRule: (rule: Omit<ScopeRule, 'id'>) => req<ScopeRule>('POST', '/scope/rules', rule),
   deleteScopeRule: (id: string) => req<unknown>('DELETE', `/scope/rules/${id}`),
+  importScopeRules: (
+    config: { scopeEnabled?: boolean; scopeRules: Omit<ScopeRule, 'id'>[] },
+    mode: 'replace' | 'merge',
+  ) =>
+    req<{ enabled: boolean; rules: ScopeRule[]; imported: number; skipped: number }>(
+      'POST', '/scope/rules/import', { config, mode }),
 
   // Noise filter
   getNoise: () => req<{ enabled: boolean; patterns: NoisePattern[] }>('GET', '/noise'),
