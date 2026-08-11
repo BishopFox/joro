@@ -247,6 +247,33 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/team/collab/{id}", s.handleProxyTeamCollab)
 	mux.HandleFunc("POST /api/v1/team/collab/{id}/accept", s.handleProxyTeamCollab)
 
+	// Automation: bearer tokens, their capability grants, the activity log, and
+	// the MCP listener toggle.
+	//
+	// Registered unconditionally, with every handler gated on requireAutomation,
+	// which returns a JSON 404. Leaving them unregistered when automation is off
+	// would instead hand the request to the SPA catch-all, so the frontend would
+	// receive 200 and a page of HTML where it expected JSON — an unregistered
+	// route is not a 404 in this server.
+	//
+	// These are UI-only and are deliberately not capabilities. An automation
+	// client reaches Joro through the MCP listener on a different port, whose mux
+	// has no /api/v1/* routes at all, so a bearer token has no path to this block.
+	{
+		mux.HandleFunc("GET /api/v1/automation/tokens", s.handleListAutomationTokens)
+		mux.HandleFunc("POST /api/v1/automation/tokens", s.handleCreateAutomationToken)
+		mux.HandleFunc("PUT /api/v1/automation/tokens/{id}", s.handleUpdateAutomationToken)
+		mux.HandleFunc("POST /api/v1/automation/tokens/{id}/rotate", s.handleRotateAutomationToken)
+		mux.HandleFunc("PUT /api/v1/automation/tokens/{id}/enabled", s.handleSetAutomationTokenEnabled)
+		mux.HandleFunc("POST /api/v1/automation/tokens/{id}/reviewed", s.handleReviewAutomationToken)
+		mux.HandleFunc("DELETE /api/v1/automation/tokens/{id}", s.handleRevokeAutomationToken)
+		mux.HandleFunc("GET /api/v1/automation/capabilities", s.handleListCapabilities)
+		mux.HandleFunc("GET /api/v1/automation/audit", s.handleListAutomationAudit)
+		mux.HandleFunc("DELETE /api/v1/automation/audit", s.handleClearAutomationAudit)
+		mux.HandleFunc("GET /api/v1/automation/mcp", s.handleGetMCPState)
+		mux.HandleFunc("PUT /api/v1/automation/mcp", s.handleSetMCPState)
+	}
+
 	// Plugin routes (dynamic, based on loaded plugins).
 	registerPluginRoutes(s, mux)
 }

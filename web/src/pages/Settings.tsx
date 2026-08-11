@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import ProjectBrowser from '../components/ProjectBrowser'
+import AutomationSettings from '../components/AutomationSettings'
 import { Settings, isTeamMode, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useHiddenTabsStore } from '../stores/hiddenTabsStore'
@@ -12,7 +13,7 @@ import HealthCheck from '../components/HealthCheck'
 import { useToastStore } from '../stores/toastStore'
 import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
-import { Settings as SettingsIcon, Palette, Folder, AppWindow } from 'lucide-react'
+import { Settings as SettingsIcon, Palette, Folder, AppWindow, Bot } from 'lucide-react'
 
 const THEMES = [
   { value: 'aomori', label: 'Aomori' },
@@ -35,7 +36,7 @@ const THEMES = [
   { value: 'tokyo', label: 'Tokyo' },
 ]
 
-type Category = 'project' | 'general' | 'appearance' | 'testing'
+type Category = 'project' | 'general' | 'appearance' | 'testing' | 'automation'
 
 const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   {
@@ -57,6 +58,11 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
     id: 'testing',
     label: 'Testing Browser',
     icon: <AppWindow size={15} strokeWidth={1.7} aria-hidden="true" />,
+  },
+  {
+    id: 'automation',
+    label: 'Automation',
+    icon: <Bot size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
 ]
 
@@ -212,6 +218,9 @@ export default function SettingsPage() {
       <div className="flex-1 min-h-0">
         <div className="h-full overflow-y-auto bg-surface-card rounded-lg p-5 shadow-sm">
           {category === 'project' && <ProjectBrowser />}
+
+          {/* Automation fetches its own data, so it needs no settings guard. */}
+          {category === 'automation' && <AutomationSettings />}
 
           {settings && category === 'general' && (
             <div className="grid grid-cols-1 lg:grid-cols-2">

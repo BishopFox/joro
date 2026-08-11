@@ -14,7 +14,7 @@ const STORAGE_KEY = 'joro-dashboard-layout'
 // The dashboard's bottom-bar height used to live under its own key.
 const LEGACY_HEIGHT_KEY = 'joro-chat-height'
 
-export const LAYOUT_VERSION = 1
+export const LAYOUT_VERSION = 2
 export const DEFAULT_BAR_HEIGHT = 256
 export const MIN_BAR_HEIGHT = 100
 export const MAX_BAR_HEIGHT = 600
@@ -71,11 +71,45 @@ function defaults(): DashboardLayout {
   }
 }
 
+// The slot the v1 local default put the network graph in.
+const V1_LOCAL_GRAPH_SLOT = 'bottomLeft'
+
+// migrateV1 upgrades a version-1 blob: the local dashboard's bottom-left slot
+// changed from the network graph to automation activity.
+//
+// One slot, local only, and only where it still holds the widget the v1 default
+// put there. An operator who moved the graph elsewhere, switched preset, or chose
+// something else keeps what they arranged — this resurrects nothing and discards
+// nothing else. Same discipline as backfillOHTTPDefaults on the Go side: patch the
+// specific entry rather than unioning the whole default set, so a deliberate
+// choice is never overwritten by a shipped default.
+//
+// There is deliberately no preset check. A local layout on any preset other than
+// 'grid' has no bottomLeft key at all (sanitizeMode prunes slots to the active
+// preset before anything is persisted), so the lookup misses and this no-ops.
+function migrateV1(obj: Partial<DashboardLayout>): Partial<DashboardLayout> {
+  const local = obj.local as { preset?: unknown; slots?: Record<string, unknown> } | undefined
+  const slots = local?.slots
+  if (slots && slots[V1_LOCAL_GRAPH_SLOT] === 'network-graph') {
+    return {
+      ...obj,
+      version: LAYOUT_VERSION,
+      local: { ...local, slots: { ...slots, [V1_LOCAL_GRAPH_SLOT]: 'automation-activity' } },
+    } as Partial<DashboardLayout>
+  }
+  return { ...obj, version: LAYOUT_VERSION }
+}
+
 // sanitize is the single gate for untrusted layout data, used by both the
 // localStorage load and the User Config rehydration.
+//
+// A *known* older version is migrated; an unrecognized one still falls back to
+// defaults. Bumping LAYOUT_VERSION without adding a migration step here therefore
+// resets every operator's layout — add the step.
 export function sanitize(raw: unknown): DashboardLayout {
   if (!raw || typeof raw !== 'object') return defaults()
-  const obj = raw as Partial<DashboardLayout>
+  let obj = raw as Partial<DashboardLayout>
+  if (obj.version === 1) obj = migrateV1(obj)
   if (obj.version !== LAYOUT_VERSION) return defaults()
   return {
     version: LAYOUT_VERSION,
@@ -88,7 +122,21 @@ export function sanitize(raw: unknown): DashboardLayout {
 function load(): DashboardLayout {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return sanitize(JSON.parse(raw))
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      const layout = sanitize(parsed)
+      // Persist once when the stored blob was an older schema, so the upgrade
+      // actually completes rather than re-running on every load and leaving the
+      // file claiming a schema it no longer has.
+      //
+      // This is NOT an exception to the never-written-back rule that governs
+      // resolve() in Dashboard.tsx. That rule keeps render-time reconciliation
+      // non-destructive, so a downgrade cannot eat a layout built on a newer
+      // build. A migration is the opposite kind of operation: it has to land on
+      // disk to be one.
+      if ((parsed as { version?: unknown } | null)?.version !== LAYOUT_VERSION) persist(layout)
+      return layout
+    }
     // First run on a build that has this feature: carry over the bar height
     // from the key the chat panel used to own.
     const legacy = parseInt(localStorage.getItem(LEGACY_HEIGHT_KEY) || '', 10)

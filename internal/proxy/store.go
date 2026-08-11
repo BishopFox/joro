@@ -90,6 +90,31 @@ func (s *Store) Get(id string) *CapturedRequest {
 	return nil
 }
 
+// GetBySeq returns the request with the given Seq, or nil.
+//
+// Add assigns strictly increasing sequence numbers and LoadItems preserves order,
+// so items is sorted on Seq and this binary-searches rather than scanning. The
+// linear fallback covers a hand-edited project file that broke the invariant:
+// degrading to O(n) is better than a 404 on a request the operator can see.
+//
+// Seq is the handle automation addresses requests by, in preference to the hex ID
+// — it is an integer a client can compare and retype without transposing a nibble.
+func (s *Store) GetBySeq(seq int) *CapturedRequest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	i := sort.Search(len(s.items), func(i int) bool { return s.items[i].Seq >= seq })
+	if i < len(s.items) && s.items[i].Seq == seq {
+		return s.items[i]
+	}
+	for _, r := range s.items {
+		if r.Seq == seq {
+			return r
+		}
+	}
+	return nil
+}
+
 // contentTypeKeywords maps simplified keywords to MIME substrings.
 var contentTypeKeywords = map[string]string{
 	"html":       "text/html",

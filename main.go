@@ -19,6 +19,7 @@ import (
 	flag "github.com/spf13/pflag"
 
 	"github.com/BishopFox/joro/internal/api"
+	"github.com/BishopFox/joro/internal/automation"
 	"github.com/BishopFox/joro/internal/callback"
 	"github.com/BishopFox/joro/internal/cert"
 	"github.com/BishopFox/joro/internal/config"
@@ -59,6 +60,7 @@ func main() {
 	flag.StringSliceVar(&cfg.AllowedHosts, "allowed-host", cfg.AllowedHosts, "Additional Host header value(s) accepted by the proxy-mode UI/API origin guard, beyond loopback (e.g. an SSH tunnel entry address). Comma-separated or repeatable. Same-origin CSRF checks still apply.")
 	flag.BoolVar(&cfg.TeamServer, "teamserver", false, "Enable team server mode (requires --listener)")
 	flag.BoolVar(&cfg.DisableUpdateChecks, "disable-update-checks", false, "Disable automatic update checks at startup and in the background (can also be toggled in Settings)")
+	flag.BoolVar(&cfg.NoAutomation, "no-automation", false, "Disable the automation API and MCP listener entirely (no routes, no token file, no second port)")
 
 	buildPlugin := flag.String("build-plugin", "", "Build a plugin from the given directory and exit")
 	installPlugin := flag.Bool("install", false, "Copy built plugin to ~/.joro/plugins/ (use with --build-plugin)")
@@ -376,6 +378,23 @@ func runProxyMode(ctx context.Context, cfg config.Config) {
 		UpdateAvailable: updateAvailable,
 		LatestVersion:   latestVersion,
 	}, cancel)
+
+	// Automation: bearer tokens with fine-grained capability grants, consumed by
+	// the MCP listener. Must be installed before Start, which registers the
+	// /api/v1/automation routes only when a store is present.
+	//
+	// A failure here is non-fatal and disables the feature rather than the proxy:
+	// an unreadable token file should not stop an operator from testing. It is
+	// logged loudly because a silently absent token store would look to the
+	// operator like their tokens had been revoked.
+	if !cfg.NoAutomation {
+		autoStore, err := automation.NewStore(filepath.Join(cfg.DataDir, "automation.json"))
+		if err != nil {
+			log.Printf("automation: %v — automation and the MCP listener are disabled this run", err)
+		} else {
+			apiSrv.SetAutomation(autoStore)
+		}
+	}
 
 	// Periodically save the active project when auto-save is enabled.
 	apiSrv.StartAutoSaveLoop(ctx)

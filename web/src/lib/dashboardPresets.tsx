@@ -138,7 +138,7 @@ export const DEFAULT_LOCAL_LAYOUT: ModeLayout = {
   slots: {
     topLeft: 'detect-findings',
     topRight: 'recent-interactions',
-    bottomLeft: 'network-graph',
+    bottomLeft: 'automation-activity',
     bottomRight: 'proxy-health',
     barMain: NO_WIDGET,
     barAside: NO_WIDGET,

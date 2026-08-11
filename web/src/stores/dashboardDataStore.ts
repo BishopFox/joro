@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { CallbackInteraction, CallbackToken } from './callbackStore'
 import type { XSSFire, XSSProbe } from './xssHunterStore'
 import type { SliverSession } from '../components/NetworkGraph'
+import type { AutomationAudit } from '../lib/api'
 
 // dashboardDataStore holds the data polled by useDashboardPolling on behalf of
 // the dashboard widgets. It is a store rather than a React context so widgets
@@ -49,6 +50,7 @@ interface DashboardDataState extends CallbackData {
   sliver: SliverInfo
   mythic: MythicInfo
   health: HealthInfo | null
+  automationActivity: AutomationAudit | null
 
   setMode: (mode: string) => void
   setLocalHost: (h: { hostname: string; ip: string } | null) => void
@@ -56,6 +58,7 @@ interface DashboardDataState extends CallbackData {
   setSliver: (s: SliverInfo) => void
   setMythic: (m: Partial<MythicInfo>) => void
   setHealth: (h: HealthInfo) => void
+  setAutomationActivity: (a: AutomationAudit) => void
 }
 
 const emptySliver: SliverInfo = {
@@ -78,6 +81,7 @@ export const useDashboardDataStore = create<DashboardDataState>((set) => ({
   sliver: emptySliver,
   mythic: emptyMythic,
   health: null,
+  automationActivity: null,
 
   setMode: (mode) => set({ mode }),
   setLocalHost: (localHost) => set({ localHost }),
@@ -85,4 +89,5 @@ export const useDashboardDataStore = create<DashboardDataState>((set) => ({
   setSliver: (sliver) => set({ sliver }),
   setMythic: (m) => set((s) => ({ mythic: { ...s.mythic, ...m } })),
   setHealth: (health) => set({ health }),
+  setAutomationActivity: (automationActivity) => set({ automationActivity }),
 }))

@@ -50,6 +50,18 @@ func (s *Scope) Rules() []ScopeRule {
 	return out
 }
 
+// RuleCount returns the number of configured scope rules.
+//
+// Scope with zero rules blocks everything, and InScope reports true when scope is
+// disabled entirely — so a caller deciding whether scope is a usable authorization
+// signal needs the count as well as the enabled flag. The automation guard uses
+// both to fail closed. See internal/capability/guard.go.
+func (s *Scope) RuleCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.rules)
+}
+
 // SetRules replaces all scope rules.
 func (s *Scope) SetRules(rules []ScopeRule) {
 	s.mu.Lock()
