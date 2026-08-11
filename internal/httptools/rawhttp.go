@@ -115,6 +115,41 @@ func requestLine(line string) (method, target, version string, ok bool) {
 	return method, target, version, true
 }
 
+// normalizeHTTP11 rewrites a raw request's start line to end in "HTTP/1.1".
+//
+// SendViaProxy always speaks HTTP/1.1 to Joro's own proxy (ALPN is pinned —
+// see its doc comment), but a captured request's raw bytes carry whatever
+// version token it was captured under. h2_mitm.go stamps captured HTTP/2
+// traffic with the literal "HTTP/2" (h2 has no textual wire form to
+// preserve), and net/http's server-side ReadRequest rejects that token
+// outright ("malformed HTTP version"). On that parse error mitm.go's read
+// loop just returns, closing the connection with no response written — which
+// is indistinguishable, from the sending side, from the target itself having
+// gone away mid-handshake. Left unnormalized, every automation resend of an
+// HTTP/2-captured request — the common case, since Chrome negotiates h2 with
+// nearly everything — would fail this way before ever reaching the target.
+func normalizeHTTP11(raw []byte) []byte {
+	hdr, body, _ := splitRaw(raw)
+	lines := splitHeaderLines(hdr)
+	if len(lines) == 0 {
+		return raw
+	}
+	method, target, version, ok := requestLine(lines[0])
+	if !ok || version == "HTTP/1.1" {
+		return raw
+	}
+	lines[0] = method + " " + target + " HTTP/1.1"
+
+	var out bytes.Buffer
+	for _, ln := range lines {
+		out.WriteString(ln)
+		out.WriteString("\r\n")
+	}
+	out.WriteString("\r\n")
+	out.Write(body)
+	return out.Bytes()
+}
+
 // contentTypeKeyword collapses a Content-Type to a short token. The full MIME type
 // plus charset costs roughly six tokens per row and carries no information a client
 // reasons about, so tables carry the keyword instead.

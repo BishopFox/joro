@@ -153,7 +153,7 @@ func roundTripViaProxy(ctx context.Context, raw []byte, scheme, hostPort string,
 		conn.SetDeadline(time.Now().Add(60 * time.Second)) //nolint:errcheck
 	}
 
-	wire := raw
+	wire := normalizeHTTP11(raw)
 	if scheme == "https" {
 		tlsConn, err := connectTunnel(conn, hostPort, d.CA)
 		if err != nil {
@@ -164,7 +164,7 @@ func roundTripViaProxy(ctx context.Context, raw []byte, scheme, hostPort string,
 	} else {
 		// Plain HTTP through a proxy uses absolute-form request targets, which is
 		// what internal/proxy/handler.go's non-CONNECT path expects.
-		wire = toAbsoluteForm(raw, hostPort)
+		wire = toAbsoluteForm(wire, hostPort)
 	}
 
 	if _, err := conn.Write(wire); err != nil {
