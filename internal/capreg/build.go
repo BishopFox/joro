@@ -12,6 +12,8 @@
 package capreg
 
 import (
+	"context"
+
 	"github.com/BishopFox/joro/internal/capability"
 	"github.com/BishopFox/joro/internal/cert"
 	"github.com/BishopFox/joro/internal/detect"
@@ -32,6 +34,32 @@ type Deps struct {
 	Notes     *notes.Store
 	CA        *cert.CA
 	ProxyAddr string // Joro's own proxy listener, e.g. "127.0.0.1:8080"
+
+	// The proxy's behavioral rule stores, for the config-class capabilities. These
+	// are what "modify the proxy configuration" means here: Settings itself lives on
+	// *api.APIServer and stays unreachable, which is also where the genuinely
+	// dangerous knobs are — bind address, ports, SOCKS, the team token.
+	Replace    *proxy.MatchReplace
+	CustomData *proxy.CustomData
+	Noise      *proxy.NoiseFilter
+	Intercept  *proxy.InterceptQueue
+
+	// Scanner backs detect.rescan. BgCtx must yield the server-lifetime context: a
+	// rescan outlives the invocation that started it, and a capability's own ctx
+	// carries a 30s timeout that would cancel the job partway.
+	//
+	// It is a getter, not a context, because SetAutomation runs before
+	// StartDetectLoop (main.go:395 vs :401) — capturing the value here would pin the
+	// nil that detectCtx still holds at that point.
+	Scanner *detect.Scanner
+	BgCtx   func() context.Context
+
+	// Broadcast is the hub's channel, so a mutating capability can push the same WS
+	// events the REST handlers do — an agent editing the operator's configuration
+	// should be visible while it happens, not on next reload. Typed as chan<- any
+	// rather than *api.Hub to keep this package clear of internal/api. Sends must be
+	// non-blocking; see broadcast in caps_write.go.
+	Broadcast chan<- any
 }
 
 // Build assembles the registry.
@@ -49,10 +77,15 @@ func Build(d Deps, audit *capability.AuditLog) *capability.Registry {
 	registerHistory(r, d)
 	registerSitemap(r, d)
 	registerScope(r, d)
+	registerScopeWrite(r, d)
 	registerFindings(r, d)
 	registerNotes(r, d)
 	registerHTTP(r, d)
+	registerWrites(r, d)
+	registerConfig(r, d)
+	registerDetect(r, d)
 
+	validateProfiles(r)
 	r.Seal()
 	return r
 }

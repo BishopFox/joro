@@ -43,6 +43,23 @@ func (s *APIServer) SetAutomation(store *automation.Store) {
 		// a hardcoded loopback: an operator who bound the proxy elsewhere still
 		// needs this to reach it.
 		ProxyAddr: fmt.Sprintf("%s:%d", s.cfg.BindAddr, s.cfg.ProxyPort),
+
+		// The rule stores behind the config-class capabilities. Settings is
+		// deliberately not among them: it lives on this struct behind s.mu, and it is
+		// where the knobs that would matter most are — SOCKS, the team token, the
+		// listener URL.
+		Replace:    s.replace,
+		CustomData: s.customData,
+		Noise:      s.noise,
+		Intercept:  s.intercept,
+
+		// A getter rather than the context itself: this runs before StartDetectLoop,
+		// so s.detectCtx is still nil here. detectBackgroundCtx already falls back to
+		// context.Background when the loop never started.
+		Scanner: s.detectScanner,
+		BgCtx:   s.detectBackgroundCtx,
+
+		Broadcast: s.hub.Broadcast(),
 	}, s.capAudit)
 	s.mcpListener = mcp.NewListener()
 }

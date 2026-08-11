@@ -6,18 +6,19 @@ import "fmt"
 // errors, the UI groups Activity rows by them, and the guard matrix test asserts
 // them, so they are a contract rather than log text.
 const (
-	CodeForbidden      = "forbidden"
-	CodeScopeDisabled  = "scope_disabled"
-	CodeScopeEmpty     = "scope_empty"
-	CodeOutOfScope     = "out_of_scope"
-	CodeHostNotAllowed = "host_not_allowed"
-	CodeRateLimited    = "rate_limited"
-	CodeBusy           = "busy"
-	CodeInvalidArgs    = "invalid_args"
-	CodeOutputTooLarge = "output_too_large"
-	CodeTimeout        = "timeout"
-	CodeHandlerError   = "handler_error"
-	CodePanic          = "panic"
+	CodeForbidden       = "forbidden"
+	CodeScopeDisabled   = "scope_disabled"
+	CodeScopeEmpty      = "scope_empty"
+	CodeOutOfScope      = "out_of_scope"
+	CodeHostNotAllowed  = "host_not_allowed"
+	CodeTokenRestricted = "token_restricted"
+	CodeRateLimited     = "rate_limited"
+	CodeBusy            = "busy"
+	CodeInvalidArgs     = "invalid_args"
+	CodeOutputTooLarge  = "output_too_large"
+	CodeTimeout         = "timeout"
+	CodeHandlerError    = "handler_error"
+	CodePanic           = "panic"
 )
 
 // Error is a guard or handler failure with a machine-readable code.

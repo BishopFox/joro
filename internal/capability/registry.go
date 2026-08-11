@@ -93,11 +93,14 @@ func (r *Registry) Register(c Capability) error {
 				"tokens is not a boundary. Reserved prefixes: %s",
 			c.ID, strings.Join(reservedPrefixes, " ")))
 	}
-	if c.Class == ClassScope && c.Mutating {
+	if c.Class == ClassScope && c.Mutating && !c.UnrestrictedOnly {
 		panic(fmt.Sprintf(
-			"capability: %q is scope-class and mutating. Scope is the safety control the send "+
-				"guard depends on; an agent that can widen its own leash has no leash. "+
-				"Read-only scope introspection is fine.", c.ID))
+			"capability: %q is scope-class and mutating without UnrestrictedOnly. Scope is the "+
+				"safety control the send guard depends on; a token leashed by scope must not edit "+
+				"its own leash. Read-only scope introspection is fine. A deliberate scope-write "+
+				"capability must set UnrestrictedOnly, which confines it to tokens the operator "+
+				"has exempted from scope — those already reach every host, so editing scope grants "+
+				"them nothing.", c.ID))
 	}
 
 	switch {
@@ -176,14 +179,44 @@ func (r *Registry) All() []Capability {
 // List returns the capabilities a principal may invoke, sorted by ID. This is what
 // backs the MCP filtered tools/list: an ungranted capability is not merely refused
 // on call, it is never named.
+//
+// "May invoke" includes the restriction check, not just the grant, so a token that
+// holds a scope-write grant but is leashed by scope never sees the tool. Advertising
+// one that is denied on every call would spend the model's context to buy it a wasted
+// call and a confusing error.
 func (r *Registry) List(p Principal) []Capability {
 	out := make([]Capability, 0, len(r.ids))
 	for _, id := range r.ids {
-		if p.Can(id) {
-			out = append(out, r.caps[id])
+		c := r.caps[id]
+		if p.Can(id) && c.availableTo(p) == nil {
+			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// availableTo reports whether a principal's own restrictions permit this capability,
+// returning the denial to report if not.
+//
+// Shared by List and Invoke so the two cannot disagree about what a token may do.
+// Invoke remains the enforcement point — this being a display filter as well does not
+// make it one, exactly as Can being used by both does not.
+func (c Capability) availableTo(p Principal) error {
+	if !c.UnrestrictedOnly {
+		return nil
+	}
+	switch {
+	case p.RequireScope:
+		return errf(CodeTokenRestricted,
+			"%s is unavailable to a token that requires an in-scope target: it would let the token "+
+				"edit the control that restricts it. Use a token with requireScope disabled and no "+
+				"host whitelist.", c.ID)
+	case len(p.HostAllow) > 0:
+		return errf(CodeTokenRestricted,
+			"%s is unavailable to a token with a host whitelist (%s). Use a token with requireScope "+
+				"disabled and no host whitelist.", c.ID, strings.Join(p.HostAllow, ", "))
+	}
+	return nil
 }
 
 // IDs returns every registered capability ID, sorted.
@@ -253,6 +286,20 @@ func (r *Registry) Invoke(ctx context.Context, p Principal, id string, args json
 		return Result{}, errf(CodeForbidden, "unknown or not granted: %s", id)
 	}
 
+	// 2b. Restriction check, for capabilities that may edit the leash itself.
+	//
+	//     A token restricted by scope or by a host whitelist may not modify scope:
+	//     that is editing its own authorization control. A token the operator has
+	//     explicitly unrestricted may, because checkTarget already admits every host
+	//     for it — the edit grants no reach it did not have.
+	//
+	//     This sits ahead of the limiters, alongside step 1, because it is two reads
+	//     of Principal value fields: no argument decoding and no shared state, so it
+	//     cannot become a lever for unmetered work.
+	if rerr := capDef.availableTo(p); rerr != nil {
+		return Result{}, rerr
+	}
+
 	// 3. Global concurrency, non-blocking. An agent firing fifty parallel calls
 	//    gets a fast busy rather than a queue that starves the operator's own
 	//    browsing through the same process.
@@ -295,6 +342,13 @@ func (r *Registry) Invoke(ctx context.Context, p Principal, id string, args json
 	//    not take the proxy down on a nil dereference.
 	callCtx, cancel := context.WithTimeout(ctx, capDef.timeout())
 	defer cancel()
+
+	// A mutating handler describes its own effect through RecordChange, which is the
+	// operator's only record of what an agent altered — arguments are digested, not
+	// retained. Collected even on error, since a handler may fail partway.
+	sink := &changeSink{}
+	callCtx = withChangeSink(callCtx, sink)
+	defer func() { entry.Change = sink.String() }()
 
 	data, herr := runRecovered(callCtx, capDef, Input{Args: args, Principal: p})
 	if herr != nil {
@@ -352,7 +406,7 @@ func wrapErr(err error, fallback string) error {
 func isDenial(code string) bool {
 	switch code {
 	case CodeForbidden, CodeScopeDisabled, CodeScopeEmpty, CodeOutOfScope,
-		CodeHostNotAllowed, CodeRateLimited, CodeBusy:
+		CodeHostNotAllowed, CodeTokenRestricted, CodeRateLimited, CodeBusy:
 		return true
 	}
 	return false

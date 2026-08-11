@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Check } from 'lucide-react'
-import type { AutomationToken, AutomationTokenInput, Capability } from '../lib/api'
+import { AlertTriangle, Check, Unlock } from 'lucide-react'
+import type { AutomationProfile, AutomationToken, AutomationTokenInput, Capability } from '../lib/api'
 import GrantPicker from './GrantPicker'
 
 type Props = {
   capabilities: Capability[]
+  profiles?: AutomationProfile[]
+  classes?: string[]
   /** Present when editing; absent when creating. */
   token?: AutomationToken
   onSubmit: (body: AutomationTokenInput) => Promise<void>
@@ -13,7 +15,14 @@ type Props = {
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border w-full'
 
-export default function AutomationTokenModal({ capabilities, token, onSubmit, onClose }: Props) {
+export default function AutomationTokenModal({
+  capabilities,
+  profiles = [],
+  classes = [],
+  token,
+  onSubmit,
+  onClose,
+}: Props) {
   const editing = !!token
   const [name, setName] = useState(token?.name ?? '')
   const [grants, setGrants] = useState<string[]>(token?.grants ?? [])
@@ -27,6 +36,22 @@ export default function AutomationTokenModal({ capabilities, token, onSubmit, on
 
   const hostPatterns = hostAllow.split(',').map((s) => s.trim()).filter(Boolean)
   const sendsTraffic = capabilities.some((c) => c.sendsTraffic && grants.includes(c.id))
+  const mutating = capabilities.filter((c) => c.mutating && grants.includes(c.id))
+  // Capabilities the registry refuses to a restricted token. Selecting one alongside
+  // requireScope or a host whitelist is not rejected on save — it fails closed at call
+  // time — but silently handing over a grant that can never fire is worse than saying so.
+  const unrestrictedOnly = capabilities.filter((c) => c.unrestrictedOnly && grants.includes(c.id))
+  const inertGrants = unrestrictedOnly.length > 0 && (requireScope || hostPatterns.length > 0)
+  const canEditScope = unrestrictedOnly.length > 0 && !inertGrants
+
+  function applyProfile(p: AutomationProfile) {
+    // The grants themselves are applied by GrantPicker; this adopts the rest of the
+    // token shape the profile expects, including turning requireScope off for a
+    // profile whose scope grants would otherwise be inert.
+    setRequireScope(p.requireScope)
+    setRateLimit(p.rateLimitPerMin)
+    setMaxConcurrent(p.maxConcurrent)
+  }
 
   async function submit() {
     setErr('')
@@ -70,6 +95,9 @@ export default function AutomationTokenModal({ capabilities, token, onSubmit, on
             selected={grants}
             onChange={setGrants}
             highlight={token?.ungrantedCapabilities}
+            profiles={profiles}
+            classOrder={classes}
+            onApplyProfile={applyProfile}
           />
         </div>
 
@@ -120,8 +148,36 @@ export default function AutomationTokenModal({ capabilities, token, onSubmit, on
         </div>
 
         {sendsTraffic && (
-          <p className="text-[11px] text-semantic-warning">
-            This token can send traffic to targets through Joro’s proxy. Those requests appear in History.
+          <p className="text-[11px] text-semantic-warning inline-flex items-start gap-1.5">
+            <AlertTriangle size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span>This token can send traffic to targets through Joro’s proxy. Those requests appear in History.</span>
+          </p>
+        )}
+
+        {mutating.length > 0 && (
+          <p className="text-[11px] text-semantic-special leading-snug">
+            This token can change Joro itself ({mutating.length} {mutating.length === 1 ? 'capability' : 'capabilities'}):
+            edits apply to your own browsing as well as the agent’s, persist into the saved project, and are listed
+            individually in Activity.
+          </p>
+        )}
+
+        {canEditScope && (
+          <p className="text-[11px] text-semantic-error leading-snug inline-flex items-start gap-1.5">
+            <Unlock size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span>
+              This token can add scope rules. Scope is what decides which hosts Joro intercepts, so it can make Joro
+              terminate TLS for and record hosts you have not scoped — and it can already read all captured traffic.
+              It can only add include rules and enable scope; it cannot exclude, remove, or disable.
+            </span>
+          </p>
+        )}
+
+        {inertGrants && (
+          <p className="text-[11px] text-semantic-warning leading-snug">
+            {unrestrictedOnly.map((c) => c.toolName).join(', ')} will be refused on every call: a token restricted by
+            scope or a host whitelist may not edit scope. Untick “Only allow sends to in-scope targets” and clear the
+            host whitelist to use them, or drop those grants.
           </p>
         )}
         {err && <p className="text-semantic-error text-xs">{err}</p>}

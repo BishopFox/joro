@@ -194,10 +194,30 @@ export interface Capability {
   mutating: boolean
   /** Emits traffic to a target host, so it is subject to the scope guard. */
   sendsTraffic: boolean
+  /** Refused to a token with requireScope set or a host whitelist. A token whose
+   *  authorization control is scope must not edit scope; one the operator has
+   *  exempted from scope already reaches every host, so editing it grants nothing. */
+  unrestrictedOnly: boolean
   inputSchema: unknown
   maxOutputBytes: number
   /** The MCP tool name: the capability ID with dots replaced by underscores. */
   toolName: string
+}
+
+/** A curated grant bundle. Selecting one expands it into a concrete grant list at
+ *  create time; the profile is never stored on the token, so a profile that gains a
+ *  capability in a later release does not widen a token issued today. */
+export interface AutomationProfile {
+  id: string
+  title: string
+  description: string
+  grants: string[]
+  /** The recommended token setting, not a constraint. A profile granting an
+   *  unrestrictedOnly capability leaves this false or those grants are always denied. */
+  requireScope: boolean
+  allowsSends: boolean
+  rateLimitPerMin: number
+  maxConcurrent: number
 }
 
 export interface McpState {
@@ -225,6 +245,10 @@ export interface AuditEntry {
    *  payloads, and retaining them would make this a secondary secret store. */
   argsDigest?: string
   argsBytes: number
+  /** A mutating capability's own description of what it altered. The one place
+   *  arguments are recorded readably, because configuration is not a credential —
+   *  without it an operator can see that an agent edited the proxy but not what. */
+  change?: string
   outputBytes: number
   durationMs: number
   errMsg?: string
@@ -907,7 +931,12 @@ export const api = {
   revokeAutomationToken: (id: string) =>
     req<{ status: string }>('DELETE', `/automation/tokens/${id}`),
   listCapabilities: () =>
-    req<{ capabilities: Capability[]; fingerprint: string; classes: string[] }>('GET', '/automation/capabilities'),
+    req<{
+      capabilities: Capability[]
+      fingerprint: string
+      classes: string[]
+      profiles: AutomationProfile[]
+    }>('GET', '/automation/capabilities'),
   getMcpState: () => req<McpState>('GET', '/automation/mcp'),
   setMcpState: (body: { enabled?: boolean; port?: number }) =>
     req<McpState>('PUT', '/automation/mcp', body),

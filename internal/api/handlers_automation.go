@@ -13,6 +13,7 @@ import (
 
 	"github.com/BishopFox/joro/internal/automation"
 	"github.com/BishopFox/joro/internal/capability"
+	"github.com/BishopFox/joro/internal/capreg"
 )
 
 // The automation control plane. These routes exist only in proxy mode, only when
@@ -37,15 +38,19 @@ type tokenView struct {
 }
 
 type capabilityView struct {
-	ID             string          `json:"id"`
-	Class          string          `json:"class"`
-	Title          string          `json:"title"`
-	Description    string          `json:"description"`
-	Mutating       bool            `json:"mutating"`
-	SendsTraffic   bool            `json:"sendsTraffic"`
-	InputSchema    json.RawMessage `json:"inputSchema"`
-	MaxOutputBytes int             `json:"maxOutputBytes"`
-	ToolName       string          `json:"toolName"`
+	ID           string `json:"id"`
+	Class        string `json:"class"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	Mutating     bool   `json:"mutating"`
+	SendsTraffic bool   `json:"sendsTraffic"`
+	// UnrestrictedOnly is refused to a token with requireScope set or a host
+	// whitelist, so the grant editor can warn that such a grant would be inert
+	// rather than letting the operator discover it from a denial.
+	UnrestrictedOnly bool            `json:"unrestrictedOnly"`
+	InputSchema      json.RawMessage `json:"inputSchema"`
+	MaxOutputBytes   int             `json:"maxOutputBytes"`
+	ToolName         string          `json:"toolName"`
 }
 
 func (s *APIServer) requireAutomation(w http.ResponseWriter) bool {
@@ -281,15 +286,20 @@ func (s *APIServer) handleListCapabilities(w http.ResponseWriter, r *http.Reques
 		out = append(out, capabilityView{
 			ID: c.ID, Class: string(c.Class), Title: c.Title, Description: c.Description,
 			Mutating: c.Mutating, SendsTraffic: c.SendsTraffic,
-			InputSchema:    c.InputSchema,
-			MaxOutputBytes: c.MaxOutputBytes,
-			ToolName:       strings.ReplaceAll(c.ID, ".", "_"),
+			UnrestrictedOnly: c.UnrestrictedOnly,
+			InputSchema:      c.InputSchema,
+			MaxOutputBytes:   c.MaxOutputBytes,
+			ToolName:         strings.ReplaceAll(c.ID, ".", "_"),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"capabilities": out,
 		"fingerprint":  s.capRegistry.Fingerprint(),
 		"classes":      capability.Classes,
+		// Profiles are curated grant bundles the picker expands into a concrete ID
+		// list on create. They are never stored on the token, so a profile that gains
+		// a capability later does not widen a token issued today.
+		"profiles": capreg.BuiltProfiles(),
 	})
 }
 

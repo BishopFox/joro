@@ -72,4 +72,13 @@ http_diff to see what changed between two. Reach for a body only when a range or
 answer the question.
 
 http_resend and http_batch send real traffic to a real target through the proxy, so the result
-appears in the operator's history. They are refused for hosts outside the configured scope.`
+appears in the operator's history. They are refused for hosts outside the configured scope.
+
+Some tools change Joro itself rather than reading it, and a human operator is working in the
+same instance: scope rules decide which hosts get intercepted at all, config_* rewrites or
+appends to every in-scope request, and detect_* changes what is reported across the whole
+engagement. Their effects apply to the operator's own browsing too, persist into their saved
+project, and are recorded individually in a log they can read. Prefer a per-request edit via
+http_resend over a global rule when you only need one request changed, and use notes_create to
+tell the operator what you did and why. Not every tool listed here is granted to you; a tool you
+cannot see is one you do not have.`

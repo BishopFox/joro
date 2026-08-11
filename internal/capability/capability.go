@@ -35,10 +35,18 @@ const (
 	ClassFindings Class = "findings"
 	ClassNotes    Class = "notes"
 	ClassHTTP     Class = "http"
+	ClassConfig   Class = "config"
+	ClassDetect   Class = "detect"
 )
 
-// Classes lists every valid class, in the order the grant picker shows them.
-var Classes = []Class{ClassHistory, ClassSitemap, ClassScope, ClassFindings, ClassNotes, ClassHTTP}
+// Classes lists every valid class, in the order the grant picker shows them. The
+// order is load-bearing now that write-heavy classes exist: sorting by ID instead
+// would put config and detect at the top of the picker, leading with the groups an
+// operator should consider last.
+var Classes = []Class{
+	ClassHistory, ClassSitemap, ClassScope, ClassFindings, ClassNotes, ClassHTTP,
+	ClassConfig, ClassDetect,
+}
 
 func validClass(c Class) bool { return slices.Contains(Classes, c) }
 
@@ -89,6 +97,17 @@ type Capability struct {
 	// engages the scope guard. They are independent axes.
 	Mutating     bool
 	SendsTraffic bool
+
+	// UnrestrictedOnly refuses the capability to any token the operator has
+	// leashed — one with RequireScope set, or with a non-empty HostAllow.
+	//
+	// It is mandatory on a mutating scope-class capability, and Register panics
+	// without it. The reasoning is an asymmetry: a token whose authorization
+	// control *is* scope must never edit scope, but a token the operator has
+	// explicitly exempted from scope gains no reach by editing it — checkTarget
+	// already admits every host for such a token, so there is no privilege to
+	// escalate. See the guard rule in guard.go.
+	UnrestrictedOnly bool
 
 	// InputSchema is a hand-written JSON Schema object. ArgsExample is a valid
 	// instance of it, checked against the handler's own decoder by a test — that

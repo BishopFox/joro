@@ -175,12 +175,13 @@ func (s *Server) callTool(r *http.Request, tok *automation.Token, req *request) 
 	capID := capIDFromTool(params.Name)
 	principal := tok.Principal()
 
-	// An unknown tool and an ungranted one produce the same error, so tools/call
-	// cannot be used to enumerate capabilities this token was not given.
-	if _, ok := s.reg.Get(capID); !ok || !principal.Can(capID) {
-		return errResponse(req.ID, newError(CodeInvalidParams, "unknown tool: "+params.Name))
-	}
-
+	// Authorization is left entirely to Invoke, which returns the same error for an
+	// unknown tool as for an ungranted one — so tools/call still cannot be used to
+	// enumerate capabilities this token was not given — and, crucially, writes an
+	// audit entry from a defer. A pre-check here duplicated that decision while
+	// bypassing the log, which meant an agent probing for tools it had not been
+	// granted left no trace in Activity: the one place the audit log's own doc comment
+	// says such probing shows up.
 	res, err := s.reg.Invoke(r.Context(), principal, capID, params.Arguments)
 
 	// Record use even on failure: a token being denied repeatedly is exactly the

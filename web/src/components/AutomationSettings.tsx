@@ -11,9 +11,18 @@ import ConfirmModal from './ConfirmModal'
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border'
 
 export default function AutomationSettings() {
-  const { tokens, capabilities, mcp, available, refresh, create, update, rotate, setEnabled, review, revoke, setMcp } =
+  const { tokens, capabilities, profiles, classes, mcp, available, refresh, create, update, rotate, setEnabled, review, revoke, setMcp } =
     useAutomationStore()
   const addToast = useToastStore((s) => s.addToast)
+
+  // Grants a token holds that the registry refuses it: a scope-write capability
+  // needs a token with scope enforcement off and no host whitelist. These fail
+  // closed at call time, so the table flags them rather than the server rejecting
+  // the token — but an operator should not have to read Activity to find out.
+  const inertGrants = (t: AutomationToken) =>
+    !(t.requireScope || (t.hostAllow?.length ?? 0) > 0)
+      ? []
+      : capabilities.filter((c) => c.unrestrictedOnly && t.grants.includes(c.id)).map((c) => c.toolName)
 
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<AutomationToken | null>(null)
@@ -199,6 +208,14 @@ export default function AutomationSettings() {
                         +{t.hostAllow.length} host
                       </span>
                     )}
+                    {inertGrants(t).length > 0 && (
+                      <span
+                        className="block text-[10px] text-semantic-warning"
+                        title={`Refused on every call for this token: ${inertGrants(t).join(', ')}. A token restricted by scope or a host whitelist may not edit scope.`}
+                      >
+                        {inertGrants(t).length} grant{inertGrants(t).length === 1 ? '' : 's'} inert
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-content-muted">
                     {t.rateLimitPerMin}/min · {t.maxConcurrent} conc
@@ -279,11 +296,19 @@ export default function AutomationSettings() {
       <AutomationActivity />
 
       {creating && (
-        <AutomationTokenModal capabilities={capabilities} onSubmit={handleCreate} onClose={() => setCreating(false)} />
+        <AutomationTokenModal
+          capabilities={capabilities}
+          profiles={profiles}
+          classes={classes}
+          onSubmit={handleCreate}
+          onClose={() => setCreating(false)}
+        />
       )}
       {editing && (
         <AutomationTokenModal
           capabilities={capabilities}
+          profiles={profiles}
+          classes={classes}
           token={editing}
           onSubmit={(body) => update(editing.id, body)}
           onClose={() => setEditing(null)}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/BishopFox/joro/internal/detect"
+	"github.com/BishopFox/joro/internal/event"
 	"github.com/BishopFox/joro/internal/proxy"
 )
 
@@ -112,4 +113,31 @@ func orDefault(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// joinOr renders a string list as CSV, or def when it is empty — the shape the rule
+// tables use for "all methods" and similar.
+func joinOr(parts []string, def string) string {
+	if len(parts) == 0 {
+		return def
+	}
+	return strings.Join(parts, ",")
+}
+
+// broadcast pushes a WS event from a mutating capability, so an agent editing the
+// operator's configuration is visible while it happens rather than on next reload.
+//
+// The send is non-blocking. Some REST call sites send to this channel blocking, but a
+// capability handler runs under a 30s timeout that a full hub channel would consume,
+// and a dropped notification is a stale panel while a stalled handler is a failed
+// tool call. This follows the detect.finding precedent, which is droppable for the
+// same reason. Only event types the frontend already handles are worth sending.
+func broadcast(d Deps, eventType string, data any) {
+	if d.Broadcast == nil {
+		return
+	}
+	select {
+	case d.Broadcast <- event.WSEvent{Type: eventType, Data: data}:
+	default:
+	}
 }

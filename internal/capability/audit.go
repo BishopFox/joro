@@ -1,9 +1,11 @@
 package capability
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +51,14 @@ type AuditEntry struct {
 	ArgsDigest string `json:"argsDigest,omitempty"`
 	ArgsBytes  int    `json:"argsBytes"`
 
+	// Change is a mutating handler's own description of what it altered, via
+	// RecordChange. It is the one place arguments are recorded in readable form, and
+	// the exception is deliberate: the digest above exists because send arguments
+	// carry credentials and payloads, but a scope rule or a Match & Replace pattern
+	// is configuration, not a secret — and without this an operator reviewing
+	// Activity can see that an agent edited their proxy but not what it did.
+	Change string `json:"change,omitempty"`
+
 	OutputBytes int    `json:"outputBytes"`
 	DurationMs  int64  `json:"durationMs"`
 	ErrMsg      string `json:"errMsg,omitempty"`
@@ -60,7 +70,57 @@ const (
 	ResultDenied  = "denied"
 	ResultError   = "error"
 	maxAuditError = 256
+	// maxAuditChange bounds one entry's change description. A handler that edits in
+	// bulk should summarize rather than enumerate.
+	maxAuditChange = 512
 )
+
+// changeSink collects a handler's RecordChange calls. Guarded by a mutex because a
+// handler may describe its work from a goroutine it spawned.
+type changeSink struct {
+	mu    sync.Mutex
+	parts []string
+}
+
+func (s *changeSink) add(msg string) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.parts = append(s.parts, msg)
+}
+
+func (s *changeSink) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := strings.Join(s.parts, "; ")
+	if len(out) > maxAuditChange {
+		out = out[:maxAuditChange] + "…"
+	}
+	return out
+}
+
+type changeSinkKey struct{}
+
+func withChangeSink(ctx context.Context, s *changeSink) context.Context {
+	return context.WithValue(ctx, changeSinkKey{}, s)
+}
+
+// RecordChange lets a mutating handler describe its own effect for the audit log,
+// e.g. RecordChange(ctx, "add include %s", pattern).
+//
+// It is a no-op when the context carries no sink, so a handler can call it
+// unconditionally and a caller outside Invoke does not have to care. Handlers should
+// record the effect, not the intent: call it after the mutation succeeds.
+func RecordChange(ctx context.Context, format string, args ...any) {
+	s, ok := ctx.Value(changeSinkKey{}).(*changeSink)
+	if !ok || s == nil {
+		return
+	}
+	s.add(fmt.Sprintf(format, args...))
+}
 
 // AuditFilter narrows a listing. Empty fields do not filter.
 type AuditFilter struct {

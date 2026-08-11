@@ -1,9 +1,20 @@
 import { create } from 'zustand'
-import { api, type AutomationToken, type AutomationTokenInput, type Capability, type McpState } from '../lib/api'
+import {
+  api,
+  type AutomationProfile,
+  type AutomationToken,
+  type AutomationTokenInput,
+  type Capability,
+  type McpState,
+} from '../lib/api'
 
 interface AutomationState {
   tokens: AutomationToken[]
   capabilities: Capability[]
+  /** Server-declared class order. The picker groups by it so the write-heavy
+   *  classes render last, rather than falling out of alphabetical-by-ID. */
+  classes: string[]
+  profiles: AutomationProfile[]
   fingerprint: string
   mcp: McpState | null
   loading: boolean
@@ -26,6 +37,8 @@ interface AutomationState {
 export const useAutomationStore = create<AutomationState>((set, get) => ({
   tokens: [],
   capabilities: [],
+  classes: [],
+  profiles: [],
   fingerprint: '',
   mcp: null,
   loading: false,
@@ -42,6 +55,8 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       set({
         tokens: tokens.tokens ?? [],
         capabilities: caps.capabilities ?? [],
+        classes: caps.classes ?? [],
+        profiles: caps.profiles ?? [],
         fingerprint: caps.fingerprint,
         mcp,
         available: true,

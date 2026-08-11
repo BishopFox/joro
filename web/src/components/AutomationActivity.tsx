@@ -91,7 +91,16 @@ export default function AutomationActivity() {
                   <span className="shrink-0 w-32 truncate">{e.capability}</span>
                   <span className="shrink-0 w-14">{e.code || e.result}</span>
                   <span className="text-content-muted truncate">
-                    {e.targetHost ? `${e.targetMethod ?? ''} ${e.targetHost}${e.targetPath ?? ''} ` : ''}
+                    {/* A mutation has no target, so without `change` these rows would
+                        read as a bare capability name — the operator could see that an
+                        agent edited the proxy but not what it did. */}
+                    {e.change ? (
+                      <span className="text-semantic-special" title={e.change}>
+                        {e.change}{' '}
+                      </span>
+                    ) : (
+                      e.targetHost ? `${e.targetMethod ?? ''} ${e.targetHost}${e.targetPath ?? ''} ` : ''
+                    )}
                     {e.outputBytes > 0 ? `${e.outputBytes}B ` : ''}
                     {e.durationMs}ms
                     {e.errMsg ? ` — ${e.errMsg}` : ''}
