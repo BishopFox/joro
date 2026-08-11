@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
-import { ArrowRight, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowRight, Upload, X } from 'lucide-react'
 import { api, CustomAddition, MatchReplaceRule, NoisePattern, ScopeRule } from '../lib/api'
+import {
+  EXAMPLE_SCOPE_FILE,
+  EXAMPLE_SCOPE_FILENAME,
+  readScopeFile,
+  type ScopeImportBundle,
+} from '../lib/scopeImport'
 import { useRequestStore } from '../stores/requestStore'
 import { Settings, useSettingsStore } from '../stores/settingsStore'
 import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectionStore'
@@ -60,6 +66,15 @@ export default function ProjectSettings() {
   const [newMethods, setNewMethods] = useState('')
   const [newPath, setNewPath] = useState('')
   const [newInclude, setNewInclude] = useState(true)
+
+  // Scope import: a picked file is parsed into `scopeImport` and shown as a summary
+  // for confirmation before anything is applied.
+  const scopeFileRef = useRef<HTMLInputElement>(null)
+  const [scopeImport, setScopeImport] = useState<ScopeImportBundle | null>(null)
+  const [scopeImportMode, setScopeImportMode] = useState<'merge' | 'replace'>('merge')
+  const [scopeImportError, setScopeImportError] = useState('')
+  const [scopeImportNotice, setScopeImportNotice] = useState('')
+  const [scopeImportBusy, setScopeImportBusy] = useState(false)
 
   // Match & Replace state
   const [replaceEnabled, setReplaceEnabled] = useState(false)
@@ -138,6 +153,51 @@ export default function ProjectSettings() {
     useRequestStore.getState().invalidate()
     api.getSettings().then((s) => setSettings(s as Settings))
     window.dispatchEvent(new CustomEvent('joro:project-changed'))
+  }
+
+  // Parse a picked scope file into the confirmation summary. Nothing is applied yet.
+  const pickScopeFile = async (file: File) => {
+    setScopeImportError('')
+    setScopeImportNotice('')
+    setScopeImport(null)
+    try {
+      setScopeImport(await readScopeFile(file))
+    } catch (e) {
+      setScopeImportError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const applyScopeImport = async () => {
+    if (!scopeImport) return
+    setScopeImportBusy(true)
+    setScopeImportError('')
+    try {
+      const resp = await api.importScopeRules(scopeImport, scopeImportMode)
+      // Re-seed from the server, never from the local parse.
+      setScopeEnabled(resp.enabled)
+      setScopeRules(resp.rules)
+      setScopeImport(null)
+      setScopeImportNotice(
+        `Imported ${resp.imported} rule${resp.imported === 1 ? '' : 's'}` +
+          (resp.skipped > 0 ? `, skipped ${resp.skipped} duplicate${resp.skipped === 1 ? '' : 's'}` : ''),
+      )
+      // The history scope_only filter depends on the rule set.
+      useRequestStore.getState().invalidate()
+    } catch (e) {
+      setScopeImportError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setScopeImportBusy(false)
+    }
+  }
+
+  const downloadExampleScopeFile = () => {
+    const blob = new Blob([JSON.stringify(EXAMPLE_SCOPE_FILE, null, 2) + '\n'], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = EXAMPLE_SCOPE_FILENAME
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -329,9 +389,84 @@ export default function ProjectSettings() {
                 </button>
               </div>
 
-              <div className="text-xs text-content-muted">
-                Rules (include evaluated first, exclude overrides):
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs text-content-muted">
+                  Rules (include evaluated first, exclude overrides):
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <button
+                    onClick={downloadExampleScopeFile}
+                    className="text-xs text-accent-secondary hover:text-accent-secondary-hover"
+                  >
+                    Download example scope file
+                  </button>
+                  <label className="flex items-center gap-1 px-2 py-1 rounded-sm bg-surface-input hover:bg-surface-hover border border-border text-xs text-content-secondary cursor-pointer">
+                    <Upload size={12} />
+                    Import&hellip;
+                    <input
+                      ref={scopeFileRef}
+                      type="file"
+                      accept=".json,application/json"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        try {
+                          if (file) await pickScopeFile(file)
+                        } finally {
+                          if (scopeFileRef.current) scopeFileRef.current.value = ''
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
+
+              {scopeImportError && (
+                <p className="text-xs text-semantic-error">{scopeImportError}</p>
+              )}
+              {scopeImportNotice && !scopeImport && (
+                <p className="text-xs text-semantic-success">{scopeImportNotice}</p>
+              )}
+
+              {scopeImport && (
+                <div className="flex items-center gap-2 flex-wrap bg-surface-input rounded-sm border border-border px-2 py-1.5 text-xs">
+                  <span className="text-content-primary">
+                    {scopeImport.scopeRules.length} rule{scopeImport.scopeRules.length === 1 ? '' : 's'}
+                    {' '}({scopeImport.scopeRules.filter((r) => r.include).length} include,{' '}
+                    {scopeImport.scopeRules.filter((r) => !r.include).length} exclude)
+                  </span>
+                  <select
+                    value={scopeImportMode}
+                    onChange={(e) => setScopeImportMode(e.target.value as 'merge' | 'replace')}
+                    className="bg-surface-card text-xs px-2 py-1 rounded-sm border border-border"
+                  >
+                    <option value="merge">Merge</option>
+                    <option value="replace">Replace</option>
+                  </select>
+                  <span className="text-content-muted">
+                    {scopeImportMode === 'replace'
+                      ? `removes ${scopeRules.length} existing rule${scopeRules.length === 1 ? '' : 's'}`
+                      : 'keeps existing rules, skips duplicates'}
+                    {scopeImport.scopeEnabled !== undefined && (
+                      <> &middot; sets scope {scopeImport.scopeEnabled ? 'enabled' : 'disabled'}</>
+                    )}
+                  </span>
+                  <button
+                    onClick={applyScopeImport}
+                    disabled={scopeImportBusy}
+                    className="ml-auto px-2 py-1 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black font-semibold disabled:opacity-50"
+                  >
+                    {scopeImportBusy ? 'Applying…' : 'Apply'}
+                  </button>
+                  <button
+                    onClick={() => { setScopeImport(null); setScopeImportError('') }}
+                    className="px-2 py-1 rounded-sm bg-surface-card hover:bg-surface-hover border border-border text-content-secondary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
               {scopeRules.length === 0 ? (
                 <p className="text-xs text-content-muted italic">
                   No rules defined.{scopeEnabled ? ' All traffic will be blocked.' : ''}

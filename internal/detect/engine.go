@@ -691,7 +691,12 @@ func groupDim(rule *Rule, m *Message, hit AnalyzerHit) string {
 }
 
 // findingID builds the deterministic group hash.
-func findingID(ruleID, host, dim string) string {
+func findingID(ruleID, host, dim string) string { return FindingID(ruleID, host, dim) }
+
+// FindingID is the dedupe identity: it contains no request ID, timestamp or seq, so
+// rescanning reproduces byte-identical IDs. Exported so a caller outside the engine
+// can mint a finding in the same identity space.
+func FindingID(ruleID, host, dim string) string {
 	sum := sha256.Sum256([]byte(ruleID + "\x00" + host + "\x00" + dim))
 	return hex.EncodeToString(sum[:16])
 }

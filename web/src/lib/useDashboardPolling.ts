@@ -26,6 +26,7 @@ export function useDashboardPolling(needs: ReadonlySet<DataNeed>, teamMode: bool
   const setSliver = useDashboardDataStore((s) => s.setSliver)
   const setMythic = useDashboardDataStore((s) => s.setMythic)
   const setHealth = useDashboardDataStore((s) => s.setHealth)
+  const setAutomationActivity = useDashboardDataStore((s) => s.setAutomationActivity)
   const setFlaggedItems = useTeamFlaggedStore((s) => s.setItems)
 
   // Refresh Mythic connection + callbacks for the network graph. Local proxy
@@ -75,7 +76,7 @@ export function useDashboardPolling(needs: ReadonlySet<DataNeed>, teamMode: bool
     const wantCallbacks = needs.has('callbacks') && !teamDown
     const wantSliver = needs.has('sliver')
 
-    const [modeRes, intRes, tokRes, firesRes, probesRes, sliverRes, healthRes] = await Promise.all([
+    const [modeRes, intRes, tokRes, firesRes, probesRes, sliverRes, healthRes, autoRes] = await Promise.all([
       // Always polled: `mode` decides which widgets are available at all.
       api.getMode().catch(() => null),
       wantCallbacks ? api.listInteractions({ limit: 20 }).catch(() => null) : null,
@@ -85,8 +86,11 @@ export function useDashboardPolling(needs: ReadonlySet<DataNeed>, teamMode: bool
       wantSliver
         ? api.sliverStatus().catch((): { connected: boolean; lhost?: string; lport?: number } | null => null)
         : null,
-      // Local call, so not teamDown-gated.
+      // Local calls, so not teamDown-gated.
       needs.has('health') ? api.healthCheck().catch(() => null) : null,
+      // 404s when automation is disabled, which the widget renders as a setup
+      // prompt rather than an error.
+      needs.has('automationActivity') ? api.listAutomationAudit({ limit: 20 }).catch(() => null) : null,
     ])
 
     if (modeRes) setMode(modeRes.mode)
@@ -95,6 +99,7 @@ export function useDashboardPolling(needs: ReadonlySet<DataNeed>, teamMode: bool
     if (firesRes) setCallbackData({ fires: firesRes.items || [] })
     if (probesRes) setCallbackData({ probes: probesRes || [] })
     if (healthRes) setHealth(healthRes)
+    if (autoRes) setAutomationActivity(autoRes)
 
     if (sliverRes) {
       if (!sliverRes.connected) {
@@ -129,7 +134,7 @@ export function useDashboardPolling(needs: ReadonlySet<DataNeed>, teamMode: bool
         // ignore
       }
     }
-  }, [needs, teamMode, refreshMythic, setMode, setCallbackData, setSliver, setHealth, setFlaggedItems])
+  }, [needs, teamMode, refreshMythic, setMode, setCallbackData, setSliver, setHealth, setAutomationActivity, setFlaggedItems])
 
   useEffect(() => {
     fetchData()

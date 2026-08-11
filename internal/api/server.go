@@ -15,13 +15,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BishopFox/joro/internal/automation"
 	"github.com/BishopFox/joro/internal/callback"
+	"github.com/BishopFox/joro/internal/capability"
 	"github.com/BishopFox/joro/internal/cert"
 	"github.com/BishopFox/joro/internal/config"
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/event"
 	"github.com/BishopFox/joro/internal/fuzzer"
+	"github.com/BishopFox/joro/internal/httptools"
+	"github.com/BishopFox/joro/internal/mcp"
 	"github.com/BishopFox/joro/internal/mythic"
 	"github.com/BishopFox/joro/internal/notes"
 	"github.com/BishopFox/joro/internal/plugins"
@@ -104,6 +108,17 @@ type APIServer struct {
 
 	listenerRelay *ListenerRelay
 	configStore   *configstore.Store
+
+	// Automation: the capability registry, the bearer tokens that grant subsets of
+	// it, and the MCP listener that is its first consumer. All three are nil when
+	// automation is disabled, which leaves the routes unregistered and no second
+	// port bound. See SetAutomation.
+	capRegistry  *capability.Registry
+	capAudit     *capability.AuditLog
+	autoStore    *automation.Store
+	capContexts  *httptools.Contexts
+	mcpListener  *mcp.Listener
+	automationMu sync.Mutex // serializes MCP start/stop from HTTP handlers
 
 	buildInfo  BuildInfo
 	cancelFunc context.CancelFunc
@@ -313,6 +328,9 @@ func (s *APIServer) Start(ctx context.Context) error {
 	// Start periodic update checker (proxy mode only).
 	if !s.listenerMode {
 		s.startUpdateChecker(ctx)
+		// Bring up the persisted MCP listener state and the token flush loop.
+		// No-ops entirely when automation was not configured.
+		s.startAutomation(ctx)
 	}
 
 	// Serve frontend (skip in listener mode - listener is API-only).

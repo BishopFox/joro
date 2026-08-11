@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"net/http"
@@ -21,19 +22,19 @@ import (
 // --- User Config ---
 
 type userConfigFile struct {
-	Version             int               `json:"version"`
-	SOCKSHost           string            `json:"socksHost"`
-	SOCKSPort           int               `json:"socksPort"`
-	SOCKSUsername       string            `json:"socksUsername"`
-	SOCKSPassword       string            `json:"socksPassword"`
-	SOCKSDNS            bool              `json:"socksDns"`
-	HTTP2Enabled        bool              `json:"http2Enabled"`
-	KeepAliveEnabled    bool              `json:"keepAliveEnabled"`
-	InterceptTimeout    int               `json:"interceptTimeout"`
-	MaxRequests         int               `json:"maxRequests"`
-	DisableUpdateChecks bool              `json:"disableUpdateChecks"`
-	Theme               string            `json:"theme"`
-	HiddenTabs          []string          `json:"hiddenTabs,omitempty"`
+	Version             int      `json:"version"`
+	SOCKSHost           string   `json:"socksHost"`
+	SOCKSPort           int      `json:"socksPort"`
+	SOCKSUsername       string   `json:"socksUsername"`
+	SOCKSPassword       string   `json:"socksPassword"`
+	SOCKSDNS            bool     `json:"socksDns"`
+	HTTP2Enabled        bool     `json:"http2Enabled"`
+	KeepAliveEnabled    bool     `json:"keepAliveEnabled"`
+	InterceptTimeout    int      `json:"interceptTimeout"`
+	MaxRequests         int      `json:"maxRequests"`
+	DisableUpdateChecks bool     `json:"disableUpdateChecks"`
+	Theme               string   `json:"theme"`
+	HiddenTabs          []string `json:"hiddenTabs,omitempty"`
 	// DashboardLayout is the operator's dashboard widget layout, opaque to Go
 	// (same treatment as PluginStates): adding a widget or a preset is a
 	// frontend-only change. Absent on v3 and earlier files, in which case the
@@ -492,9 +493,19 @@ func (s *APIServer) setActiveProject(name string) {
 	s.mu.Unlock()
 }
 
+// scopeSignature hashes the rules' behavioral fields so a scope edit that leaves the
+// rule count unchanged — a replace-mode import, for instance — still reads as dirty.
+func scopeSignature(rules []proxy.ScopeRule) string {
+	h := fnv.New64a()
+	for _, r := range rules {
+		fmt.Fprintf(h, "%s|%s|%t|%v\n", r.Pattern, r.Path, r.Include, r.Methods)
+	}
+	return fmt.Sprintf("%d:%x", len(rules), h.Sum64())
+}
+
 // liveStateSignature is a cheap fingerprint of the mutable project state used by
-// the auto-save loop to skip ticks when nothing changed. It counts rather than
-// diffs, so a same-count in-place edit between ticks is not detected.
+// the auto-save loop to skip ticks when nothing changed. Apart from scope it counts
+// rather than diffs, so a same-count in-place edit between ticks is not detected.
 func (s *APIServer) liveStateSignature() string {
 	reqCount, lastSeq := 0, 0
 	if s.store != nil {
@@ -516,9 +527,9 @@ func (s *APIServer) liveStateSignature() string {
 	s.mu.RLock()
 	hlCount := len(s.highlights)
 	s.mu.RUnlock()
-	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%d/rp%d/cd%d/no%d",
+	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%s/rp%d/cd%d/no%d",
 		reqCount, lastSeq, noteCount, maxNoteUpdate, hlCount,
-		len(s.scope.Rules()), len(s.replace.Rules()),
+		scopeSignature(s.scope.Rules()), len(s.replace.Rules()),
 		len(s.customData.Items()), len(s.noise.Patterns())) + s.detectSignature()
 }
 
@@ -579,6 +590,8 @@ func (s *APIServer) resetLiveProjectState() {
 	// Clear zeroes the store's sequence counter; resetDetectLiveState moves the
 	// detection cursor back to zero with it.
 	s.resetDetectLiveState()
+	// An automation session belongs to the engagement it authenticated against.
+	s.capContexts.ResetAll()
 
 	s.mu.Lock()
 	s.highlights = make(map[string]string)
@@ -648,6 +661,10 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	}
 
 	decodedPluginStates := decodePluginStates(cfg.PluginStates)
+
+	// An automation session belongs to the engagement it authenticated against, so
+	// it does not survive into a different project.
+	s.capContexts.ResetAll()
 
 	// Apply team server settings.
 	s.mu.Lock()
@@ -1346,9 +1363,14 @@ func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Reque
 		if merge && containsScopeRule(scopeRules, r) {
 			continue
 		}
-		scopeRules = append(scopeRules, proxy.ScopeRule{
+		rule := proxy.ScopeRule{
 			ID: proxy.GenerateID(), Pattern: r.Pattern, Methods: r.Methods, Path: r.Path, Include: r.Include,
-		})
+		}
+		// A shared rule that could never match is skipped; the apply continues.
+		if proxy.ValidateScopeRule(&rule) != nil {
+			continue
+		}
+		scopeRules = append(scopeRules, rule)
 	}
 	s.scope.SetRules(scopeRules)
 	s.scope.SetEnabled(body.Config.ScopeEnabled || (merge && s.scope.IsEnabled()))

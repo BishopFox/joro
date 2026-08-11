@@ -6,6 +6,7 @@ import TeamChatWidget from '../components/dashboard/TeamChatWidget'
 import ActiveUsersWidget from '../components/dashboard/ActiveUsersWidget'
 import DetectFindingsWidget from '../components/dashboard/DetectFindingsWidget'
 import ProxyHealthWidget from '../components/dashboard/ProxyHealthWidget'
+import AutomationActivityWidget from '../components/dashboard/AutomationActivityWidget'
 
 // The dashboard widget catalog. Adding a widget means adding a component and
 // one entry here — nothing in the Go backend, the layout store, or the Settings
@@ -19,6 +20,7 @@ export type WidgetId =
   | 'active-users'
   | 'detect-findings'
   | 'proxy-health'
+  | 'automation-activity'
 
 /** A slot value of 'none' leaves the slot empty. */
 export const NO_WIDGET = 'none'
@@ -35,6 +37,7 @@ export type DataNeed =
   | 'team'
   | 'detect'
   | 'health'
+  | 'automationActivity'
 
 export interface WidgetDef {
   id: WidgetId
@@ -74,6 +77,14 @@ export const WIDGETS: WidgetDef[] = [
     requiresProxyMode: true,
     needs: ['health'],
     render: () => <ProxyHealthWidget />,
+  },
+  {
+    id: 'automation-activity',
+    label: 'Automation Activity',
+    description: 'Capability calls made by automation tokens, with denied and error counts.',
+    requiresProxyMode: true,
+    needs: ['automationActivity'],
+    render: () => <AutomationActivityWidget />,
   },
   {
     id: 'recent-interactions',

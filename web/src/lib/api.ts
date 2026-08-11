@@ -143,6 +143,143 @@ export interface CapturedWSMessage {
   isText: boolean
 }
 
+// Automation types
+
+/** A bearer token handed to an automation client. Never carries the secret: the
+ *  plaintext exists only in the create and rotate replies. */
+export interface AutomationToken {
+  id: string
+  name: string
+  prefix: string
+  /** Fully expanded capability IDs. There are no wildcards, by design — a pattern
+   *  written today would silently grant capabilities shipped in a later version. */
+  grants: string[]
+  requireScope: boolean
+  hostAllow?: string[]
+  /** Lets tools return the values of Authorization, Cookie and similar headers
+   *  rather than masking them. Off by default. */
+  allowCredentials: boolean
+  rateLimitPerMin: number
+  maxConcurrent: number
+  maxOutputBytes: number
+  disabled: boolean
+  createdAt: string
+  expiresAt?: string
+  rotatedAt?: string
+  lastUsedAt?: string
+  lastUsedCapability?: string
+  useCount: number
+  capsFingerprint?: string
+  grantedAtVersion?: string
+  /** Capabilities that exist but this token does not hold. Surfaced so an operator
+   *  can review them; nothing is ever granted implicitly. */
+  ungrantedCapabilities?: string[]
+  sendsTraffic: boolean
+  expired: boolean
+}
+
+export interface AutomationTokenInput {
+  name?: string
+  grants?: string[]
+  requireScope?: boolean
+  hostAllow?: string[]
+  allowCredentials?: boolean
+  rateLimitPerMin?: number
+  maxConcurrent?: number
+  maxOutputBytes?: number
+  expiresInDays?: number
+}
+
+export interface Capability {
+  id: string
+  class: string
+  title: string
+  description: string
+  mutating: boolean
+  /** Emits traffic to a target host, so it is subject to the scope guard. */
+  sendsTraffic: boolean
+  /** Refused to a token with requireScope set or a host whitelist. A token whose
+   *  authorization control is scope must not edit scope; one the operator has
+   *  exempted from scope already reaches every host, so editing it grants nothing. */
+  unrestrictedOnly: boolean
+  /** Execution or C2. Registered only under --automation-privileged, and never
+   *  bundled into a profile — the operator selects each by hand. */
+  privileged: boolean
+  inputSchema: unknown
+  maxOutputBytes: number
+  /** The MCP tool name: the capability ID with dots replaced by underscores. */
+  toolName: string
+}
+
+/** A curated grant bundle. Selecting one expands it into a concrete grant list at
+ *  create time; the profile is never stored on the token, so a profile that gains a
+ *  capability in a later release does not widen a token issued today. */
+export interface AutomationProfile {
+  id: string
+  title: string
+  description: string
+  grants: string[]
+  /** The recommended token setting, not a constraint. A profile granting an
+   *  unrestrictedOnly capability leaves this false or those grants are always denied. */
+  requireScope: boolean
+  allowsSends: boolean
+  allowsCredentials: boolean
+  rateLimitPerMin: number
+  maxConcurrent: number
+}
+
+export interface McpState {
+  enabled: boolean
+  running: boolean
+  port: number
+  endpoint: string
+  error?: string
+  tokenCount: number
+}
+
+export interface AuditEntry {
+  seq: number
+  at: string
+  tokenId: string
+  tokenName: string
+  capability: string
+  result: 'ok' | 'denied' | 'error'
+  code?: string
+  targetHost?: string
+  targetMethod?: string
+  targetPath?: string
+  requireScope: boolean
+  /** This call could return unmasked Authorization and Cookie values. */
+  credentials?: boolean
+  /** An execution or C2 invocation. */
+  privileged?: boolean
+  /** A digest, not the arguments: arguments to a send carry credentials and
+   *  payloads, and retaining them would make this a secondary secret store. */
+  argsDigest?: string
+  argsBytes: number
+  /** A mutating capability's own description of what it altered. The one place
+   *  arguments are recorded readably, because configuration is not a credential —
+   *  without it an operator can see that an agent edited the proxy but not what. */
+  change?: string
+  outputBytes: number
+  durationMs: number
+  errMsg?: string
+}
+
+export interface AutomationAudit {
+  entries: AuditEntry[]
+  total: number
+  offset: number
+  limit: number
+  stats: {
+    lastHour: number
+    deniedLastHour: number
+    errorsLastHour: number
+    tokens: number
+    tokensActive: number
+  }
+}
+
 // Plugin types
 export interface PluginInfo {
   name: string
@@ -352,6 +489,12 @@ export const api = {
   setScopeEnabled: (enabled: boolean) => req<unknown>('PUT', '/scope/enabled', { enabled }),
   addScopeRule: (rule: Omit<ScopeRule, 'id'>) => req<ScopeRule>('POST', '/scope/rules', rule),
   deleteScopeRule: (id: string) => req<unknown>('DELETE', `/scope/rules/${id}`),
+  importScopeRules: (
+    config: { scopeEnabled?: boolean; scopeRules: Omit<ScopeRule, 'id'>[] },
+    mode: 'replace' | 'merge',
+  ) =>
+    req<{ enabled: boolean; rules: ScopeRule[]; imported: number; skipped: number }>(
+      'POST', '/scope/rules/import', { config, mode }),
 
   // Noise filter
   getNoise: () => req<{ enabled: boolean; patterns: NoisePattern[] }>('GET', '/noise'),
@@ -779,4 +922,43 @@ export const api = {
     req<PluginProviderStatus>('GET', `/plugin/${name}/status`),
   pluginCommand: (name: string, input: string) =>
     req<PluginCommandResult>('POST', `/plugin/${name}/command`, { input }),
+
+  // Automation. These are UI-only by design: an automation client reaches Joro on
+  // the separate MCP port, whose mux has no /api/v1 routes, so no bearer token can
+  // reach token or grant management. They 404 with a JSON body when automation is
+  // disabled (--no-automation), which callers should treat as "feature absent"
+  // rather than an error worth surfacing.
+  listAutomationTokens: () =>
+    req<{ tokens: AutomationToken[] }>('GET', '/automation/tokens'),
+  createAutomationToken: (body: AutomationTokenInput) =>
+    req<{ token: AutomationToken; secret: string }>('POST', '/automation/tokens', body),
+  updateAutomationToken: (id: string, body: Partial<AutomationTokenInput>) =>
+    req<{ token: AutomationToken }>('PUT', `/automation/tokens/${id}`, body),
+  rotateAutomationToken: (id: string) =>
+    req<{ token: AutomationToken; secret: string }>('POST', `/automation/tokens/${id}/rotate`),
+  setAutomationTokenEnabled: (id: string, enabled: boolean) =>
+    req<{ token: AutomationToken }>('PUT', `/automation/tokens/${id}/enabled`, { enabled }),
+  reviewAutomationToken: (id: string) =>
+    req<{ token: AutomationToken }>('POST', `/automation/tokens/${id}/reviewed`),
+  revokeAutomationToken: (id: string) =>
+    req<{ status: string }>('DELETE', `/automation/tokens/${id}`),
+  listCapabilities: () =>
+    req<{
+      capabilities: Capability[]
+      fingerprint: string
+      classes: string[]
+      profiles: AutomationProfile[]
+    }>('GET', '/automation/capabilities'),
+  getMcpState: () => req<McpState>('GET', '/automation/mcp'),
+  setMcpState: (body: { enabled?: boolean; port?: number }) =>
+    req<McpState>('PUT', '/automation/mcp', body),
+  listAutomationAudit: (params: { tokenId?: string; result?: string; limit?: number } = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v !== '' && v !== undefined)
+        .map(([k, v]) => [k, String(v)])
+    ).toString()
+    return req<AutomationAudit>('GET', `/automation/audit${qs ? `?${qs}` : ''}`)
+  },
+  clearAutomationAudit: () => req<{ deleted: number }>('DELETE', '/automation/audit'),
 }
