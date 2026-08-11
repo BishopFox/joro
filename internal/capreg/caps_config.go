@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BishopFox/joro/internal/capability"
 )
@@ -100,6 +102,43 @@ func registerConfig(r *capability.Registry, d Deps) {
 				out += "\nnote: request interception is on, so a send of yours may be paused awaiting the operator"
 			}
 			return out, nil
+		}),
+	})
+
+	// Read-only, and it stays that way. Interception is the operator's last look at
+	// bytes before they reach their browser, and a forward or drop from here has no
+	// undo. There is deliberately no config.intercept.forward or .drop.
+	r.MustRegister(capability.Capability{
+		ID:    "config.intercept.list",
+		Class: capability.ClassConfig,
+		Title: "List paused intercept items",
+		Description: "The requests and responses currently paused in the operator's intercept queue: id, kind, " +
+			"method, URL, status and how long each has been waiting. Raw bytes are not returned. If a send of " +
+			"yours timed out, look here for it. Only the operator can forward or drop an item.",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		ArgsExample:    json.RawMessage(`{}`),
+		MaxOutputBytes: 32 << 10,
+		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, _ struct{}) (any, error) {
+			if d.Intercept == nil {
+				return nil, fmt.Errorf("intercept is unavailable")
+			}
+			items := d.Intercept.List()
+			if len(items) == 0 {
+				return "(nothing paused)", nil
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "n=%d\n", len(items))
+			now := time.Now()
+			for _, it := range items {
+				status := "-"
+				if it.Status > 0 {
+					status = strconv.Itoa(it.Status)
+				}
+				fmt.Fprintf(&b, "%s %s %s %s status=%s waiting=%s\n",
+					it.ID, it.Kind, it.Method, it.URL, status,
+					now.Sub(it.PausedAt).Truncate(time.Second))
+			}
+			return strings.TrimRight(b.String(), "\n"), nil
 		}),
 	})
 }

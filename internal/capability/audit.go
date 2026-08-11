@@ -43,6 +43,13 @@ type AuditEntry struct {
 	// after-the-fact review can find every send that bypassed the scope check.
 	RequireScope bool `json:"requireScope"`
 
+	// Credentials records that this call could return unmasked Authorization and
+	// Cookie values, so a review can find every one that did.
+	Credentials bool `json:"credentials,omitempty"`
+
+	// Privileged records an execution or C2 invocation.
+	Privileged bool `json:"privileged,omitempty"`
+
 	// ArgsDigest identifies repeated calls without storing the arguments.
 	// Arguments to a send carry credentials, session cookies and payloads;
 	// retaining them would make the audit log a secondary secret store that

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Eye, KeyRound } from 'lucide-react'
 import { api, type AuditEntry } from '../lib/api'
 import { useToastStore } from '../stores/toastStore'
 
@@ -89,6 +89,18 @@ export default function AutomationActivity() {
                   <span className="text-content-muted shrink-0">{new Date(e.at).toLocaleTimeString()}</span>
                   <span className="shrink-0 w-24 truncate">{e.tokenName}</span>
                   <span className="shrink-0 w-32 truncate">{e.capability}</span>
+                  <span className="shrink-0 w-6 inline-flex gap-0.5">
+                    {e.privileged && (
+                      <span className="inline-flex" title="Command execution or C2">
+                        <KeyRound size={10} strokeWidth={2} className="text-semantic-error" aria-hidden="true" />
+                      </span>
+                    )}
+                    {e.credentials && (
+                      <span className="inline-flex" title="Could return unmasked credential headers">
+                        <Eye size={10} strokeWidth={2} className="text-semantic-warning" aria-hidden="true" />
+                      </span>
+                    )}
+                  </span>
                   <span className="shrink-0 w-14">{e.code || e.result}</span>
                   <span className="text-content-muted truncate">
                     {/* A mutation has no target, so without `change` these rows would

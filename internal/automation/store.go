@@ -214,6 +214,7 @@ type CreateParams struct {
 	Grants           []string
 	RequireScope     bool
 	HostAllow        []string
+	AllowCredentials bool
 	RateLimitPerMin  int
 	MaxConcurrent    int
 	MaxOutputBytes   int
@@ -243,6 +244,7 @@ func (s *Store) Create(p CreateParams) (Token, string, error) {
 		Grants:           slices.Clone(p.Grants),
 		RequireScope:     p.RequireScope,
 		HostAllow:        slices.Clone(p.HostAllow),
+		AllowCredentials: p.AllowCredentials,
 		RateLimitPerMin:  p.RateLimitPerMin,
 		MaxConcurrent:    p.MaxConcurrent,
 		MaxOutputBytes:   p.MaxOutputBytes,
@@ -274,6 +276,7 @@ type UpdateParams struct {
 	Grants           *[]string
 	RequireScope     *bool
 	HostAllow        *[]string
+	AllowCredentials *bool
 	RateLimitPerMin  *int
 	MaxConcurrent    *int
 	MaxOutputBytes   *int
@@ -301,6 +304,9 @@ func (s *Store) Update(id string, p UpdateParams) (Token, error) {
 	}
 	if p.HostAllow != nil {
 		t.HostAllow = slices.Clone(*p.HostAllow)
+	}
+	if p.AllowCredentials != nil {
+		t.AllowCredentials = *p.AllowCredentials
 	}
 	if p.RateLimitPerMin != nil {
 		t.RateLimitPerMin = *p.RateLimitPerMin

@@ -42,6 +42,9 @@ type ReadResult struct {
 	Truncated   bool   `json:"truncated"`
 	Decoded     string `json:"decoded,omitempty"`
 	Text        string `json:"text"`
+
+	// Redacted names the headers whose values were masked, set by the caller.
+	Redacted []string `json:"redacted,omitempty"`
 }
 
 // ReadRange extracts a byte window from a captured request or response.
@@ -159,6 +162,10 @@ func (r *ReadResult) Render() string {
 		fmt.Fprintf(&b, " decoded=%s", r.Decoded)
 	}
 	b.WriteByte('\n')
+	if note := RedactionNote(r.Redacted); note != "" {
+		b.WriteString(note)
+		b.WriteByte('\n')
+	}
 	b.WriteString(r.Text)
 	if r.Truncated {
 		// Truncation must always name the way to get the rest, or the client

@@ -29,14 +29,20 @@ import (
 type Class string
 
 const (
-	ClassHistory  Class = "history"
-	ClassSitemap  Class = "sitemap"
-	ClassScope    Class = "scope"
-	ClassFindings Class = "findings"
-	ClassNotes    Class = "notes"
-	ClassHTTP     Class = "http"
-	ClassConfig   Class = "config"
-	ClassDetect   Class = "detect"
+	ClassInstance  Class = "instance"
+	ClassHistory   Class = "history"
+	ClassSitemap   Class = "sitemap"
+	ClassScope     Class = "scope"
+	ClassFindings  Class = "findings"
+	ClassNotes     Class = "notes"
+	ClassHTTP      Class = "http"
+	ClassWebSocket Class = "websocket"
+	ClassFuzzer    Class = "fuzzer"
+	ClassContext   Class = "context"
+	ClassConfig    Class = "config"
+	ClassDetect    Class = "detect"
+	ClassExec      Class = "exec"
+	ClassC2        Class = "c2"
 )
 
 // Classes lists every valid class, in the order the grant picker shows them. The
@@ -44,8 +50,9 @@ const (
 // would put config and detect at the top of the picker, leading with the groups an
 // operator should consider last.
 var Classes = []Class{
-	ClassHistory, ClassSitemap, ClassScope, ClassFindings, ClassNotes, ClassHTTP,
-	ClassConfig, ClassDetect,
+	ClassInstance, ClassHistory, ClassSitemap, ClassScope, ClassFindings, ClassNotes,
+	ClassHTTP, ClassWebSocket, ClassFuzzer, ClassContext, ClassConfig, ClassDetect,
+	ClassExec, ClassC2,
 }
 
 func validClass(c Class) bool { return slices.Contains(Classes, c) }
@@ -97,6 +104,15 @@ type Capability struct {
 	// engages the scope guard. They are independent axes.
 	Mutating     bool
 	SendsTraffic bool
+
+	// Privileged marks a capability that drives command execution or an operator's
+	// C2. These are registered only when Joro is started with --automation-privileged,
+	// and even then no profile grants one: the operator must select it by hand.
+	//
+	// The flag itself is not the gate — an unregistered capability cannot be granted,
+	// listed or invoked at all. It exists so validateProfiles can refuse to bundle
+	// one, the grant picker can mark it, and the audit log can record it.
+	Privileged bool
 
 	// UnrestrictedOnly refuses the capability to any token the operator has
 	// leashed — one with RequireScope set, or with a non-empty HostAllow.

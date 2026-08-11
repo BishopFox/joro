@@ -74,6 +74,10 @@ answer the question.
 http_resend and http_batch send real traffic to a real target through the proxy, so the result
 appears in the operator's history. They are refused for hosts outside the configured scope.
 
+Unless this token has credential visibility, the values of Authorization, Cookie, Set-Cookie and
+similar headers are overwritten with '*' wherever bytes are returned. A masked header is present,
+not absent — do not conclude an endpoint is unauthenticated from one.
+
 Some tools change Joro itself rather than reading it, and a human operator is working in the
 same instance: scope rules decide which hosts get intercepted at all, config_* rewrites or
 appends to every in-scope request, and detect_* changes what is reported across the whole

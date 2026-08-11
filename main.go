@@ -31,7 +31,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.10.0"
+var version = "v1.11.0"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -61,6 +61,7 @@ func main() {
 	flag.BoolVar(&cfg.TeamServer, "teamserver", false, "Enable team server mode (requires --listener)")
 	flag.BoolVar(&cfg.DisableUpdateChecks, "disable-update-checks", false, "Disable automatic update checks at startup and in the background (can also be toggled in Settings)")
 	flag.BoolVar(&cfg.NoAutomation, "no-automation", false, "Disable the automation API and MCP listener entirely (no routes, no token file, no second port)")
+	flag.BoolVar(&cfg.AutomationPrivileged, "automation-privileged", false, "Expose web shell execution and Sliver/Mythic C2 as automation capabilities (off by default; still requires an explicit per-capability grant)")
 
 	buildPlugin := flag.String("build-plugin", "", "Build a plugin from the given directory and exit")
 	installPlugin := flag.Bool("install", false, "Copy built plugin to ~/.joro/plugins/ (use with --build-plugin)")

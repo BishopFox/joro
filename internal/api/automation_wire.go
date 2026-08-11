@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/BishopFox/joro/internal/automation"
 	"github.com/BishopFox/joro/internal/capability"
 	"github.com/BishopFox/joro/internal/capreg"
 	"github.com/BishopFox/joro/internal/event"
+	"github.com/BishopFox/joro/internal/httptools"
 	"github.com/BishopFox/joro/internal/mcp"
 )
 
@@ -31,18 +33,27 @@ func (s *APIServer) SetAutomation(store *automation.Store) {
 	}
 	s.autoStore = store
 	s.capAudit = capability.NewAuditLog(capability.DefaultAuditSize)
+	s.capContexts = httptools.NewContexts()
 	s.capRegistry = capreg.Build(capreg.Deps{
 		Store:    s.store,
 		Scope:    s.scope,
 		Findings: s.detectFindings,
 		Engine:   s.detectEngine,
 		Notes:    s.noteStore,
+		WSStore:  s.wsStore,
 		CA:       s.ca,
 		// Automation sends go through Joro's own proxy so they are captured,
 		// scoped and rewritten exactly like browser traffic. BindAddr rather than
 		// a hardcoded loopback: an operator who bound the proxy elsewhere still
 		// needs this to reach it.
 		ProxyAddr: fmt.Sprintf("%s:%d", s.cfg.BindAddr, s.cfg.ProxyPort),
+		Version:   s.buildInfo.Version,
+
+		ActiveProject: func() string {
+			s.mu.RLock()
+			defer s.mu.RUnlock()
+			return s.activeProjectConfig
+		},
 
 		// The rule stores behind the config-class capabilities. Settings is
 		// deliberately not among them: it lives on this struct behind s.mu, and it is
@@ -59,9 +70,28 @@ func (s *APIServer) SetAutomation(store *automation.Store) {
 		Scanner: s.detectScanner,
 		BgCtx:   s.detectBackgroundCtx,
 
+		Contexts:  s.capContexts,
+		Fuzzer:    s.fuzzerStore,
+		Transport: s.transport,
+
+		Privileged: s.cfg.AutomationPrivileged,
+		Sliver:     s.sliverClient,
+		Mythic:     s.mythicClient,
+
 		Broadcast: s.hub.Broadcast(),
 	}, s.capAudit)
 	s.mcpListener = mcp.NewListener()
+
+	if s.cfg.AutomationPrivileged {
+		var ids []string
+		for _, c := range s.capRegistry.All() {
+			if c.Privileged {
+				ids = append(ids, c.ID)
+			}
+		}
+		log.Printf("[automation] --automation-privileged: %s are grantable to an automation token. "+
+			"No profile includes them; grant each by hand.", strings.Join(ids, " "))
+	}
 }
 
 // automationEnabled reports whether the automation surface is available.

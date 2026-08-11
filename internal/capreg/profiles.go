@@ -43,6 +43,10 @@ type Profile struct {
 	// without someone having decided that it should.
 	AllowsSends bool `json:"allowsSends"`
 
+	// AllowsCredentials is the recommended credential-visibility setting for the
+	// token. Only the operator profile sets it.
+	AllowsCredentials bool `json:"allowsCredentials"`
+
 	RateLimitPerMin int `json:"rateLimitPerMin"`
 	MaxConcurrent   int `json:"maxConcurrent"`
 }
@@ -52,6 +56,7 @@ type Profile struct {
 // already offers that predicate as its "Read-only" preset, and a profile should be a
 // deliberate set that does not silently absorb every future read capability.
 var reconGrants = []string{
+	"instance.get",
 	"history.list",
 	"history.stats",
 	"sitemap.get",
@@ -64,7 +69,7 @@ var reconGrants = []string{
 	"http.read",
 	"http.search",
 	"http.diff",
-	"config.intercept.get",
+	"websocket.list",
 }
 
 // Profiles returns the built-in profiles, in the order the UI shows them.
@@ -83,9 +88,17 @@ func Profiles() []Profile {
 		{
 			ID:    "tester",
 			Title: "Active tester",
-			Description: "Recon, plus resending edited requests and sending capped batches of variants " +
-				"through the proxy. Emits real traffic to targets, so it is held to the scope guard.",
-			Grants:          append(slices.Clone(reconGrants), "http.resend", "http.batch"),
+			Description: "Recon, plus resending edited requests, sending capped batches of variants and " +
+				"running short fuzzing campaigns, holding a session across them. Emits real traffic to " +
+				"targets, so it is held to the scope guard.",
+			// The intercept reads live here rather than in reconGrants: they exist to
+			// explain a send that hung in the operator's queue, and this is the only
+			// profile that sends.
+			Grants: append(slices.Clone(reconGrants),
+				"http.resend", "http.batch", "context.get", "context.clear",
+				"fuzzer.start", "fuzzer.status", "fuzzer.results", "fuzzer.stop",
+				"findings.create", "notes.create",
+				"config.intercept.get", "config.intercept.list"),
 			RequireScope:    true,
 			AllowsSends:     true,
 			RateLimitPerMin: 120,
@@ -94,10 +107,11 @@ func Profiles() []Profile {
 		{
 			ID:    "triage",
 			Title: "Triage analyst",
-			Description: "Recon, plus marking false positives, re-grading findings and writing notes. Sends " +
-				"nothing. For working through a detection backlog without touching the target.",
+			Description: "Recon, plus recording findings, marking false positives, re-grading and writing " +
+				"notes. Sends nothing. For working through a detection backlog without touching the target.",
 			Grants: append(slices.Clone(reconGrants),
-				"findings.update", "notes.create", "detect.rules.list", "detect.config.get"),
+				"findings.create", "findings.update", "notes.create",
+				"detect.rules.list", "detect.config.get"),
 			RequireScope:    true,
 			RateLimitPerMin: 120,
 			MaxConcurrent:   2,
@@ -105,18 +119,25 @@ func Profiles() []Profile {
 		{
 			ID:    "setup",
 			Title: "Engagement setup",
-			Description: "Recon, plus configuring the proxy for an engagement: scope include rules, Match & " +
-				"Replace, Custom Data, noise patterns and detection tuning. Sends nothing itself. Requires a " +
-				"token with scope enforcement off, since a token restricted by scope cannot edit scope — and " +
-				"note that adding a scope rule makes Joro intercept and record that host.",
-			Grants: append(slices.Clone(reconGrants),
-				"scope.addrule", "scope.enable",
+			Description: "Configures the proxy for an engagement: scope include rules, Match & Replace, Custom " +
+				"Data, noise patterns and detection tuning. Reads no captured traffic — it cannot list hosts, " +
+				"so name the ones to scope. Sends nothing. Requires a token with scope enforcement off, since a " +
+				"token restricted by scope cannot edit scope — and note that adding a scope rule makes Joro " +
+				"intercept and record that host. Findings are not visible from here: a rescan it triggers is " +
+				"read from the Detect tab.",
+			// Deliberately not built on reconGrants. This profile reads no captured
+			// traffic, and a read capability added to that base later must not
+			// silently reappear here.
+			Grants: []string{
+				"instance.get",
+				"scope.get", "scope.addrule", "scope.enable",
+				"config.intercept.get",
 				"config.replace.list", "config.replace.edit",
 				"config.customdata.list", "config.customdata.edit",
 				"config.noise.list", "config.noise.edit",
 				"detect.rules.list", "detect.rules.edit",
 				"detect.config.get", "detect.config.set", "detect.rescan",
-				"notes.create"),
+			},
 			RequireScope:    false,
 			RateLimitPerMin: 60,
 			MaxConcurrent:   2,
@@ -124,14 +145,16 @@ func Profiles() []Profile {
 		{
 			ID:    "operator",
 			Title: "Full operator",
-			Description: "Every capability Joro exposes: reads, sends, configuration and scope. Scope " +
-				"enforcement is off so the scope grants work, which means this token can reach any host. " +
-				"Issue it only for an agent you are supervising.",
-			Grants:          nil, // filled from the registry by validateProfiles
-			RequireScope:    false,
-			AllowsSends:     true,
-			RateLimitPerMin: 120,
-			MaxConcurrent:   4,
+			Description: "Every capability except execution and C2: reads, sends, fuzzing, configuration and " +
+				"scope, plus the values of Authorization and Cookie headers. Scope enforcement is off so the " +
+				"scope grants work, which means this token can reach any host. Issue it only for an agent you " +
+				"are supervising. Execution and C2 are never bundled into a profile; grant them by hand.",
+			Grants:            nil, // filled from the registry by validateProfiles
+			RequireScope:      false,
+			AllowsSends:       true,
+			AllowsCredentials: true,
+			RateLimitPerMin:   120,
+			MaxConcurrent:     4,
 		},
 	}
 }
@@ -171,7 +194,14 @@ func validateProfiles(r *capability.Registry) {
 		seen[p.ID] = struct{}{}
 
 		if p.ID == operatorProfileID {
-			p.Grants = r.IDs()
+			// Every capability except the privileged ones. Without the filter, starting
+			// Joro with --automation-privileged would silently widen this profile to
+			// include execution and C2 for anyone who selected it.
+			for _, c := range r.All() {
+				if !c.Privileged {
+					p.Grants = append(p.Grants, c.ID)
+				}
+			}
 		}
 		if len(p.Grants) == 0 {
 			panic(fmt.Sprintf("capreg: profile %q grants nothing", p.ID))
@@ -192,6 +222,9 @@ func validateProfiles(r *capability.Registry) {
 			case c.SendsTraffic && !p.AllowsSends:
 				panic(fmt.Sprintf("capreg: profile %q grants %q, which sends traffic, but does not set "+
 					"AllowsSends. Either it should, or the grant does not belong in this profile.", p.ID, id))
+			case c.Privileged:
+				panic(fmt.Sprintf("capreg: profile %q grants privileged capability %q. Execution and C2 "+
+					"are granted per capability by hand, never bundled into a profile.", p.ID, id))
 			case c.UnrestrictedOnly && p.RequireScope:
 				panic(fmt.Sprintf("capreg: profile %q sets RequireScope and grants %q, which is refused to "+
 					"any token restricted by scope. That combination mints a token whose grant is denied on "+

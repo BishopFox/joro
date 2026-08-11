@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	uuid "github.com/hashicorp/go-uuid"
 
@@ -34,6 +35,29 @@ type findingsUpdateArgs struct {
 	Notes         *string `json:"notes"`
 	Severity      string  `json:"severity"`
 }
+
+type findingsCreateArgs struct {
+	Host     string `json:"host"`
+	Title    string `json:"title"`
+	Severity string `json:"severity"`
+	Category string `json:"category"`
+	URL      string `json:"url"`
+	Method   string `json:"method"`
+	Evidence string `json:"evidence"`
+	Notes    string `json:"notes"`
+}
+
+// agentFindingRuleID namespaces findings an agent reported by hand.
+//
+// Finding.ID is sha256(ruleID ‖ host ‖ groupDim), so a reserved rule ID is what
+// keeps these in an identity space the scanner never produces — a rescan cannot
+// collide with one, and the operator can tell at a glance which findings came from
+// an agent rather than from a rule.
+const (
+	agentFindingRuleID = "agent-reported"
+	maxFindingEvidence = 2 << 10
+	maxFindingTitle    = 200
+)
 
 func registerWrites(r *capability.Registry, d Deps) {
 	r.MustRegister(capability.Capability{
@@ -116,6 +140,101 @@ func registerWrites(r *capability.Registry, d Deps) {
 				}
 			}
 			return strings.Join(hosts, "\n"), nil
+		}),
+	})
+
+	r.MustRegister(capability.Capability{
+		ID:       "findings.create",
+		Class:    capability.ClassFindings,
+		Mutating: true,
+		Title:    "Record a finding you confirmed",
+		Description: "Record something you established by testing, which the passive scanner cannot produce: an " +
+			"IDOR, an auth bypass, a business-logic flaw. It lands in the operator's Detect tab alongside " +
+			"scanner findings, attributed to you. Findings are keyed on host and title, so re-reporting the " +
+			"same one updates it rather than duplicating it. Use notes_create instead for an observation that " +
+			"is not a vulnerability.",
+		InputSchema: json.RawMessage(`{
+  "type":"object",
+  "properties":{
+    "host":     {"type":"string","description":"Affected host, e.g. \"api.target.com\"."},
+    "title":    {"type":"string","description":"Short finding name, e.g. \"IDOR on /v2/orders/{id}\". This plus host is the identity."},
+    "severity": {"type":"string","enum":["critical","high","medium","low","info"],"description":"critical: high-grade PII or severe compromise (RCE, auth bypass). high: credentials, API keys, low-level PII. medium: the catch-all. low: a minor weakness. info: a surface, not exploitable."},
+    "category": {"type":"string","enum":["secrets","pii","credentials","access","disclosure","headers","cookies"],"description":"Defaults to access."},
+    "url":      {"type":"string","description":"The URL that demonstrates it."},
+    "method":   {"type":"string","description":"HTTP method that demonstrates it."},
+    "evidence": {"type":"string","description":"The observation that proves it: a response fragment, a status change, an id that was not yours."},
+    "notes":    {"type":"string","description":"Reproduction steps or context for the operator."}
+  },
+  "required":["host","title","severity","evidence"],
+  "additionalProperties":false
+}`),
+		ArgsExample: json.RawMessage(`{"host":"api.target.com","title":"IDOR on /v2/orders/{id}","severity":"high",` +
+			`"category":"access","url":"https://api.target.com/v2/orders/8292","method":"GET",` +
+			`"evidence":"200 with another tenant's order; only the id changed."}`),
+		MaxOutputBytes: 8 << 10,
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args findingsCreateArgs) (any, error) {
+			if d.Findings == nil {
+				return nil, fmt.Errorf("detection is unavailable")
+			}
+			host := strings.TrimSpace(args.Host)
+			title := strings.TrimSpace(args.Title)
+			evidence := strings.TrimSpace(args.Evidence)
+			if host == "" || title == "" || evidence == "" {
+				return nil, fmt.Errorf("host, title and evidence are all required and must not be empty")
+			}
+			if len(title) > maxFindingTitle {
+				return nil, fmt.Errorf("title is %d characters, over the %d limit; put the detail in evidence or notes",
+					len(title), maxFindingTitle)
+			}
+			if len(evidence) > maxFindingEvidence {
+				return nil, fmt.Errorf("evidence is %d bytes, over the %d byte limit; summarize, and put the "+
+					"detail in notes", len(evidence), maxFindingEvidence)
+			}
+
+			sev := detect.Severity(args.Severity)
+			if !sev.Valid() {
+				return nil, fmt.Errorf("severity %q is not one of critical, high, medium, low, info", args.Severity)
+			}
+			cat := detect.Category(orDefault(args.Category, string(detect.CategoryAccess)))
+			if !cat.Valid() {
+				return nil, fmt.Errorf("category %q is not one of secrets, pii, credentials, access, disclosure, headers, cookies", args.Category)
+			}
+
+			author := "agent"
+			if p.TokenName != "" {
+				author = "agent:" + p.TokenName
+			}
+			now := time.Now()
+			f := detect.Finding{
+				ID:         detect.FindingID(agentFindingRuleID, host, title),
+				RuleID:     agentFindingRuleID,
+				RuleName:   title,
+				Category:   cat,
+				Severity:   sev,
+				Confidence: detect.ConfidenceHigh,
+				Target:     detect.TargetMessage,
+				Host:       host,
+				Method:     strings.ToUpper(strings.TrimSpace(args.Method)),
+				URL:        strings.TrimSpace(args.URL),
+				Detail:     "reported by " + author,
+				Evidence:   evidence,
+				Notes:      strings.TrimSpace(args.Notes),
+				FirstSeen:  now,
+				LastSeen:   now,
+				// Offsets refer to a captured document; this finding has none.
+				EvidenceOffset: -1,
+			}
+			saved, isNew := d.Findings.Upsert(f)
+			capability.RecordChange(ctx, "report finding %s on %s (%s)", title, host, sev)
+
+			broadcast(d, "detect.finding", map[string]any{"finding": saved, "isNew": isNew})
+			broadcast(d, "detect.summary", d.Findings.Summary(ruleEnabledFunc(d)))
+
+			verb := "created"
+			if !isNew {
+				verb = "updated existing"
+			}
+			return fmt.Sprintf("%s finding id=%s severity=%s host=%s", verb, saved.ID, saved.Severity, saved.Host), nil
 		}),
 	})
 

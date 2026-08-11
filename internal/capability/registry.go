@@ -251,6 +251,7 @@ func (r *Registry) Invoke(ctx context.Context, p Principal, id string, args json
 		TokenName:    p.TokenName,
 		Capability:   id,
 		RequireScope: p.RequireScope,
+		Credentials:  p.AllowCredentials,
 		ArgsDigest:   digestArgs(args),
 		ArgsBytes:    len(args),
 	}
@@ -279,6 +280,7 @@ func (r *Registry) Invoke(ctx context.Context, p Principal, id string, args json
 	if !ok || !p.Can(id) {
 		return Result{}, errf(CodeForbidden, "unknown or not granted: %s", id)
 	}
+	entry.Privileged = capDef.Privileged
 
 	// 2. Reserved-prefix re-check. Redundant with Register, one string compare, and
 	//    the thing that still holds if a grant list is hand-edited.

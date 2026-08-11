@@ -30,13 +30,10 @@ const (
 	maxDiffLineLen  = 200
 )
 
-// sensitiveHeaders have their values suppressed in a diff. A diff is precisely
-// where a live session token would otherwise be copied into a model's context, so
-// these report name and presence only.
-var sensitiveHeaders = map[string]bool{
-	"set-cookie": true, "cookie": true, "authorization": true,
-	"proxy-authorization": true, "x-api-key": true, "x-auth-token": true,
-}
+// A diff reports name and presence only for sensitiveHeaders (redact.go): a diff is
+// precisely where a live session token would otherwise be copied into a model's
+// context. That holds regardless of credential visibility, since a diff has no byte
+// offsets to preserve and the changed-or-not signal is the whole finding.
 
 // diffLoudHeaders are volatile-valued headers that a diff still reports.
 //

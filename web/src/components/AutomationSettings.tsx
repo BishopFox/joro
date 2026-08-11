@@ -208,6 +208,14 @@ export default function AutomationSettings() {
                         +{t.hostAllow.length} host
                       </span>
                     )}
+                    {t.allowCredentials && (
+                      <span
+                        className="block text-[10px] text-semantic-warning"
+                        title="Authorization, Cookie and similar header values are returned in full to this token."
+                      >
+                        credentials visible
+                      </span>
+                    )}
                     {inertGrants(t).length > 0 && (
                       <span
                         className="block text-[10px] text-semantic-warning"

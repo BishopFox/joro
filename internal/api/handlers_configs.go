@@ -22,19 +22,19 @@ import (
 // --- User Config ---
 
 type userConfigFile struct {
-	Version             int               `json:"version"`
-	SOCKSHost           string            `json:"socksHost"`
-	SOCKSPort           int               `json:"socksPort"`
-	SOCKSUsername       string            `json:"socksUsername"`
-	SOCKSPassword       string            `json:"socksPassword"`
-	SOCKSDNS            bool              `json:"socksDns"`
-	HTTP2Enabled        bool              `json:"http2Enabled"`
-	KeepAliveEnabled    bool              `json:"keepAliveEnabled"`
-	InterceptTimeout    int               `json:"interceptTimeout"`
-	MaxRequests         int               `json:"maxRequests"`
-	DisableUpdateChecks bool              `json:"disableUpdateChecks"`
-	Theme               string            `json:"theme"`
-	HiddenTabs          []string          `json:"hiddenTabs,omitempty"`
+	Version             int      `json:"version"`
+	SOCKSHost           string   `json:"socksHost"`
+	SOCKSPort           int      `json:"socksPort"`
+	SOCKSUsername       string   `json:"socksUsername"`
+	SOCKSPassword       string   `json:"socksPassword"`
+	SOCKSDNS            bool     `json:"socksDns"`
+	HTTP2Enabled        bool     `json:"http2Enabled"`
+	KeepAliveEnabled    bool     `json:"keepAliveEnabled"`
+	InterceptTimeout    int      `json:"interceptTimeout"`
+	MaxRequests         int      `json:"maxRequests"`
+	DisableUpdateChecks bool     `json:"disableUpdateChecks"`
+	Theme               string   `json:"theme"`
+	HiddenTabs          []string `json:"hiddenTabs,omitempty"`
 	// DashboardLayout is the operator's dashboard widget layout, opaque to Go
 	// (same treatment as PluginStates): adding a widget or a preset is a
 	// frontend-only change. Absent on v3 and earlier files, in which case the
@@ -590,6 +590,8 @@ func (s *APIServer) resetLiveProjectState() {
 	// Clear zeroes the store's sequence counter; resetDetectLiveState moves the
 	// detection cursor back to zero with it.
 	s.resetDetectLiveState()
+	// An automation session belongs to the engagement it authenticated against.
+	s.capContexts.ResetAll()
 
 	s.mu.Lock()
 	s.highlights = make(map[string]string)
@@ -659,6 +661,10 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	}
 
 	decodedPluginStates := decodePluginStates(cfg.PluginStates)
+
+	// An automation session belongs to the engagement it authenticated against, so
+	// it does not survive into a different project.
+	s.capContexts.ResetAll()
 
 	// Apply team server settings.
 	s.mu.Lock()

@@ -48,6 +48,10 @@ type Token struct {
 	RequireScope bool     `json:"requireScope"`
 	HostAllow    []string `json:"hostAllow,omitempty"`
 
+	// AllowCredentials lets tools return the values of Authorization, Cookie and
+	// similar headers rather than masking them. Off by default.
+	AllowCredentials bool `json:"allowCredentials"`
+
 	RateLimitPerMin int `json:"rateLimitPerMin"`
 	MaxConcurrent   int `json:"maxConcurrent"`
 	MaxOutputBytes  int `json:"maxOutputBytes"`
@@ -113,11 +117,13 @@ func (t *Token) Principal() capability.Principal {
 		grants[g] = struct{}{}
 	}
 	return capability.Principal{
-		TokenID:         t.ID,
-		TokenName:       t.Name,
-		Grants:          grants,
-		RequireScope:    t.RequireScope,
-		HostAllow:       slices.Clone(t.HostAllow),
+		TokenID:          t.ID,
+		TokenName:        t.Name,
+		Grants:           grants,
+		RequireScope:     t.RequireScope,
+		HostAllow:        slices.Clone(t.HostAllow),
+		AllowCredentials: t.AllowCredentials,
+
 		RateLimitPerMin: t.RateLimitPerMin,
 		MaxConcurrent:   t.MaxConcurrent,
 		MaxOutputBytes:  t.MaxOutputBytes,

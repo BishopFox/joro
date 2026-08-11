@@ -27,6 +27,13 @@ type Principal struct {
 	// RequireScope exists to close.
 	HostAllow []string
 
+	// AllowCredentials lets this principal see the values of Authorization, Cookie
+	// and similar headers. Without it they are masked wherever a capability can
+	// return raw bytes. It is a policy field rather than a grant because it modifies
+	// what other capabilities return, and a no-op tool would cost the model context
+	// on every turn. Defaults to false, so a token that predates it is narrowed.
+	AllowCredentials bool
+
 	// Per-principal limits. Zero means the registry default.
 	RateLimitPerMin int
 	MaxConcurrent   int

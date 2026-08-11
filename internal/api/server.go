@@ -24,6 +24,7 @@ import (
 	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/event"
 	"github.com/BishopFox/joro/internal/fuzzer"
+	"github.com/BishopFox/joro/internal/httptools"
 	"github.com/BishopFox/joro/internal/mcp"
 	"github.com/BishopFox/joro/internal/mythic"
 	"github.com/BishopFox/joro/internal/notes"
@@ -115,6 +116,7 @@ type APIServer struct {
 	capRegistry  *capability.Registry
 	capAudit     *capability.AuditLog
 	autoStore    *automation.Store
+	capContexts  *httptools.Contexts
 	mcpListener  *mcp.Listener
 	automationMu sync.Mutex // serializes MCP start/stop from HTTP handlers
 

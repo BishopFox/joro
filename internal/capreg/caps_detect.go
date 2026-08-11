@@ -367,7 +367,7 @@ func registerDetect(r *capability.Registry, d Deps) {
 }`),
 		ArgsExample:    json.RawMessage(`{"scope":"all"}`),
 		MaxOutputBytes: 8 << 10,
-		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, args detectRescanArgs) (any, error) {
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args detectRescanArgs) (any, error) {
 			if d.Scanner == nil {
 				return nil, fmt.Errorf("the detection scanner is unavailable")
 			}
@@ -402,8 +402,15 @@ func registerDetect(r *capability.Registry, d Deps) {
 				return nil, err
 			}
 			capability.RecordChange(ctx, "rescan scope=%s host=%s", scope, orDefault(req.Host, "*"))
-			return fmt.Sprintf("rescan started jobId=%s kind=%s total=%d; poll findings_list for results",
-				status.JobID, status.Kind, status.Total), nil
+			// Only point at findings_list if this token actually holds it; a token that
+			// may tune detection but not read findings would otherwise spend a call
+			// discovering the tool does not exist for it.
+			next := "poll findings_list for results"
+			if !p.Can("findings.list") {
+				next = "results are visible to the operator in Joro's Detect tab, not from here"
+			}
+			return fmt.Sprintf("rescan started jobId=%s kind=%s total=%d; %s",
+				status.JobID, status.Kind, status.Total, next), nil
 		}),
 	})
 }

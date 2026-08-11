@@ -34,7 +34,13 @@ const editSchema = `{
 
 func registerHTTP(r *capability.Registry, d Deps) {
 	sendDeps := httptools.SendDeps{ProxyAddr: d.ProxyAddr, CA: d.CA, Store: d.Store}
-	resendDeps := httptools.ResendDeps{Send: sendDeps, Store: d.Store}
+	// The jar is per-principal, so TokenID is filled in per invocation.
+	resendDeps := func(p capability.Principal) httptools.ResendDeps {
+		return httptools.ResendDeps{
+			Send: sendDeps, Store: d.Store,
+			Contexts: d.Contexts, TokenID: p.TokenID,
+		}
+	}
 
 	r.MustRegister(capability.Capability{
 		ID:    "http.fingerprint",
@@ -72,7 +78,9 @@ func registerHTTP(r *capability.Registry, d Deps) {
 			"reports totalLength, offset, returned and truncated so you can page. A negative offset reads " +
 			"from the end, which is the cheapest way to see the bottom of an error page. Compressed bodies " +
 			"are decompressed by default; section \"raw\" is always byte-exact. Binary data is returned as a " +
-			"hex dump when small, base64 when not.",
+			"hex dump when small, base64 when not. Unless this token has credential visibility, the values " +
+			"of Authorization, Cookie, Set-Cookie and similar headers are overwritten with '*' — the header " +
+			"is present, and offsets are unaffected, but the value is withheld and a redacted line names it.",
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
@@ -89,7 +97,7 @@ func registerHTTP(r *capability.Registry, d Deps) {
 }`),
 		ArgsExample:    json.RawMessage(`{"ref":1204,"offset":-2048}`),
 		MaxOutputBytes: 128 << 10,
-		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, args httptools.ReadArgs) (any, error) {
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args httptools.ReadArgs) (any, error) {
 			if d.Store == nil {
 				return nil, fmt.Errorf("capture store is unavailable")
 			}
@@ -97,10 +105,16 @@ func registerHTTP(r *capability.Registry, d Deps) {
 			if item == nil {
 				return nil, fmt.Errorf("no captured request with seq %d", args.Ref)
 			}
-			res, err := httptools.ReadRange(item.ReqRaw, item.RespRaw, args)
+			reqRaw, respRaw := item.ReqRaw, item.RespRaw
+			var redacted []string
+			if !p.AllowCredentials {
+				reqRaw, respRaw, redacted = httptools.MaskPair(reqRaw, respRaw)
+			}
+			res, err := httptools.ReadRange(reqRaw, respRaw, args)
 			if err != nil {
 				return nil, err
 			}
+			res.Redacted = redacted
 			return res.Render(), nil
 		}),
 	})
@@ -112,7 +126,9 @@ func registerHTTP(r *capability.Registry, d Deps) {
 		Description: "Find a string or regex across captured traffic and return match offsets with surrounding " +
 			"context, without returning any bodies. With ref set it searches one request; without it, it " +
 			"searches a filtered corpus. Matching is against the bytes as captured, so a compressed response " +
-			"will not match a plaintext pattern unless deep is set. Matching is case-insensitive by default.",
+			"will not match a plaintext pattern unless deep is set. Matching is case-insensitive by default. " +
+			"Unless this token has credential visibility, sensitive header values are masked before matching, " +
+			"so a pattern will not match inside one.",
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
@@ -132,11 +148,15 @@ func registerHTTP(r *capability.Registry, d Deps) {
 }`),
 		ArgsExample:    json.RawMessage(`{"pattern":"X-Debug-Token"}`),
 		MaxOutputBytes: 128 << 10,
-		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, args httptools.SearchArgs) (any, error) {
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args httptools.SearchArgs) (any, error) {
 			if d.Store == nil {
 				return nil, fmt.Errorf("capture store is unavailable")
 			}
-			return httptools.SearchCorpus(httptools.SearchDeps{Store: d.Store, Scope: d.Scope}, args)
+			return httptools.SearchCorpus(httptools.SearchDeps{
+				Store:           d.Store,
+				Scope:           d.Scope,
+				MaskCredentials: !p.AllowCredentials,
+			}, args)
 		}),
 	})
 
@@ -196,7 +216,9 @@ func registerHTTP(r *capability.Registry, d Deps) {
 			"fingerprint, not a body — read the result with http_read or compare it with http_diff. " +
 			"Redirects are never followed: read the Location header and issue a second call, which is " +
 			"checked against scope in its own right. Match & Replace and Custom Data rules apply, so the " +
-			"bytes on the wire may differ from what you specify.",
+			"bytes on the wire may differ from what you specify. Session cookies held for this token are " +
+			"applied unless the request already carries that cookie or your edits touch the Cookie header, " +
+			"and any Set-Cookie in the response is recorded for later sends.",
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
@@ -205,7 +227,8 @@ func registerHTTP(r *capability.Registry, d Deps) {
     "scheme":              {"type":"string","enum":["http","https"],"description":"Override the scheme; defaults to the captured request's."},
     "host":                {"type":"string","description":"Override the host; defaults to the captured request's. Must pass this token's scope and host whitelist."},
     "updateContentLength": {"type":"boolean","description":"Recalculate Content-Length after editing; default true."},
-    "timeoutMs":           {"type":"integer","minimum":1000,"maximum":60000,"description":"Per-request timeout; default 15000."}
+    "timeoutMs":           {"type":"integer","minimum":1000,"maximum":60000,"description":"Per-request timeout; default 15000."},
+    "useContext":          {"type":"boolean","description":"Apply and record this token's session cookies; default true. Set false to send exactly what you specified, e.g. when testing unauthenticated access."}
   },
   "required":["ref"],
   "additionalProperties":false
@@ -216,11 +239,11 @@ func registerHTTP(r *capability.Registry, d Deps) {
 		Target: capability.TypedTarget(func(args httptools.ResendArgs) (capability.Target, error) {
 			return resolveTarget(d, args.Ref, args.Scheme, args.Host, args.Edits)
 		}),
-		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, args httptools.ResendArgs) (any, error) {
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args httptools.ResendArgs) (any, error) {
 			if d.Store == nil {
 				return nil, fmt.Errorf("capture store is unavailable")
 			}
-			return httptools.Resend(ctx, resendDeps, args)
+			return httptools.Resend(ctx, resendDeps(p), args)
 		}),
 	})
 
@@ -254,7 +277,8 @@ func registerHTTP(r *capability.Registry, d Deps) {
     "concurrency":   {"type":"integer","minimum":1,"maximum":10,"description":"Parallel requests; default 4."},
     "ratePerSec":    {"type":"number","minimum":0,"maximum":50,"description":"Requests per second across all workers; 0 means unlimited."},
     "timeoutMs":     {"type":"integer","minimum":1000,"maximum":60000,"description":"Per-request timeout; default 10000."},
-    "totalBudgetMs": {"type":"integer","minimum":1000,"maximum":120000,"description":"Wall-clock budget for the whole batch; default 60000."}
+    "totalBudgetMs": {"type":"integer","minimum":1000,"maximum":120000,"description":"Wall-clock budget for the whole batch; default 60000."},
+    "useContext":    {"type":"boolean","description":"Apply this token's session cookies to every variant; default true. Set-Cookie from a batch is never recorded, so all variants start from the same session."}
   },
   "required":["ref","variants"],
   "additionalProperties":false
@@ -266,11 +290,11 @@ func registerHTTP(r *capability.Registry, d Deps) {
 		Target: capability.TypedTarget(func(args httptools.BatchArgs) (capability.Target, error) {
 			return resolveTarget(d, args.Ref, args.Scheme, args.Host, nil)
 		}),
-		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, args httptools.BatchArgs) (any, error) {
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args httptools.BatchArgs) (any, error) {
 			if d.Store == nil {
 				return nil, fmt.Errorf("capture store is unavailable")
 			}
-			return httptools.Batch(ctx, resendDeps, args)
+			return httptools.Batch(ctx, resendDeps(p), args)
 		}),
 	})
 }

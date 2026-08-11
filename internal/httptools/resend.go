@@ -29,12 +29,18 @@ type ResendArgs struct {
 	Host                string `json:"host"`
 	UpdateContentLength *bool  `json:"updateContentLength"`
 	TimeoutMs           int    `json:"timeoutMs"`
+	UseContext          *bool  `json:"useContext"`
 }
 
 // ResendDeps is what a resend needs from the host process.
 type ResendDeps struct {
 	Send  SendDeps
 	Store *proxy.Store
+
+	// Contexts is the per-principal cookie jar; TokenID selects this caller's.
+	// Both may be zero, in which case sends are stateless.
+	Contexts *Contexts
+	TokenID  string
 }
 
 // TargetOf resolves the scheme and host a resend will dial, without sending.
@@ -107,13 +113,25 @@ func Resend(ctx context.Context, d ResendDeps, args ResendArgs) (string, error) 
 	sendCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	u := requestURL(scheme, host, raw)
+	var supplied []string
+	if args.UseContext == nil || *args.UseContext {
+		raw, supplied = d.Contexts.Apply(d.TokenID, u, raw, editsTouchCookies(args.Edits))
+		if len(supplied) > 0 {
+			raw = proxy.UpdateContentLength(raw)
+		}
+	}
+
 	res, err := SendViaProxy(sendCtx, raw, scheme, host, d.Send)
 	if err != nil {
 		return "", annotateSendErr(err, timeout)
 	}
+	if args.UseContext == nil || *args.UseContext {
+		d.Contexts.Capture(d.TokenID, u, res.RespRaw)
+	}
 
 	fp := fingerprintResponse(res.Seq, res.RespRaw, res.Duration.Milliseconds(), false)
-	return renderResend(args, res, fp), nil
+	return renderResend(args, res, fp, supplied), nil
 }
 
 // annotateSendErr explains the failure mode a client is most likely to hit and
@@ -129,7 +147,7 @@ func annotateSendErr(err error, timeout time.Duration) error {
 	return err
 }
 
-func renderResend(args ResendArgs, res *ProxySendResult, fp Fingerprint) string {
+func renderResend(args ResendArgs, res *ProxySendResult, fp Fingerprint, supplied []string) string {
 	var b strings.Builder
 
 	seqLabel := "seq " + itoa(res.Seq)
@@ -151,6 +169,9 @@ func renderResend(args ResendArgs, res *ProxySendResult, fp Fingerprint) string 
 			bits = append(bits, "decoded="+fp.Decoded)
 		}
 		b.WriteString(strings.Join(bits, " ") + "\n")
+	}
+	if note := contextNote(supplied); note != "" {
+		b.WriteString(note + "\n")
 	}
 
 	if res.Seq == 0 {

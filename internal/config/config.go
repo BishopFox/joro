@@ -35,6 +35,11 @@ type Config struct {
 	// no token file read. A deployment-posture switch, in the same family as
 	// --allowed-host and --disable-update-checks, not a way to invoke a feature.
 	NoAutomation bool
+	// AutomationPrivileged registers the execution and C2 capabilities. Off by
+	// default; even when on, no token profile grants one, so the operator must select
+	// each by hand. A launch flag rather than a Settings toggle so enabling it cannot
+	// happen without a restart.
+	AutomationPrivileged bool
 }
 
 // Default returns a Config populated with sensible defaults.

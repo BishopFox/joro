@@ -156,6 +156,9 @@ export interface AutomationToken {
   grants: string[]
   requireScope: boolean
   hostAllow?: string[]
+  /** Lets tools return the values of Authorization, Cookie and similar headers
+   *  rather than masking them. Off by default. */
+  allowCredentials: boolean
   rateLimitPerMin: number
   maxConcurrent: number
   maxOutputBytes: number
@@ -180,6 +183,7 @@ export interface AutomationTokenInput {
   grants?: string[]
   requireScope?: boolean
   hostAllow?: string[]
+  allowCredentials?: boolean
   rateLimitPerMin?: number
   maxConcurrent?: number
   maxOutputBytes?: number
@@ -198,6 +202,9 @@ export interface Capability {
    *  authorization control is scope must not edit scope; one the operator has
    *  exempted from scope already reaches every host, so editing it grants nothing. */
   unrestrictedOnly: boolean
+  /** Execution or C2. Registered only under --automation-privileged, and never
+   *  bundled into a profile — the operator selects each by hand. */
+  privileged: boolean
   inputSchema: unknown
   maxOutputBytes: number
   /** The MCP tool name: the capability ID with dots replaced by underscores. */
@@ -216,6 +223,7 @@ export interface AutomationProfile {
    *  unrestrictedOnly capability leaves this false or those grants are always denied. */
   requireScope: boolean
   allowsSends: boolean
+  allowsCredentials: boolean
   rateLimitPerMin: number
   maxConcurrent: number
 }
@@ -241,6 +249,10 @@ export interface AuditEntry {
   targetMethod?: string
   targetPath?: string
   requireScope: boolean
+  /** This call could return unmasked Authorization and Cookie values. */
+  credentials?: boolean
+  /** An execution or C2 invocation. */
+  privileged?: boolean
   /** A digest, not the arguments: arguments to a send carry credentials and
    *  payloads, and retaining them would make this a secondary secret store. */
   argsDigest?: string

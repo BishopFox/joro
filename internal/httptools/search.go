@@ -54,6 +54,11 @@ type SearchArgs struct {
 type SearchDeps struct {
 	Store *proxy.Store
 	Scope *proxy.Scope
+
+	// MaskCredentials masks sensitive header values before the pattern is applied,
+	// so a match cannot be reported from inside a value the caller may not see. It
+	// lives here rather than in SearchArgs because it is the host's decision.
+	MaskCredentials bool
 }
 
 // SearchCorpus greps captured traffic and returns match offsets with context.
@@ -121,6 +126,7 @@ func SearchCorpus(d SearchDeps, args SearchArgs) (string, error) {
 	t.empty = "(no matches)"
 
 	hits, scanned, withHits := 0, 0, 0
+	var redacted []string
 	for _, item := range items {
 		scanned++
 		before := hits
@@ -129,7 +135,8 @@ func SearchCorpus(d SearchDeps, args SearchArgs) (string, error) {
 			if len(raw) == 0 {
 				continue
 			}
-			body := searchable(raw, args.Deep)
+			body, masked := searchable(raw, args.Deep, d.MaskCredentials)
+			redacted = mergeNames(redacted, masked)
 			for _, loc := range matcher.find(body, perReq-(hits-before)) {
 				t.add(strconv.Itoa(item.Seq), pw.name, strconv.Itoa(loc),
 					contextAround(body, loc, matcher.width(body, loc), ctxBytes))
@@ -162,6 +169,9 @@ func SearchCorpus(d SearchDeps, args SearchArgs) (string, error) {
 	if !args.Deep {
 		t.note("note: matched against raw captured bytes, so a compressed response will not match a plaintext pattern (use deep=true)")
 	}
+	if note := RedactionNote(redacted); note != "" {
+		t.note(note)
+	}
 	return t.String(), nil
 }
 
@@ -175,12 +185,14 @@ func searchSingle(d SearchDeps, args SearchArgs, m *matcher, ctxBytes int) (stri
 	t := newTable("part", "off", "context")
 	t.empty = "(no matches)"
 	hits := 0
+	var redacted []string
 	for _, pw := range partsFor(args.Part) {
 		raw := pw.pick(item)
 		if len(raw) == 0 {
 			continue
 		}
-		body := searchable(raw, args.Deep)
+		body, masked := searchable(raw, args.Deep, d.MaskCredentials)
+		redacted = mergeNames(redacted, masked)
 		for _, loc := range m.find(body, limit-hits) {
 			t.add(pw.name, strconv.Itoa(loc), contextAround(body, loc, m.width(body, loc), ctxBytes))
 			hits++
@@ -190,6 +202,9 @@ func searchSingle(d SearchDeps, args SearchArgs, m *matcher, ctxBytes int) (stri
 		}
 	}
 	t.note(fmt.Sprintf("q=%q mode=single seq=%d hits=%d", args.Pattern, args.Ref, hits))
+	if note := RedactionNote(redacted); note != "" {
+		t.note(note)
+	}
 	return t.String(), nil
 }
 
@@ -198,18 +213,25 @@ func searchSingle(d SearchDeps, args SearchArgs, m *matcher, ctxBytes int) (stri
 // so reported offsets still point into a document the client can ask to read.
 // Those offsets are into the decoded document, not the wire bytes — which is why
 // deep mode is opt-in rather than the default.
-func searchable(raw []byte, deep bool) []byte {
+//
+// Masking runs first and is length-preserving, so a pattern cannot match inside a
+// withheld header value and offsets are unchanged either way.
+func searchable(raw []byte, deep, mask bool) ([]byte, []string) {
+	var names []string
+	if mask {
+		raw, names = MaskHeaders(raw)
+	}
 	if !deep {
-		return raw
+		return raw, names
 	}
 	m := parseMessage(raw, true)
 	if m.Decoded == "" {
-		return raw
+		return raw, names
 	}
 	out := make([]byte, 0, len(m.HdrRaw)+4+len(m.Body))
 	out = append(out, m.HdrRaw...)
 	out = append(out, '\r', '\n', '\r', '\n')
-	return append(out, m.Body...)
+	return append(out, m.Body...), names
 }
 
 type partPicker struct {

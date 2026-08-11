@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, Check, Unlock } from 'lucide-react'
+import { AlertTriangle, Check, KeyRound, Unlock } from 'lucide-react'
 import type { AutomationProfile, AutomationToken, AutomationTokenInput, Capability } from '../lib/api'
 import GrantPicker from './GrantPicker'
 
@@ -28,6 +28,7 @@ export default function AutomationTokenModal({
   const [grants, setGrants] = useState<string[]>(token?.grants ?? [])
   const [requireScope, setRequireScope] = useState(token?.requireScope ?? true)
   const [hostAllow, setHostAllow] = useState((token?.hostAllow ?? []).join(', '))
+  const [allowCredentials, setAllowCredentials] = useState(token?.allowCredentials ?? false)
   const [rateLimit, setRateLimit] = useState(token?.rateLimitPerMin ?? 60)
   const [maxConcurrent, setMaxConcurrent] = useState(token?.maxConcurrent ?? 2)
   const [expiresInDays, setExpiresInDays] = useState(0)
@@ -41,6 +42,7 @@ export default function AutomationTokenModal({
   // requireScope or a host whitelist is not rejected on save — it fails closed at call
   // time — but silently handing over a grant that can never fire is worse than saying so.
   const unrestrictedOnly = capabilities.filter((c) => c.unrestrictedOnly && grants.includes(c.id))
+  const privileged = capabilities.filter((c) => c.privileged && grants.includes(c.id))
   const inertGrants = unrestrictedOnly.length > 0 && (requireScope || hostPatterns.length > 0)
   const canEditScope = unrestrictedOnly.length > 0 && !inertGrants
 
@@ -49,6 +51,7 @@ export default function AutomationTokenModal({
     // token shape the profile expects, including turning requireScope off for a
     // profile whose scope grants would otherwise be inert.
     setRequireScope(p.requireScope)
+    setAllowCredentials(p.allowsCredentials)
     setRateLimit(p.rateLimitPerMin)
     setMaxConcurrent(p.maxConcurrent)
   }
@@ -62,6 +65,7 @@ export default function AutomationTokenModal({
         grants,
         requireScope,
         hostAllow: hostPatterns,
+        allowCredentials,
         rateLimitPerMin: rateLimit,
         maxConcurrent,
       }
@@ -145,6 +149,16 @@ export default function AutomationTokenModal({
               )}
             </p>
           </div>
+
+          <label className="flex items-center gap-2 cursor-pointer pt-1">
+            <input type="checkbox" checked={allowCredentials} onChange={(e) => setAllowCredentials(e.target.checked)} />
+            <span className="text-xs">Show credential header values</span>
+          </label>
+          <p className="text-[10px] text-content-muted leading-snug">
+            {allowCredentials
+              ? 'Authorization, Cookie, Set-Cookie and similar values are returned in full. Every session token in captured traffic is readable by this token.'
+              : 'Those values are masked wherever bytes are returned. The header is still reported as present, and the agent can stay authenticated through its own session cookies without seeing them.'}
+          </p>
         </div>
 
         {sendsTraffic && (
@@ -169,6 +183,17 @@ export default function AutomationTokenModal({
               This token can add scope rules. Scope is what decides which hosts Joro intercepts, so it can make Joro
               terminate TLS for and record hosts you have not scoped — and it can already read all captured traffic.
               It can only add include rules and enable scope; it cannot exclude, remove, or disable.
+            </span>
+          </p>
+        )}
+
+        {privileged.length > 0 && (
+          <p className="text-[11px] text-semantic-error leading-snug inline-flex items-start gap-1.5">
+            <KeyRound size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span>
+              This token can run commands: {privileged.map((c) => c.toolName).join(', ')}. Scope and the host whitelist
+              do not bound the C2 capabilities — they describe web targets, not a team server — so this grant is the
+              only limit on what they reach.
             </span>
           </p>
         )}

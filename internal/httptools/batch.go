@@ -48,6 +48,7 @@ type BatchArgs struct {
 	RatePerSec    float64        `json:"ratePerSec"`
 	TimeoutMs     int            `json:"timeoutMs"`
 	TotalBudgetMs int            `json:"totalBudgetMs"`
+	UseContext    *bool          `json:"useContext"`
 }
 
 type batchRow struct {
@@ -55,6 +56,7 @@ type batchRow struct {
 	fp    Fingerprint
 	seq   int
 	err   string
+	ctx   []string // cookie names the execution context supplied
 }
 
 // Batch sends a set of edited variants of one captured request and renders a
@@ -114,6 +116,12 @@ func Batch(ctx context.Context, d ResendDeps, args BatchArgs) (string, error) {
 	// Results land in a pre-sized slice indexed by variant, not appended. Order
 	// matters more here than in the fuzzer, because the client correlates rows
 	// back to the variants it wrote.
+	// The jar is read once up front and never written from a worker: variants run
+	// concurrently, so letting each one capture Set-Cookie would make which cookie
+	// wins depend on scheduling. A batch is a comparison, and every row must start
+	// from the same session state.
+	useContext := args.UseContext == nil || *args.UseContext
+
 	rows := make([]batchRow, len(args.Variants))
 	work := make(chan int, conc)
 	var wg sync.WaitGroup
@@ -146,6 +154,16 @@ func Batch(ctx context.Context, d ResendDeps, args BatchArgs) (string, error) {
 					continue
 				}
 				raw = proxy.UpdateContentLength(raw)
+
+				if useContext {
+					var supplied []string
+					raw, supplied = d.Contexts.Apply(d.TokenID,
+						requestURL(scheme, host, raw), raw, editsTouchCookies(v.Edits))
+					if len(supplied) > 0 {
+						raw = proxy.UpdateContentLength(raw)
+						rows[idx].ctx = supplied
+					}
+				}
 
 				itemCtx, itemCancel := context.WithTimeout(runCtx, perItem)
 				res, err := SendViaProxy(itemCtx, raw, scheme, host, sendDeps)
@@ -213,6 +231,13 @@ func renderBatch(args BatchArgs, rows []batchRow, elapsed time.Duration) string 
 	}
 
 	out := t.String()
+	var supplied []string
+	for _, r := range rows {
+		supplied = mergeNames(supplied, r.ctx)
+	}
+	if note := contextNote(supplied); note != "" {
+		out += "\n" + note
+	}
 	if len(outliers) > 0 {
 		out += fmt.Sprintf("\noutliers: %s (shash differs from the majority)", strings.Join(outliers, " "))
 	}

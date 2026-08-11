@@ -35,7 +35,9 @@ func registerHistory(r *capability.Registry, d Deps) {
 			"content-type keyword and path. Requests are addressed everywhere else by their integer seq. " +
 			"Returns no request or response bodies — use http_read, http_search or http_fingerprint for those. " +
 			"The content filter greps raw request and response bytes inside the store, so it is a cheap " +
-			"corpus-wide search that never copies a body.",
+			"corpus-wide search that never copies a body. It matches the bytes as captured, including header " +
+			"values that http_read and http_search mask, so it reports whether a string is present without " +
+			"returning it.",
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{` + historyFilterProps + `,

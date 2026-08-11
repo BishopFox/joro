@@ -17,8 +17,12 @@ import (
 	"github.com/BishopFox/joro/internal/capability"
 	"github.com/BishopFox/joro/internal/cert"
 	"github.com/BishopFox/joro/internal/detect"
+	"github.com/BishopFox/joro/internal/fuzzer"
+	"github.com/BishopFox/joro/internal/httptools"
+	"github.com/BishopFox/joro/internal/mythic"
 	"github.com/BishopFox/joro/internal/notes"
 	"github.com/BishopFox/joro/internal/proxy"
+	"github.com/BishopFox/joro/internal/sliver"
 )
 
 // Deps carries exactly the components capabilities may touch.
@@ -32,8 +36,31 @@ type Deps struct {
 	Findings  *detect.Store
 	Engine    *detect.Engine
 	Notes     *notes.Store
+	WSStore   *proxy.WSStore
 	CA        *cert.CA
 	ProxyAddr string // Joro's own proxy listener, e.g. "127.0.0.1:8080"
+	Version   string
+
+	// ActiveProject names the loaded project. A getter because it changes at
+	// runtime and this package must not reach into internal/api to read it.
+	ActiveProject func() string
+
+	// Contexts holds one cookie jar per automation principal, so a send can stay
+	// authenticated across calls.
+	Contexts *httptools.Contexts
+
+	// Fuzzer backs the fuzzer capabilities. Transport is the same dialer the Fuzz
+	// tab uses, so an agent-started campaign honors SOCKS and HTTP/2 identically —
+	// and, like the UI's, its traffic does not pass through Joro's own proxy.
+	Fuzzer    *fuzzer.Store
+	Transport *proxy.TransportConfig
+
+	// Privileged enables the execution and C2 capabilities, from
+	// --automation-privileged. When false they are not registered at all, so they
+	// cannot be granted, listed or invoked.
+	Privileged bool
+	Sliver     *sliver.Client
+	Mythic     *mythic.Client
 
 	// The proxy's behavioral rule stores, for the config-class capabilities. These
 	// are what "modify the proxy configuration" means here: Settings itself lives on
@@ -74,6 +101,7 @@ func Build(d Deps, audit *capability.AuditLog) *capability.Registry {
 	}
 	r := capability.NewRegistry(scope, audit)
 
+	registerInstance(r, d)
 	registerHistory(r, d)
 	registerSitemap(r, d)
 	registerScope(r, d)
@@ -81,9 +109,15 @@ func Build(d Deps, audit *capability.AuditLog) *capability.Registry {
 	registerFindings(r, d)
 	registerNotes(r, d)
 	registerHTTP(r, d)
+	registerExecContext(r, d)
+	registerWebSocket(r, d)
+	registerFuzzer(r, d)
 	registerWrites(r, d)
 	registerConfig(r, d)
 	registerDetect(r, d)
+	if d.Privileged {
+		registerPrivileged(r, d)
+	}
 
 	validateProfiles(r)
 	r.Seal()

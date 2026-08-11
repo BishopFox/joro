@@ -47,10 +47,13 @@ type capabilityView struct {
 	// UnrestrictedOnly is refused to a token with requireScope set or a host
 	// whitelist, so the grant editor can warn that such a grant would be inert
 	// rather than letting the operator discover it from a denial.
-	UnrestrictedOnly bool            `json:"unrestrictedOnly"`
-	InputSchema      json.RawMessage `json:"inputSchema"`
-	MaxOutputBytes   int             `json:"maxOutputBytes"`
-	ToolName         string          `json:"toolName"`
+	UnrestrictedOnly bool `json:"unrestrictedOnly"`
+	// Privileged marks execution and C2, which no profile grants and which are only
+	// registered under --automation-privileged.
+	Privileged     bool            `json:"privileged"`
+	InputSchema    json.RawMessage `json:"inputSchema"`
+	MaxOutputBytes int             `json:"maxOutputBytes"`
+	ToolName       string          `json:"toolName"`
 }
 
 func (s *APIServer) requireAutomation(w http.ResponseWriter) bool {
@@ -97,14 +100,16 @@ func (s *APIServer) tokenViews() []tokenView {
 }
 
 type createTokenReq struct {
-	Name            string   `json:"name"`
-	Grants          []string `json:"grants"`
-	RequireScope    *bool    `json:"requireScope"`
-	HostAllow       []string `json:"hostAllow"`
-	RateLimitPerMin int      `json:"rateLimitPerMin"`
-	MaxConcurrent   int      `json:"maxConcurrent"`
-	MaxOutputBytes  int      `json:"maxOutputBytes"`
-	ExpiresInDays   int      `json:"expiresInDays"`
+	Name             string   `json:"name"`
+	Grants           []string `json:"grants"`
+	RequireScope     *bool    `json:"requireScope"`
+	HostAllow        []string `json:"hostAllow"`
+	AllowCredentials bool     `json:"allowCredentials"`
+
+	RateLimitPerMin int `json:"rateLimitPerMin"`
+	MaxConcurrent   int `json:"maxConcurrent"`
+	MaxOutputBytes  int `json:"maxOutputBytes"`
+	ExpiresInDays   int `json:"expiresInDays"`
 }
 
 func (s *APIServer) handleCreateAutomationToken(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +140,7 @@ func (s *APIServer) handleCreateAutomationToken(w http.ResponseWriter, r *http.R
 		Grants:           normalizeGrants(body.Grants),
 		RequireScope:     requireScope,
 		HostAllow:        normalizeHostAllow(body.HostAllow),
+		AllowCredentials: body.AllowCredentials,
 		RateLimitPerMin:  body.RateLimitPerMin,
 		MaxConcurrent:    body.MaxConcurrent,
 		MaxOutputBytes:   body.MaxOutputBytes,
@@ -151,13 +157,15 @@ func (s *APIServer) handleCreateAutomationToken(w http.ResponseWriter, r *http.R
 }
 
 type updateTokenReq struct {
-	Name            *string   `json:"name"`
-	Grants          *[]string `json:"grants"`
-	RequireScope    *bool     `json:"requireScope"`
-	HostAllow       *[]string `json:"hostAllow"`
-	RateLimitPerMin *int      `json:"rateLimitPerMin"`
-	MaxConcurrent   *int      `json:"maxConcurrent"`
-	MaxOutputBytes  *int      `json:"maxOutputBytes"`
+	Name             *string   `json:"name"`
+	Grants           *[]string `json:"grants"`
+	RequireScope     *bool     `json:"requireScope"`
+	HostAllow        *[]string `json:"hostAllow"`
+	AllowCredentials *bool     `json:"allowCredentials"`
+
+	RateLimitPerMin *int `json:"rateLimitPerMin"`
+	MaxConcurrent   *int `json:"maxConcurrent"`
+	MaxOutputBytes  *int `json:"maxOutputBytes"`
 }
 
 func (s *APIServer) handleUpdateAutomationToken(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +180,8 @@ func (s *APIServer) handleUpdateAutomationToken(w http.ResponseWriter, r *http.R
 
 	p := automation.UpdateParams{
 		Name: body.Name, RequireScope: body.RequireScope,
-		RateLimitPerMin: body.RateLimitPerMin, MaxConcurrent: body.MaxConcurrent,
+		AllowCredentials: body.AllowCredentials,
+		RateLimitPerMin:  body.RateLimitPerMin, MaxConcurrent: body.MaxConcurrent,
 		MaxOutputBytes: body.MaxOutputBytes,
 	}
 	if body.Grants != nil {
@@ -215,11 +224,14 @@ func (s *APIServer) handleRotateAutomationToken(w http.ResponseWriter, r *http.R
 	if !s.requireAutomation(w) {
 		return
 	}
-	tok, secret, err := s.autoStore.Rotate(r.PathValue("id"))
+	id := r.PathValue("id")
+	tok, secret, err := s.autoStore.Rotate(id)
 	if err != nil {
 		s.writeTokenErr(w, err)
 		return
 	}
+	// A rotated secret starts a new session; the old jar does not carry over.
+	s.capContexts.Reset(id)
 	writeJSON(w, http.StatusOK, map[string]any{"token": tok, "secret": secret})
 }
 
@@ -235,6 +247,9 @@ func (s *APIServer) handleSetAutomationTokenEnabled(w http.ResponseWriter, r *ht
 		return
 	}
 	disabled := !body.Enabled
+	if disabled {
+		s.capContexts.Reset(r.PathValue("id"))
+	}
 	tok, err := s.autoStore.Update(r.PathValue("id"), automation.UpdateParams{Disabled: &disabled})
 	if err != nil {
 		s.writeTokenErr(w, err)
@@ -271,8 +286,10 @@ func (s *APIServer) handleRevokeAutomationToken(w http.ResponseWriter, r *http.R
 		s.writeTokenErr(w, err)
 		return
 	}
-	// Drop the limiter state so a future token cannot inherit a drained bucket.
+	// Drop the limiter state so a future token cannot inherit a drained bucket, and
+	// the session cookies it accumulated.
 	s.capRegistry.Forget(id)
+	s.capContexts.Reset(id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
@@ -287,6 +304,7 @@ func (s *APIServer) handleListCapabilities(w http.ResponseWriter, r *http.Reques
 			ID: c.ID, Class: string(c.Class), Title: c.Title, Description: c.Description,
 			Mutating: c.Mutating, SendsTraffic: c.SendsTraffic,
 			UnrestrictedOnly: c.UnrestrictedOnly,
+			Privileged:       c.Privileged,
 			InputSchema:      c.InputSchema,
 			MaxOutputBytes:   c.MaxOutputBytes,
 			ToolName:         strings.ReplaceAll(c.ID, ".", "_"),
