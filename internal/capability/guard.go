@@ -7,8 +7,7 @@ import (
 )
 
 // ScopeChecker is the subset of *proxy.Scope the guard needs. Declaring it here
-// rather than importing internal/proxy keeps this package free of Joro's data
-// path, and lets the guard matrix test run against a ten-line fake.
+// rather than importing internal/proxy keeps this package free of Joro's data path.
 type ScopeChecker interface {
 	IsEnabled() bool
 	RuleCount() int

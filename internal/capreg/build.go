@@ -1,14 +1,19 @@
 // Package capreg is the single place capabilities are declared.
 //
 // It exists as its own package for one structural reason: it imports neither
-// internal/automation nor internal/api, and a test asserts that transitively. A
-// capability body therefore cannot reach the token store, the APIServer's settings
-// or config store, the WebSocket hub, or the plugin manager — not by convention,
-// but because those types are not in scope and adding them would fail the build.
+// internal/automation nor internal/api, transitively. A capability body therefore
+// cannot reach the token store, the APIServer's settings or config store, the
+// WebSocket hub, or the plugin manager.
 //
-// Everything a capability may touch arrives through Deps. Keep that struct small
-// and specific; the temptation to pass *api.APIServer "just for one thing" is
-// exactly what this package is arranged to prevent.
+// The two halves are enforced differently, which is worth knowing before trusting
+// either. Importing internal/api here is an import cycle, because api imports this
+// package to build the registry — so the compiler rejects it outright. Importing
+// internal/automation is not a cycle and would compile, so that half rests on review
+// alone; adding a field to Deps is the change that would break it.
+//
+// Everything a capability may touch arrives through Deps. Keep that struct small and
+// specific; the temptation to pass *api.APIServer "just for one thing" is exactly
+// what this package is arranged to prevent.
 package capreg
 
 import (
@@ -91,9 +96,9 @@ type Deps struct {
 
 // Build assembles the registry.
 //
-// It tolerates zero-valued Deps so a test can build the real registry and assert
-// over its shape without standing up a proxy; the handlers nil-check what they
-// need and return an error rather than panicking.
+// It tolerates zero-valued Deps: the handlers nil-check what they need and return
+// an error rather than panicking, so a partially wired registry degrades one
+// capability at a time instead of failing at startup.
 func Build(d Deps, audit *capability.AuditLog) *capability.Registry {
 	var scope capability.ScopeChecker
 	if d.Scope != nil {

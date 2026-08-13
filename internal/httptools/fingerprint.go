@@ -166,7 +166,7 @@ func fingerprintResponse(seq int, raw []byte, durationMs int64, wantFull bool) F
 //
 // Including the status is essential: an empty 200 and an empty 403 must not share
 // a structural hash, and with an empty body the header and body components are
-// identical. That is the negative control the test pins.
+// identical.
 func structHash(m *message) string {
 	names := make([]string, 0, len(m.Header))
 	for name := range m.Header {

@@ -515,18 +515,6 @@ func (e *Engine) Scan(r *proxy.CapturedRequest, inScope proxy.ScopeFunc) []Findi
 	return e.scanMessage(m, cfg, set)
 }
 
-// ScanMessage runs the rule set against an already-parsed message. Exposed for
-// tests, which build a Message directly rather than a raw capture.
-func (e *Engine) ScanMessage(m *Message) []Finding {
-	e.mu.RLock()
-	cfg, set := e.cfg, e.set
-	e.mu.RUnlock()
-	if set == nil {
-		return nil
-	}
-	return e.scanMessage(m, cfg, set)
-}
-
 func (e *Engine) scanMessage(m *Message, cfg Config, set *ruleSet) []Finding {
 	var out []Finding
 

@@ -125,8 +125,8 @@ type Capability struct {
 	// escalate. See the guard rule in guard.go.
 	UnrestrictedOnly bool
 
-	// InputSchema is a hand-written JSON Schema object. ArgsExample is a valid
-	// instance of it, checked against the handler's own decoder by a test — that
+	// InputSchema is a hand-written JSON Schema object. ArgsExample must be a valid
+	// instance of it and must decode through the handler's own decoder — that
 	// pairing is what stops the schema and the Go struct drifting apart.
 	InputSchema json.RawMessage
 	ArgsExample json.RawMessage

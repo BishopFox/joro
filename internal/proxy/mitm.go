@@ -298,6 +298,7 @@ type bytesReadCloser struct{ r *bytes.Reader }
 func (b *bytesReadCloser) Read(p []byte) (int, error) { return b.r.Read(p) }
 func (b *bytesReadCloser) Close() error               { return nil }
 
-// timeNow and timeSince are vars so tests can override them.
+// timeNow and timeSince are the package's time source for request timing,
+// indirected through vars so every call site shares one clock.
 var timeNow = time.Now
 var timeSince = time.Since

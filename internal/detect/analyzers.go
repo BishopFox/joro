@@ -85,16 +85,6 @@ var analyzerRegistry = map[string]Analyzer{
 	"kubeconfigOrCloudCredential": anKubeconfigOrCloudCredential,
 }
 
-// AnalyzerNames returns the registered analyzer names, for the registry
-// completeness test.
-func AnalyzerNames() []string {
-	out := make([]string, 0, len(analyzerRegistry))
-	for n := range analyzerRegistry {
-		out = append(out, n)
-	}
-	return out
-}
-
 // analyzerRules declares the rule records that bind analyzer functions into the
 // library. These group per host unless the check is genuinely per-URL.
 func analyzerRules() []Rule {

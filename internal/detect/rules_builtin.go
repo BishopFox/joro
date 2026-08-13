@@ -14,7 +14,7 @@ package detect
 //   - Every shipped rule is enabled; there is no present-but-disabled tier.
 //     A rule that cannot reach usable precision is not shipped.
 //
-// Naming and description conventions, pinned by rules_meta_test.go:
+// Naming and description conventions:
 //   - Names are sentence case: first letter uppercase, the rest lowercase except
 //     proper nouns, product names, acronyms, and literal HTTP header names. No
 //     trailing period. The shape is "<subject> <state>", where state is a past

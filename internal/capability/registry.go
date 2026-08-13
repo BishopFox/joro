@@ -35,9 +35,6 @@ type Registry struct {
 
 	mu     sync.RWMutex
 	sealed bool
-
-	// now is swappable for tests; nil means time.Now.
-	now func() time.Time
 }
 
 // NewRegistry creates an empty registry. scope may be nil, which the guard treats
@@ -54,13 +51,6 @@ func NewRegistry(scope ScopeChecker, audit *AuditLog) *Registry {
 		rate:  newRateLimiter(),
 		sem:   make(chan struct{}, DefaultGlobalConurrent),
 	}
-}
-
-func (r *Registry) clock() time.Time {
-	if r.now != nil {
-		return r.now()
-	}
-	return time.Now()
 }
 
 // Audit exposes the log so the REST layer can list it.
@@ -244,7 +234,7 @@ func (r *Registry) Fingerprint() string {
 // deferred call, so denials, timeouts and recovered panics all land in the log —
 // the failures are the entries an operator most needs.
 func (r *Registry) Invoke(ctx context.Context, p Principal, id string, args json.RawMessage) (res Result, err error) {
-	start := r.clock()
+	start := time.Now()
 	entry := AuditEntry{
 		At:           start,
 		TokenID:      p.TokenID,
@@ -256,7 +246,7 @@ func (r *Registry) Invoke(ctx context.Context, p Principal, id string, args json
 		ArgsBytes:    len(args),
 	}
 	defer func() {
-		entry.DurationMs = r.clock().Sub(start).Milliseconds()
+		entry.DurationMs = time.Since(start).Milliseconds()
 		switch {
 		case err == nil:
 			entry.Result = ResultOK
@@ -318,7 +308,7 @@ func (r *Registry) Invoke(ctx context.Context, p Principal, id string, args json
 	}
 	defer r.rate.release(p.TokenID)
 
-	if ok, retry := r.rate.allow(p.TokenID, p.RateLimitPerMin, r.clock()); !ok {
+	if ok, retry := r.rate.allow(p.TokenID, p.RateLimitPerMin, time.Now()); !ok {
 		e := errf(CodeRateLimited, "rate limit exceeded for this token; retry in %dms", retry.Milliseconds())
 		e.RetryAfterMs = int(retry.Milliseconds())
 		return Result{}, e
@@ -372,7 +362,7 @@ func (r *Registry) Invoke(ctx context.Context, p Principal, id string, args json
 			len(encoded), limit, id)
 	}
 
-	return Result{Data: data, Bytes: len(encoded), Duration: r.clock().Sub(start)}, nil
+	return Result{Data: data, Bytes: len(encoded), Duration: time.Since(start)}, nil
 }
 
 // principalOutputCap takes the tighter of the capability's cap and the token's.

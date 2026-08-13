@@ -13,7 +13,7 @@ import (
 // rest of this codebase names things. Several MCP clients reject a dot in a tool
 // name, so dots become underscores. The round trip is total only because no
 // capability ID may contain an underscore — capability.Register enforces that via
-// its ID pattern, and a test in internal/capreg pins it.
+// its ID pattern.
 //
 // There is deliberately no "joro_" prefix. Clients already namespace tools by
 // server, and every tool name sits in the model's context on every single turn.

@@ -3,8 +3,8 @@ package capability
 import "fmt"
 
 // Machine-readable codes carried by Error. The MCP layer maps these to protocol
-// errors, the UI groups Activity rows by them, and the guard matrix test asserts
-// them, so they are a contract rather than log text.
+// errors and the UI groups Activity rows by them, so they are a contract rather
+// than log text.
 const (
 	CodeForbidden       = "forbidden"
 	CodeScopeDisabled   = "scope_disabled"

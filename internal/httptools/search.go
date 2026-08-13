@@ -33,7 +33,7 @@ type SearchArgs struct {
 	// historyFilterProps schema fragment in internal/capreg, which both tools
 	// share; a field advertised there but missing here would be rejected by the
 	// handler's DisallowUnknownFields decoder for every client that follows the
-	// documented contract. TestSchemasMatchArgStructs pins the pairing.
+	// documented contract.
 	Host        string `json:"host"`
 	Method      string `json:"method"`
 	Status      string `json:"status"`

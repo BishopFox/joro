@@ -14,8 +14,9 @@ import (
 // the infrastructure this repo declines to carry, and it cannot emit the
 // description strings — which are the whole point, because they are the contract
 // text a model reads before deciding how to call the tool. There are thirteen
-// capabilities, not two hundred. A test decodes each ArgsExample through the
-// handler's own decoder so the schema and the Go struct cannot drift apart.
+// capabilities, not two hundred. Each ArgsExample must be a valid instance of its
+// schema and must decode through the handler's own decoder — keeping that pairing
+// true by hand is what stops the schema and the Go struct drifting apart.
 const historyFilterProps = `
     "host":         {"type":"string","description":"Exact host to filter to, e.g. api.example.com."},
     "method":       {"type":"string","description":"Comma-separated methods, OR'd: \"GET,POST\"."},

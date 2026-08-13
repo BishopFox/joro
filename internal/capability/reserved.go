@@ -14,9 +14,9 @@ import "strings"
 // property are the import direction (internal/capability cannot import
 // internal/automation, because the reverse import makes it a cycle), the Deps
 // struct in internal/capreg (which is never handed the token store), and the
-// separate MCP mux (on which /api/v1/* does not exist). This list plus the
-// name-pattern assertion in the registry test catch the cases where someone builds
-// a plausible-looking administrative capability out of components they do have.
+// separate MCP mux (on which /api/v1/* does not exist). This list plus idPattern
+// in registry.go catch the cases where someone builds a plausible-looking
+// administrative capability out of components they do have.
 var reservedPrefixes = []string{
 	"automation.",
 	"token.",
@@ -42,12 +42,4 @@ func IsReserved(id string) bool {
 		}
 	}
 	return false
-}
-
-// ReservedPrefixes returns a copy of the reserved namespace list, for tests and
-// for the error message the REST layer shows when a grant is rejected.
-func ReservedPrefixes() []string {
-	out := make([]string, len(reservedPrefixes))
-	copy(out, reservedPrefixes)
-	return out
 }
