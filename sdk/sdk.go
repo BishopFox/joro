@@ -55,7 +55,7 @@ type PluginType string
 const (
 	TypeExecProvider     PluginType = "exec_provider"     // Execute tab mode
 	TypeTab              PluginType = "tab"               // top-level nav tab
-	TypeFeature          PluginType = "feature"           // sub-tab in Plugins page
+	TypeFeature          PluginType = "feature"           // sub-tab in Settings -> Plugins
 	TypeProxyHook        PluginType = "proxy_hook"        // proxy pipeline hook
 	TypeDashboard        PluginType = "dashboard"         // custom dashboard replacement
 	TypeInteractProvider PluginType = "interact_provider" // Interact tab OOB source
@@ -221,7 +221,7 @@ type GraphNode struct {
 // ---------------------------------------------------------------------------
 
 // TabProvider adds a navigation tab — either top-level (Type=TypeTab) or as a
-// sub-tab within the Plugins page (Type=TypeFeature). The plugin provides
+// sub-tab within Settings -> Plugins (Type=TypeFeature). The plugin provides
 // backend API routes and an optional embedded web UI.
 type TabProvider interface {
 	Plugin

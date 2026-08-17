@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import type { PluginInfo } from '../lib/api'
 import { useUpdateStore } from '../stores/updateStore'
 import { currentTheme } from '../lib/theme'
-import { Tooltip } from '../components/Tooltip'
+import { Tooltip } from './Tooltip'
 
 const TYPE_LABELS: Record<string, string> = {
   exec_provider: 'Execution Provider',
@@ -11,21 +11,19 @@ const TYPE_LABELS: Record<string, string> = {
   feature: 'Plugin Feature',
   proxy_hook: 'Proxy Hook',
   dashboard: 'Dashboard',
+  interact_provider: 'Interact Provider',
 }
 
-export default function Plugins() {
-  const [pluginList, setPluginList] = useState<PluginInfo[]>([])
-  const [features, setFeatures] = useState<PluginInfo[]>([])
+// PluginSettings is the Settings → Plugins category. The plugin list is owned
+// by the Settings page (which needs it for the Appearance → "Visible tabs"
+// list too), so this takes it as a prop rather than fetching a second copy.
+export default function PluginSettings({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh: () => void }) {
   const [activeTab, setActiveTab] = useState('manage')
 
-  const refresh = useCallback(() => {
-    api.listPlugins().then((plugs) => {
-      setPluginList(plugs)
-      setFeatures(plugs.filter((e) => e.type === 'feature' && e.status === 'loaded'))
-    }).catch(() => {})
-  }, [])
-
-  useEffect(() => { refresh() }, [refresh])
+  const features = useMemo(
+    () => plugins.filter((p) => p.type === 'feature' && p.status === 'loaded'),
+    [plugins]
+  )
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -58,7 +56,7 @@ export default function Plugins() {
 
       {/* Content */}
       {activeTab === 'manage' ? (
-        <ManagePanel plugins={pluginList} onRefresh={refresh} />
+        <ManagePanel plugins={plugins} onRefresh={onRefresh} />
       ) : (
         <iframe
           src={`/plugin/${activeTab}/?theme=${currentTheme()}`}
@@ -192,11 +190,14 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
                   <td className="px-3 py-2 text-content-primary font-medium">{p.name}</td>
                   <td className="px-3 py-2 text-content-secondary">{p.version}</td>
                   <td className="px-3 py-2">
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-secondary/20 text-accent-secondary">
+                    {/* No `/20` opacity here: Tailwind can't apply an opacity
+                        modifier to a var()-backed color, so the utility is
+                        never emitted and the chip renders with no background. */}
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-input text-accent-secondary">
                       {TYPE_LABELS[p.type] || p.type}
                     </span>
                     {p.hasGraph && (
-                      <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-tertiary/20 text-accent-tertiary">
+                      <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-input text-accent-tertiary">
                         Graph
                       </span>
                     )}

@@ -1,11 +1,11 @@
-// hello-feature is an example plugin feature (sub-tab in the Plugins page).
+// hello-feature is an example plugin feature (sub-tab in Settings -> Plugins).
 //
 // Build:
 //
 //	go build -buildmode=plugin -o hello-feature.so .
 //
 // Then place hello-feature.so in ~/.joro/plugins/ and restart Joro.
-// A "Hello Feature" sub-tab will appear in the Plugins page.
+// A "Hello Feature" sub-tab will appear in Settings -> Plugins.
 package main
 
 import (

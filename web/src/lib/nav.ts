@@ -17,6 +17,5 @@ export const NAV: NavEntry[] = [
   { to: '/callbacks',  label: 'Interact' },
   { to: '/notes',      label: 'Notes' },
   { to: '/transform',  label: 'Transform',  proxyOnly: true },
-  { to: '/plugins',    label: 'Plugins' },
   { to: '/settings',   label: 'Settings' },
 ]

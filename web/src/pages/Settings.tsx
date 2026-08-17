@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { api } from '../lib/api'
+import type { PluginInfo } from '../lib/api'
 import ProjectBrowser from '../components/ProjectBrowser'
 import AutomationSettings from '../components/AutomationSettings'
+import PluginSettings from '../components/PluginSettings'
 import { Settings, isTeamMode, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useHiddenTabsStore } from '../stores/hiddenTabsStore'
@@ -13,7 +15,7 @@ import HealthCheck from '../components/HealthCheck'
 import { useToastStore } from '../stores/toastStore'
 import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
-import { Settings as SettingsIcon, Palette, Folder, AppWindow, Bot } from 'lucide-react'
+import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot } from 'lucide-react'
 
 const THEMES = [
   { value: 'aomori', label: 'Aomori' },
@@ -36,7 +38,7 @@ const THEMES = [
   { value: 'tokyo', label: 'Tokyo' },
 ]
 
-type Category = 'project' | 'general' | 'appearance' | 'testing' | 'automation'
+type Category = 'project' | 'general' | 'appearance' | 'testing' | 'plugins' | 'automation'
 
 const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   {
@@ -58,6 +60,11 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
     id: 'testing',
     label: 'Testing Browser',
     icon: <AppWindow size={15} strokeWidth={1.7} aria-hidden="true" />,
+  },
+  {
+    id: 'plugins',
+    label: 'Plugins',
+    icon: <Blocks size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
   {
     id: 'automation',
@@ -132,9 +139,29 @@ export default function SettingsPage() {
   })
   const hiddenTabs = useHiddenTabsStore((s) => s.hiddenTabs)
   const toggleTab = useHiddenTabsStore((s) => s.toggleTab)
-  const [pluginTabs, setPluginTabs] = useState<Array<{ to: string; label: string }>>([])
-  const [dashboardPlugin, setDashboardPlugin] = useState<string | null>(null)
+  const [plugins, setPlugins] = useState<PluginInfo[]>([])
   const dashboardLayout = useDashboardLayoutStore((s) => s.layout)
+
+  const pluginTabs = useMemo(
+    () =>
+      plugins
+        .filter((p) => p.type === 'tab' && p.status === 'loaded')
+        .map((p) => ({ to: `/plugin/${p.name}`, label: p.tabLabel || p.name })),
+    [plugins]
+  )
+  // A dashboard plugin replaces the built-in dashboard entirely, so the
+  // layout editor warns rather than letting the operator configure
+  // something they can't see.
+  const dashboardPlugin = useMemo(
+    () => plugins.find((p) => p.type === 'dashboard' && p.status === 'loaded')?.name ?? null,
+    [plugins]
+  )
+
+  // Plugins are fetched here rather than in PluginSettings so the upload/delete
+  // flow refreshes the Appearance → "Visible tabs" list from the same call.
+  const refreshPlugins = useCallback(() => {
+    api.listPlugins().then(setPlugins).catch(() => {})
+  }, [])
 
   // refetchLive pulls the user/machine settings into local state on mount.
   const refetchLive = useCallback(() => {
@@ -153,19 +180,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     refetchLive()
-    api.listPlugins().then((plugs) => {
-      setPluginTabs(
-        plugs
-          .filter((p) => p.type === 'tab' && p.status === 'loaded')
-          .map((p) => ({ to: `/plugin/${p.name}`, label: p.tabLabel || p.name }))
-      )
-      // A dashboard plugin replaces the built-in dashboard entirely, so the
-      // layout editor warns rather than letting the operator configure
-      // something they can't see.
-      const dash = plugs.find((p) => p.type === 'dashboard' && p.status === 'loaded')
-      setDashboardPlugin(dash ? dash.name : null)
-    }).catch(() => {})
-  }, [refetchLive])
+    refreshPlugins()
+  }, [refetchLive, refreshPlugins])
 
   // save persists the General → Proxy group: intercept/max-requests + SOCKS.
   async function save() {
@@ -214,13 +230,21 @@ export default function SettingsPage() {
         })}
       </nav>
 
-      {/* Content pane */}
+      {/* Content pane. Plugins is full-bleed rather than padded-and-scrolling:
+          its feature-plugin sub-tabs are iframes that need a real height, and a
+          block parent gives a `flex-1` child none. */}
       <div className="flex-1 min-h-0">
-        <div className="h-full overflow-y-auto bg-surface-card rounded-lg p-5 shadow-sm">
+        <div className={`h-full bg-surface-card rounded-lg shadow-sm ${
+          category === 'plugins' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto p-5'
+        }`}>
           {category === 'project' && <ProjectBrowser />}
 
           {/* Automation fetches its own data, so it needs no settings guard. */}
           {category === 'automation' && <AutomationSettings />}
+
+          {category === 'plugins' && (
+            <PluginSettings plugins={plugins} onRefresh={refreshPlugins} />
+          )}
 
           {settings && category === 'general' && (
             <div className="grid grid-cols-1 lg:grid-cols-2">

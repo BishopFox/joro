@@ -30,7 +30,6 @@ import Map from './pages/Map'
 import Login from './pages/Login'
 import Notes from './pages/Notes'
 import Setup from './pages/Setup'
-import Plugins from './pages/Plugins'
 import PluginTabPage from './pages/PluginTabPage'
 import SettingsPage from './pages/Settings'
 import ProjectSwitcher from './components/ProjectSwitcher'
@@ -171,7 +170,7 @@ export default function App() {
     return <Login onAuthenticated={() => { setNeedsAuth(false); setTeamMode(true); checkTeamMode() }} />
   }
 
-  // Insert plugin top-level tabs between Plugins and Settings.
+  // Insert plugin top-level tabs immediately before Settings.
   const filteredNav = (() => {
     const nav = [...NAV]
     if (pluginTabs.length > 0) {
@@ -282,7 +281,7 @@ export default function App() {
           <Route path="/callbacks" element={<Callbacks teamMode={teamMode} />} />
           <Route path="/notes" element={<Notes teamMode={teamMode} />} />
           <Route path="/transform" element={<Transform />} />
-          <Route path="/plugins" element={<Plugins />} />
+          {/* Plugin management lives in Settings → Plugins; there is no /plugins route. */}
           <Route path="/plugin/:extName/*" element={<PluginTabPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
