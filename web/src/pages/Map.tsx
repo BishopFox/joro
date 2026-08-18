@@ -9,6 +9,9 @@ import { rawToCurl } from '../lib/httpTransform'
 import { RequestDetail } from '../stores/requestStore'
 import { useRequestStore } from '../stores/requestStore'
 import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
+import LensOutput from '../components/LensOutput'
+import TabButton from '../components/TabButton'
+import { useLenses } from '../lib/lenses'
 import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
 import ConfirmModal from '../components/ConfirmModal'
@@ -54,7 +57,11 @@ export default function Map() {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [wrapReq, setWrapReq] = useState(true)
   const [wrapResp, setWrapResp] = useState(true)
-  const [respTab, setRespTab] = useState<'raw' | 'render'>('raw')
+  // 'raw' | 'render' | a lens automation id.
+  const [respTab, setRespTab] = useState('raw')
+  const respLenses = useLenses('response')
+  const activeRespTab =
+    respTab === 'raw' || respTab === 'render' || respLenses.some((l) => l.id === respTab) ? respTab : 'raw'
   const [prettyJson, setPrettyJson] = usePrettyJson()
   const [detailMenu, setDetailMenu] = useState<{ x: number; y: number } | null>(null)
 
@@ -458,29 +465,20 @@ export default function Map() {
               <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-card shrink-0">
                 <span className="text-xs font-semibold text-content-primary">Response</span>
                 <div className="flex items-center gap-0.5 ml-2">
-                  <button
-                    onClick={() => setRespTab('raw')}
-                    className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold transition-colors ${
-                      respTab === 'raw'
-                        ? 'bg-accent text-content-primary'
-                        : 'text-content-secondary hover:text-content-primary hover:bg-surface-input'
-                    }`}
-                  >
+                  <TabButton active={activeRespTab === 'raw'} onClick={() => setRespTab('raw')}>
                     Raw
-                  </button>
-                  <button
-                    onClick={() => setRespTab('render')}
-                    className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold transition-colors ${
-                      respTab === 'render'
-                        ? 'bg-accent text-content-primary'
-                        : 'text-content-secondary hover:text-content-primary hover:bg-surface-input'
-                    }`}
-                  >
+                  </TabButton>
+                  <TabButton active={activeRespTab === 'render'} onClick={() => setRespTab('render')}>
                     Render
-                  </button>
+                  </TabButton>
+                  {respLenses.map((l) => (
+                    <TabButton key={l.id} active={activeRespTab === l.id} onClick={() => setRespTab(l.id)}>
+                      {l.lens!.label}
+                    </TabButton>
+                  ))}
                 </div>
                 <div className="flex items-center gap-1 ml-auto">
-                  {respTab === 'raw' ? (
+                  {activeRespTab === 'raw' ? (
                     <Tooltip content="Line wrapping">
                       <button
                         onClick={() => setWrapResp(w => !w)}
@@ -491,7 +489,7 @@ export default function Map() {
                         <WrapText size={12} />
                       </button>
                     </Tooltip>
-                  ) : (
+                  ) : activeRespTab === 'render' ? (
                     <Tooltip content="Pretty-print JSON">
                       <button
                         onClick={() => setPrettyJson(!prettyJson)}
@@ -502,11 +500,11 @@ export default function Map() {
                         {'{ }'}
                       </button>
                     </Tooltip>
-                  )}
+                  ) : null}
                 </div>
               </div>
               <div className="flex-1 relative min-h-0">
-                {respTab === 'raw' ? (
+                {activeRespTab === 'raw' ? (
                   <div className="absolute inset-0 overflow-hidden">
                     <CodeMirror
                       value={b64Decode(selectedDetail.respRaw)}
@@ -517,9 +515,21 @@ export default function Map() {
                       basicSetup={{ lineNumbers: true, foldGutter: false }}
                     />
                   </div>
-                ) : selectedDetail.respRaw ? (
+                ) : !selectedDetail.respRaw ? null : activeRespTab === 'render' ? (
                   <ResponseRender raw={b64Decode(selectedDetail.respRaw)} prettyJson={prettyJson} />
-                ) : null}
+                ) : (
+                  <LensOutput
+                    scriptId={activeRespTab}
+                    part="response"
+                    raw={b64Decode(selectedDetail.respRaw)}
+                    meta={{
+                      host: selectedDetail.host,
+                      url: selectedDetail.url,
+                      status: selectedDetail.statusCode,
+                      contentType: selectedDetail.contentType,
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>

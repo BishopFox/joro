@@ -18,6 +18,7 @@ export default function SdkReference() {
   const [open, setOpen] = useState(false)
   const [methods, setMethods] = useState<SdkMethod[]>([])
   const [storage, setStorage] = useState<{ js: string; description: string }[]>([])
+  const [globals, setGlobals] = useState<{ js: string; description: string }[]>([])
   const [expanded, setExpanded] = useState<string | null>(null)
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export default function SdkReference() {
       .then((d) => {
         setMethods(d.methods ?? [])
         setStorage(d.storage ?? [])
+        setGlobals(d.globals ?? [])
       })
       .catch(() => {
         /* the panel simply stays empty; the editor above still works */
@@ -86,21 +88,26 @@ export default function SdkReference() {
             </div>
           ))}
 
-          {storage.length > 0 && (
-            <div className="pt-1 border-t border-border-subtle">
-              <p className="text-[10px] font-semibold text-content-muted uppercase tracking-wide mb-0.5">
-                Storage
-              </p>
-              {storage.map((s) => (
-                <div key={s.js} className="px-1 py-0.5">
-                  <code className="font-mono text-[10px] text-accent-secondary break-all">{s.js}</code>
-                  <p className="text-[10px] text-content-muted leading-snug">{s.description}</p>
-                </div>
-              ))}
-            </div>
-          )}
+          <DocList title="Storage" items={storage} />
+          <DocList title="Globals" items={globals} />
         </div>
       )}
+    </div>
+  )
+}
+
+/** A named group of one-line entries: storage verbs, sandbox globals. */
+function DocList({ title, items }: { title: string; items: { js: string; description: string }[] }) {
+  if (items.length === 0) return null
+  return (
+    <div className="pt-1 border-t border-border-subtle">
+      <p className="text-[10px] font-semibold text-content-muted uppercase tracking-wide mb-0.5">{title}</p>
+      {items.map((s) => (
+        <div key={s.js} className="px-1 py-0.5">
+          <code className="font-mono text-[10px] text-accent-secondary break-all">{s.js}</code>
+          <p className="text-[10px] text-content-muted leading-snug">{s.description}</p>
+        </div>
+      ))}
     </div>
   )
 }

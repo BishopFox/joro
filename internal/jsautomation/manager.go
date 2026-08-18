@@ -118,6 +118,11 @@ type RunRequest struct {
 
 	// TriggerData is the event payload, merged into ctx.trigger. References only.
 	TriggerData json.RawMessage
+
+	// NoSend drops the send-capable capabilities from the run's grants. Set for a lens,
+	// which renders bytes the operator is already looking at and has no business
+	// reaching a target.
+	NoSend bool
 }
 
 // ErrBusy means the concurrent-run limit is reached.
@@ -149,7 +154,8 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 	}
 
 	runID := newRunID()
-	principal := runPrincipal(req.Caller, runID)
+	sendCaps := sendCapsFrom(reg)
+	principal := runPrincipal(req.Caller, runID, sendCaps, req.NoSend)
 
 	// Tear down everything keyed on the run's synthetic identity. Without the Forget
 	// the registry's limiter map grows an entry per run and nothing ever prunes it;
@@ -238,6 +244,9 @@ type InvokeRequest struct {
 	// operator's own request through the UI, because reviewing something means being
 	// able to run it before enabling it. Never true for an agent.
 	OperatorRun bool
+
+	// NoSend drops the send-capable grants; see RunRequest.NoSend.
+	NoSend bool
 }
 
 // Invoke runs an installed automation.
@@ -275,6 +284,7 @@ func (m *Manager) Invoke(ctx context.Context, req InvokeRequest) (*Run, error) {
 		Limits:            a.Limits(),
 		AutomationID:      a.Manifest.ID,
 		AutomationVersion: a.Manifest.Version,
+		NoSend:            req.NoSend,
 	})
 	if err != nil {
 		return nil, err

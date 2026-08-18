@@ -7,6 +7,9 @@ import type { Range } from '@codemirror/state'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { api } from '../lib/api'
 import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
+import LensOutput from '../components/LensOutput'
+import TabButton from '../components/TabButton'
+import { useLenses } from '../lib/lenses'
 import { useResizable } from '../lib/useResizable'
 import { useManipulateStore } from '../stores/manipulateStore'
 import { changeRequestType, changeContentType, getMethod, getContentType, rawToCurl, updateContentLengthInRaw } from '../lib/httpTransform'
@@ -128,7 +131,11 @@ export default function ManipulateHTTP() {
   const renameInputRef = useRef<HTMLInputElement>(null)
 
   const hSplit = useResizable('horizontal', 0.5)
-  const [respTab, setRespTab] = useState<'raw' | 'render'>('raw')
+  // 'raw' | 'render' | a lens automation id.
+  const [respTab, setRespTab] = useState('raw')
+  const respLenses = useLenses('response')
+  const activeRespTab =
+    respTab === 'raw' || respTab === 'render' || respLenses.some((l) => l.id === respTab) ? respTab : 'raw'
   const [prettyJson, setPrettyJson] = usePrettyJson()
 
   const settings = useSettingsStore((s) => s.settings)
@@ -401,37 +408,28 @@ export default function ManipulateHTTP() {
           <div className="flex items-center gap-1 px-2 py-1 bg-surface-card border-b border-border shrink-0">
             <span className="text-xs text-content-muted">Response</span>
             <div className="flex items-center gap-0.5 ml-2">
-              <button
-                onClick={() => setRespTab('raw')}
-                className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold transition-colors ${
-                  respTab === 'raw'
-                    ? 'bg-accent text-content-primary'
-                    : 'text-content-secondary hover:text-content-primary hover:bg-surface-input'
-                }`}
-              >
+              <TabButton active={activeRespTab === 'raw'} onClick={() => setRespTab('raw')}>
                 Raw
-              </button>
-              <button
-                onClick={() => setRespTab('render')}
-                className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold transition-colors ${
-                  respTab === 'render'
-                    ? 'bg-accent text-content-primary'
-                    : 'text-content-secondary hover:text-content-primary hover:bg-surface-input'
-                }`}
-              >
+              </TabButton>
+              <TabButton active={activeRespTab === 'render'} onClick={() => setRespTab('render')}>
                 Render
-              </button>
+              </TabButton>
+              {respLenses.map((l) => (
+                <TabButton key={l.id} active={activeRespTab === l.id} onClick={() => setRespTab(l.id)}>
+                  {l.lens!.label}
+                </TabButton>
+              ))}
             </div>
             <div className="flex items-center gap-1 ml-auto">
-              {respTab === 'raw' ? (
+              {activeRespTab === 'raw' ? (
                 <SquareToggle label={<WrapText size={12} />} title="Line wrapping" active={tab.wrapResp} onClick={() => updateTab(tab.id, { wrapResp: !tab.wrapResp })} />
-              ) : (
+              ) : activeRespTab === 'render' ? (
                 <SquareToggle label="{ }" title="Pretty-print JSON" active={prettyJson} onClick={() => setPrettyJson(!prettyJson)} />
-              )}
+              ) : null}
             </div>
           </div>
           <div className="flex-1 relative min-h-0">
-            {respTab === 'raw' ? (
+            {activeRespTab === 'raw' ? (
               <div className="absolute inset-0 overflow-hidden">
                 <CodeMirror
                   value={tab.response}
@@ -442,9 +440,16 @@ export default function ManipulateHTTP() {
                   basicSetup={{ lineNumbers: true, foldGutter: false }}
                 />
               </div>
-            ) : tab.response ? (
+            ) : !tab.response ? null : activeRespTab === 'render' ? (
               <ResponseRender raw={tab.response} prettyJson={prettyJson} />
-            ) : null}
+            ) : (
+              <LensOutput
+                scriptId={activeRespTab}
+                part="response"
+                raw={tab.response}
+                meta={{ host: tab.host, status: tab.status ?? undefined }}
+              />
+            )}
           </div>
           {tab.status !== null && tab.response && (() => {
             const meta = parseResponseMeta(tab.response)

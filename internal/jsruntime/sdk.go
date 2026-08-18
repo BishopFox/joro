@@ -49,6 +49,7 @@ var Bindings = []Binding{
 
 	{JS: "history.list", Cap: "history.list"},
 	{JS: "history.stats", Cap: "history.stats"},
+	{JS: "history.highlight", Cap: "history.highlight"},
 
 	{JS: "sitemap.get", Cap: "sitemap.get"},
 	{JS: "scope.get", Cap: "scope.get"},
@@ -158,6 +159,47 @@ func shimSource() string {
 	Object.freeze(con);
 	Object.defineProperty(globalThis, "console", {
 		value: con, writable: false, enumerable: false, configurable: false
+	});
+
+	// atob and btoa, in JavaScript, because goja ships neither and a lens is handed its
+	// bytes as base64. Strings only, so nothing here reaches the host.
+	var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	function btoaImpl(input) {
+		var s = String(input), out = "", i = 0;
+		while (i < s.length) {
+			var c1 = s.charCodeAt(i++);
+			var c2 = i < s.length ? s.charCodeAt(i++) : NaN;
+			var c3 = i < s.length ? s.charCodeAt(i++) : NaN;
+			if (c1 > 255 || c2 > 255 || c3 > 255) {
+				throw new Error("btoa: string holds a character outside the Latin-1 range");
+			}
+			var e2 = ((c1 & 3) << 4) | (c2 !== c2 ? 0 : c2 >> 4);
+			var e3 = c2 !== c2 ? 64 : (((c2 & 15) << 2) | (c3 !== c3 ? 0 : c3 >> 6));
+			var e4 = c3 !== c3 ? 64 : (c3 & 63);
+			out += B64.charAt(c1 >> 2) + B64.charAt(e2) +
+				(e3 === 64 ? "=" : B64.charAt(e3)) +
+				(e4 === 64 ? "=" : B64.charAt(e4));
+		}
+		return out;
+	}
+	function atobImpl(input) {
+		var s = String(input).replace(/[ \t\n\f\r]/g, "").replace(/=+$/, "");
+		if (s.length % 4 === 1) { throw new Error("atob: not a valid base64 string"); }
+		var out = "", buf = 0, bits = 0;
+		for (var i = 0; i < s.length; i++) {
+			var v = B64.indexOf(s.charAt(i));
+			if (v < 0) { throw new Error("atob: not a valid base64 string"); }
+			buf = (buf << 6) | v;
+			bits += 6;
+			if (bits >= 8) { bits -= 8; out += String.fromCharCode((buf >> bits) & 255); }
+		}
+		return out;
+	}
+	Object.defineProperty(globalThis, "atob", {
+		value: atobImpl, writable: false, enumerable: false, configurable: false
+	});
+	Object.defineProperty(globalThis, "btoa", {
+		value: btoaImpl, writable: false, enumerable: false, configurable: false
 	});
 
 	function call(id) {

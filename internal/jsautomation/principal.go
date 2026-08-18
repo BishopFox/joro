@@ -66,9 +66,16 @@ func newRunID() string {
 // for a token limited to one concurrent request, which is the minimum the UI offers.
 // A per-run identity gives the run its own bucket, its own slot, and its own session,
 // all of which are torn down when it ends.
-func runPrincipal(caller capability.Principal, runID string) capability.Principal {
+//
+// noSend drops every capability in sendCaps from the grant set, so the run cannot put
+// bytes on the wire. It is a grant restriction rather than a budget because Limits
+// cannot express it: Normalize reads a non-positive MaxSendCalls as "take the default".
+func runPrincipal(caller capability.Principal, runID string, sendCaps []string, noSend bool) capability.Principal {
 	grants := make(map[string]struct{}, len(BundleGrants()))
 	for _, id := range BundleGrants() {
+		if noSend && slices.Contains(sendCaps, id) {
+			continue
+		}
 		grants[id] = struct{}{}
 	}
 

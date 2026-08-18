@@ -275,9 +275,19 @@ func (s *APIServer) handleSetScriptPrefs(w http.ResponseWriter, r *http.Request)
 		Limits           *jsautomation.ManifestLimits `json:"limits"`
 		TriggersDisabled map[string]bool              `json:"triggersDisabled"`
 		HostAllow        *[]string                    `json:"hostAllow"`
+		LensLabel        *string                      `json:"lensLabel"`
+		LensPart         *string                      `json:"lensPart"`
+		LensOrder        *int                         `json:"lensOrder"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// An empty string clears the override back to the manifest's value; anything else
+	// has to name a real part, for the same reason an unknown trigger is rejected below.
+	if body.LensPart != nil && *body.LensPart != "" && !slices.Contains(jsautomation.LensParts, *body.LensPart) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown lens part %q (known: %s)",
+			*body.LensPart, strings.Join(jsautomation.LensParts, ", ")))
 		return
 	}
 	// Reject an unknown trigger name rather than storing it. A typo would otherwise be
@@ -300,6 +310,15 @@ func (s *APIServer) handleSetScriptPrefs(w http.ResponseWriter, r *http.Request)
 		}
 		if body.HostAllow != nil {
 			st.HostAllow = *body.HostAllow
+		}
+		if body.LensLabel != nil {
+			st.LensLabel = strings.TrimSpace(*body.LensLabel)
+		}
+		if body.LensPart != nil {
+			st.LensPart = *body.LensPart
+		}
+		if body.LensOrder != nil {
+			st.LensOrder = *body.LensOrder
 		}
 	})
 	if err != nil {
@@ -324,15 +343,24 @@ func (s *APIServer) handleRunScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ScriptID     string          `json:"scriptId"`
-		Source       string          `json:"source"`
-		Input        json.RawMessage `json:"input"`
-		TimeoutMs    int             `json:"timeoutMs"`
-		MaxCalls     int             `json:"maxCalls"`
-		MaxSendCalls int             `json:"maxSendCalls"`
+		ScriptID string          `json:"scriptId"`
+		Source   string          `json:"source"`
+		Input    json.RawMessage `json:"input"`
+		// Trigger labels the run in the log. Defaults to triggerUI.
+		Trigger      string `json:"trigger"`
+		TimeoutMs    int    `json:"timeoutMs"`
+		MaxCalls     int    `json:"maxCalls"`
+		MaxSendCalls int    `json:"maxSendCalls"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	trigger, ok := runTrigger(body.Trigger)
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown trigger %q (known: %s, %s)",
+			body.Trigger, strings.Join(jsautomation.Triggers, ", "), jsautomation.TriggerLens))
 		return
 	}
 
@@ -343,10 +371,13 @@ func (s *APIServer) handleRunScript(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case body.ScriptID != "":
 		run, err = s.scriptManager.Invoke(r.Context(), jsautomation.InvokeRequest{
-			ID:          body.ScriptID,
-			Input:       body.Input,
-			Caller:      jsautomation.AutomationPrincipal(body.ScriptID),
-			Trigger:     triggerUI,
+			ID:      body.ScriptID,
+			Input:   body.Input,
+			Caller:  jsautomation.AutomationPrincipal(body.ScriptID),
+			Trigger: trigger,
+			// Derived from the trigger rather than taken from the body, so the
+			// guarantee belongs to the surface and not to what the client asked for.
+			NoSend:      trigger == jsautomation.TriggerLens,
 			OperatorRun: true,
 		})
 	case strings.TrimSpace(body.Source) != "":
@@ -354,7 +385,8 @@ func (s *APIServer) handleRunScript(w http.ResponseWriter, r *http.Request) {
 			Source:  body.Source,
 			Input:   body.Input,
 			Caller:  capability.Principal{TokenName: "operator"},
-			Trigger: triggerUI,
+			Trigger: trigger,
+			NoSend:  trigger == jsautomation.TriggerLens,
 			Limits: jsruntime.Limits{
 				Timeout:      time.Duration(body.TimeoutMs) * time.Millisecond,
 				MaxCalls:     body.MaxCalls,
@@ -381,6 +413,18 @@ func (s *APIServer) handleRunScript(w http.ResponseWriter, r *http.Request) {
 // triggerUI labels a run the operator started by hand, so the run list can tell it from
 // an agent's ("mcp") and from a trigger firing.
 const triggerUI = "ui"
+
+// runTrigger validates the label a run is recorded under, defaulting to triggerUI.
+func runTrigger(t string) (string, bool) {
+	switch t := strings.TrimSpace(t); {
+	case t == "":
+		return triggerUI, true
+	case t == triggerUI || t == jsautomation.TriggerLens || slices.Contains(jsautomation.Triggers, t):
+		return t, true
+	default:
+		return "", false
+	}
+}
 
 // handleScriptSDK is the authoring reference: every joro.* method, joined with the
 // registered title, description and argument schema of the capability behind it.
@@ -419,8 +463,17 @@ func (s *APIServer) handleScriptSDK(w http.ResponseWriter, r *http.Request) {
 		"bundle":   jsautomation.BundleVersion,
 		"methods":  out,
 		"storage":  storageDocs,
+		"globals":  globalDocs,
 		"triggers": jsautomation.Triggers,
 	})
+}
+
+// globalDocs covers what the shim defines outside the joro namespace. The sandbox's
+// globals are ECMAScript built-ins and nothing else, so these are worth naming.
+var globalDocs = []map[string]string{
+	{"js": "console.log / warn / error / debug", "description": "Writes to the run log, against the run's log budget."},
+	{"js": "atob(base64)", "description": "Decodes base64 to a binary string. A lens gets its bytes this way."},
+	{"js": "btoa(binary)", "description": "Encodes a binary string as base64."},
 }
 
 // storageDocs describes joro.storage, which has no capability behind it to borrow a

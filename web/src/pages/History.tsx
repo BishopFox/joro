@@ -5,8 +5,13 @@ import type { CapturedWSMessage } from '../lib/api'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { api } from '../lib/api'
+import { api, type ScriptRun } from '../lib/api'
 import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
+import LensOutput from '../components/LensOutput'
+import TabButton from '../components/TabButton'
+import RunOutput from '../components/automation/RunOutput'
+import { useLenses } from '../lib/lenses'
+import { useAutomationStore } from '../stores/automationStore'
 import { rawToCurl } from '../lib/httpTransform'
 import { RequestDetail, RequestSummary, SortColumn, useRequestStore } from '../stores/requestStore'
 import { useDeadDropStore } from '../stores/deadDropStore'
@@ -69,6 +74,7 @@ function protocolBadge(proto?: string) {
 function b64Decode(s: string) {
   try { return atob(s) } catch { return s }
 }
+
 
 
 function formatSize(bytes: number): string {
@@ -410,14 +416,60 @@ function HTTPHistory() {
 
   const [wrapReq, setWrapReq] = useState(true)
   const [wrapResp, setWrapResp] = useState(true)
-  const [respTab, setRespTab] = useState<'raw' | 'render'>('raw')
+  // 'raw' | 'render' | a lens automation id.
+  const [reqTab, setReqTab] = useState('raw')
+  const [respTab, setRespTab] = useState('raw')
   const [prettyJson, setPrettyJson] = usePrettyJson()
+  const [menuRun, setMenuRun] = useState<ScriptRun | null>(null)
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; itemId: string } | null>(null)
   const [detailMenu, setDetailMenu] = useState<{ x: number; y: number } | null>(null)
 
   const settings = useSettingsStore((s) => s.settings)
   const teamMode = !!(settings?.listenerUrl && settings?.teamToken && settings?.teamNickname)
   const addToast = useToastStore((s) => s.addToast)
+
+  const reqLenses = useLenses('request')
+  const respLenses = useLenses('response')
+  const scripts = useAutomationStore((s) => s.scripts)
+
+  // Automations the operator can point at one captured request. Enabled only: running a
+  // draft is the editor's job.
+  const selectable = useMemo(
+    () => scripts.filter((s) => s.enabled && s.triggers.includes('request.selected')),
+    [scripts]
+  )
+
+  const runOnRequest = async (scriptId: string, item: RequestSummary) => {
+    try {
+      setMenuRun(
+        await api.runScript({
+          scriptId,
+          trigger: 'request.selected',
+          input: { ref: item.seq, method: item.method, url: item.url, host: item.host },
+        })
+      )
+    } catch (e) {
+      addToast(String(e instanceof Error ? e.message : e), 'error')
+    }
+  }
+
+  const runMenuItems = (item: RequestSummary | null) =>
+    item && selectable.length > 0
+      ? [
+          {
+            label: 'Run automation',
+            children: selectable.map((s) => ({
+              label: s.name,
+              onClick: () => runOnRequest(s.id, item),
+            })),
+          },
+        ]
+      : []
+
+  // A tab whose lens was hidden or uninstalled falls back rather than rendering nothing.
+  const tabOr = (tab: string, lenses: { id: string }[], base: string[]) =>
+    base.includes(tab) || lenses.some((l) => l.id === tab) ? tab : 'raw'
+  const activeRespTab = tabOr(respTab, respLenses, ['raw', 'render'])
 
   const tableRef = useRef<HTMLDivElement>(null)
   const selectedRowRef = useRef<HTMLTableRowElement>(null)
@@ -862,6 +914,22 @@ function HTTPHistory() {
             <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: hSplit.fraction }}>
               <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-card shrink-0">
                 <span className="text-xs font-semibold text-content-primary">Request</span>
+                {reqLenses.length > 0 && (
+                  <div className="flex items-center gap-0.5 ml-2">
+                    <TabButton active={tabOr(reqTab, reqLenses, ['raw']) === 'raw'} onClick={() => setReqTab('raw')}>
+                      Raw
+                    </TabButton>
+                    {reqLenses.map((l) => (
+                      <TabButton
+                        key={l.id}
+                        active={tabOr(reqTab, reqLenses, ['raw']) === l.id}
+                        onClick={() => setReqTab(l.id)}
+                      >
+                        {l.lens!.label}
+                      </TabButton>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-center gap-1 ml-auto">
                   <Tooltip content="Line wrapping">
                     <button
@@ -876,16 +944,25 @@ function HTTPHistory() {
                 </div>
               </div>
               <div className="flex-1 relative min-h-0">
-                <div className="absolute inset-0 overflow-hidden">
-                  <CodeMirror
-                    value={b64Decode(selectedDetail.reqRaw)}
-                    theme={oneDark}
-                    readOnly={true}
-                    height="100%"
-                    extensions={wrapReq ? [EditorView.lineWrapping] : []}
-                    basicSetup={{ lineNumbers: true, foldGutter: false }}
+                {tabOr(reqTab, reqLenses, ['raw']) === 'raw' ? (
+                  <div className="absolute inset-0 overflow-hidden">
+                    <CodeMirror
+                      value={b64Decode(selectedDetail.reqRaw)}
+                      theme={oneDark}
+                      readOnly={true}
+                      height="100%"
+                      extensions={wrapReq ? [EditorView.lineWrapping] : []}
+                      basicSetup={{ lineNumbers: true, foldGutter: false }}
+                    />
+                  </div>
+                ) : (
+                  <LensOutput
+                    scriptId={tabOr(reqTab, reqLenses, ['raw'])}
+                    part="request"
+                    raw={b64Decode(selectedDetail.reqRaw)}
+                    meta={{ host: selectedDetail.host, url: selectedDetail.url }}
                   />
-                </div>
+                )}
               </div>
             </div>
 
@@ -897,29 +974,20 @@ function HTTPHistory() {
               <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-card shrink-0">
                 <span className="text-xs font-semibold text-content-primary">Response</span>
                 <div className="flex items-center gap-0.5 ml-2">
-                  <button
-                    onClick={() => setRespTab('raw')}
-                    className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold transition-colors ${
-                      respTab === 'raw'
-                        ? 'bg-accent text-content-primary'
-                        : 'text-content-secondary hover:text-content-primary hover:bg-surface-input'
-                    }`}
-                  >
+                  <TabButton active={activeRespTab === 'raw'} onClick={() => setRespTab('raw')}>
                     Raw
-                  </button>
-                  <button
-                    onClick={() => setRespTab('render')}
-                    className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold transition-colors ${
-                      respTab === 'render'
-                        ? 'bg-accent text-content-primary'
-                        : 'text-content-secondary hover:text-content-primary hover:bg-surface-input'
-                    }`}
-                  >
+                  </TabButton>
+                  <TabButton active={activeRespTab === 'render'} onClick={() => setRespTab('render')}>
                     Render
-                  </button>
+                  </TabButton>
+                  {respLenses.map((l) => (
+                    <TabButton key={l.id} active={activeRespTab === l.id} onClick={() => setRespTab(l.id)}>
+                      {l.lens!.label}
+                    </TabButton>
+                  ))}
                 </div>
                 <div className="flex items-center gap-1 ml-auto">
-                  {respTab === 'raw' ? (
+                  {activeRespTab === 'raw' ? (
                     <Tooltip content="Line wrapping">
                       <button
                         onClick={() => setWrapResp(w => !w)}
@@ -930,7 +998,7 @@ function HTTPHistory() {
                         <WrapText size={12} />
                       </button>
                     </Tooltip>
-                  ) : (
+                  ) : activeRespTab === 'render' ? (
                     <Tooltip content="Pretty-print JSON">
                       <button
                         onClick={() => setPrettyJson(!prettyJson)}
@@ -941,11 +1009,11 @@ function HTTPHistory() {
                         {'{ }'}
                       </button>
                     </Tooltip>
-                  )}
+                  ) : null}
                 </div>
               </div>
               <div className="flex-1 relative min-h-0">
-                {respTab === 'raw' ? (
+                {activeRespTab === 'raw' ? (
                   <div className="absolute inset-0 overflow-hidden">
                     <CodeMirror
                       value={b64Decode(selectedDetail.respRaw)}
@@ -956,9 +1024,21 @@ function HTTPHistory() {
                       basicSetup={{ lineNumbers: true, foldGutter: false }}
                     />
                   </div>
-                ) : selectedDetail.respRaw ? (
+                ) : !selectedDetail.respRaw ? null : activeRespTab === 'render' ? (
                   <ResponseRender raw={b64Decode(selectedDetail.respRaw)} prettyJson={prettyJson} />
-                ) : null}
+                ) : (
+                  <LensOutput
+                    scriptId={activeRespTab}
+                    part="response"
+                    raw={b64Decode(selectedDetail.respRaw)}
+                    meta={{
+                      host: selectedDetail.host,
+                      url: selectedDetail.url,
+                      status: selectedDetail.statusCode,
+                      contentType: selectedDetail.contentType,
+                    }}
+                  />
+                )}
               </div>
             </div>
           </>
@@ -987,6 +1067,7 @@ function HTTPHistory() {
             ...(highlights[rowMenu.itemId]
               ? [{ label: 'Clear Highlight', onClick: () => removeHighlight(rowMenu.itemId) }]
               : []),
+            ...runMenuItems(sortedItems.find((i) => i.id === rowMenu.itemId) ?? null),
             { label: 'Stage for Dead Drop', onClick: () => stageForDeadDrop(rowMenu.itemId) },
           ]}
         />
@@ -1000,6 +1081,7 @@ function HTTPHistory() {
           onClose={() => setDetailMenu(null)}
           items={[
             ...getSelectionMenuItems(navigate),
+            ...runMenuItems(selectedDetail),
             { label: 'Manipulate', onClick: sendToManipulate },
             { label: 'Fuzz', onClick: sendToFuzz },
             { label: 'Stage for Dead Drop', onClick: () => stageDetailForDeadDrop(selectedDetail) },
@@ -1010,6 +1092,17 @@ function HTTPHistory() {
             { label: 'Copy Raw Response', onClick: () => copyRaw('response') },
           ]}
         />
+      )}
+      {/* The result of an automation run from a context menu. */}
+      {menuRun && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setMenuRun(null)}>
+          <div
+            className="bg-surface-card border border-border rounded shadow-lg w-[36rem] max-w-[90vw] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <RunOutput run={menuRun} onClose={() => setMenuRun(null)} />
+          </div>
+        </div>
       )}
       {confirmClearAll && (
         <ConfirmModal

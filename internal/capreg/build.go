@@ -50,6 +50,11 @@ type Deps struct {
 	// runtime and this package must not reach into internal/api to read it.
 	ActiveProject func() string
 
+	// SetHighlight colours a History row, keyed on the capture's ID; an empty colour
+	// clears it. A func for the same reason ActiveProject is one — the map lives on
+	// *api.APIServer behind its mutex.
+	SetHighlight func(requestID, color string)
+
 	// Contexts holds one cookie jar per automation principal, so a send can stay
 	// authenticated across calls.
 	Contexts *httptools.Contexts
@@ -118,6 +123,7 @@ func Build(d Deps, audit *capability.AuditLog) *capability.Registry {
 
 	registerInstance(r, d)
 	registerHistory(r, d)
+	registerHighlight(r, d)
 	registerSitemap(r, d)
 	registerScope(r, d)
 	registerScopeWrite(r, d)

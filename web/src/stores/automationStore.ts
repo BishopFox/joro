@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import {
   api,
   type AutomationProfile,
+  type AutomationSummary,
   type AutomationToken,
   type AutomationTokenInput,
   type Capability,
@@ -11,6 +12,15 @@ import {
 interface AutomationState {
   tokens: AutomationToken[]
   capabilities: Capability[]
+  /** Installed automations. Held here rather than in the panel that lists them because
+   *  four surfaces read it: the Automations table, the Lenses tab, History's context
+   *  menu, and every response viewer. */
+  scripts: AutomationSummary[]
+  /** Trigger names the server accepts, for the editor's checkboxes. */
+  scriptTriggers: string[]
+  /** Why the automation list is empty: null when it loaded, otherwise the server's
+   *  explanation, which names --no-automation or --automation-scripting. */
+  scriptsUnavailable: string | null
   /** Server-declared class order. The picker groups by it so the write-heavy
    *  classes render last, rather than falling out of alphabetical-by-ID. */
   classes: string[]
@@ -25,6 +35,7 @@ interface AutomationState {
 
   refresh: () => Promise<void>
   refreshMcp: () => Promise<void>
+  refreshScripts: () => Promise<void>
   create: (body: AutomationTokenInput) => Promise<string>
   update: (id: string, body: Partial<AutomationTokenInput>) => Promise<void>
   rotate: (id: string) => Promise<string>
@@ -37,6 +48,9 @@ interface AutomationState {
 export const useAutomationStore = create<AutomationState>((set, get) => ({
   tokens: [],
   capabilities: [],
+  scripts: [],
+  scriptTriggers: [],
+  scriptsUnavailable: null,
   classes: [],
   profiles: [],
   fingerprint: '',
@@ -75,6 +89,21 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       set({ mcp: await api.getMcpState() })
     } catch {
       /* covered by refresh */
+    }
+  },
+
+  refreshScripts: async () => {
+    try {
+      const d = await api.listScripts()
+      set({
+        scripts: d.scripts ?? [],
+        scriptTriggers: d.triggers ?? [],
+        scriptsUnavailable: null,
+      })
+    } catch (e) {
+      // Scripting can be off while automation is on, so the message is kept rather
+      // than flattened to a boolean: it names which flag is missing.
+      set({ scripts: [], scriptsUnavailable: String(e instanceof Error ? e.message : e) })
     }
   },
 

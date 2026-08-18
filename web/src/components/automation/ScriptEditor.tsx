@@ -4,9 +4,17 @@ import { EditorView } from '@codemirror/view'
 import { javascript } from '@codemirror/lang-javascript'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { Download, Play, Save, X } from 'lucide-react'
-import { api, type AutomationLimits, type AutomationManifest, type ScriptRun } from '../../lib/api'
+import {
+  api,
+  LENS_PARTS,
+  type AutomationLimits,
+  type AutomationManifest,
+  type LensPart,
+  type ScriptRun,
+} from '../../lib/api'
 import { downloadPackage } from '../../lib/automationPackage'
 import { useToastStore } from '../../stores/toastStore'
+import RunOutput from './RunOutput'
 import SdkReference from './SdkReference'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border w-full'
@@ -257,6 +265,43 @@ export default function ScriptEditor({
             )}
           </Field>
 
+          <Field label="Lens">
+            <label className="flex items-center gap-1.5 text-[11px] text-content-secondary mb-1">
+              <input
+                type="checkbox"
+                checked={!!manifest.lens}
+                onChange={(e) => patch({ lens: e.target.checked ? { label: '', part: 'response' } : undefined })}
+              />
+              Render a viewer tab
+            </label>
+            {manifest.lens && (
+              <div className="space-y-1.5">
+                <input
+                  className={inputCls}
+                  value={manifest.lens.label}
+                  placeholder="Tab label"
+                  maxLength={24}
+                  onChange={(e) => patch({ lens: { ...manifest.lens!, label: e.target.value } })}
+                />
+                <select
+                  className={inputCls}
+                  value={manifest.lens.part}
+                  onChange={(e) => patch({ lens: { ...manifest.lens!, part: e.target.value as LensPart } })}
+                >
+                  {LENS_PARTS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-content-muted leading-snug">
+                  Receives <code className="font-mono">ctx.input.raw</code> (base64) and returns{' '}
+                  <code className="font-mono">{'{ text }'}</code>. Runs with sends disabled.
+                </p>
+              </div>
+            )}
+          </Field>
+
           <Field label="Minimum interval (ms)">
             <input
               type="number"
@@ -330,52 +375,3 @@ function LimitBox({
   )
 }
 
-/** The run report: how it ended, what it logged, what it returned. */
-function RunOutput({ run, onClose }: { run: ScriptRun; onClose: () => void }) {
-  const r = run.result
-  const bad = r.reason !== 'success'
-  return (
-    <div className="shrink-0 border-t border-border max-h-56 overflow-y-auto">
-      <div className="flex items-center gap-2 px-3 py-1.5 sticky top-0 bg-surface-card border-b border-border-subtle">
-        <span className={`text-[11px] font-semibold ${bad ? 'text-semantic-warning' : 'text-semantic-success'}`}>
-          {r.reason}
-        </span>
-        <span className="text-[10px] text-content-muted font-mono">
-          {run.durationMs}ms · {r.calls} call{r.calls === 1 ? '' : 's'}
-          {r.sendCalls > 0 ? ` (${r.sendCalls} sending)` : ''}
-          {r.storageOps ? ` · ${r.storageOps} storage` : ''}
-        </span>
-        <button onClick={onClose} className="ml-auto text-content-muted hover:text-content-primary" aria-label="Dismiss">
-          <X size={13} strokeWidth={2} />
-        </button>
-      </div>
-      <div className="p-3 space-y-2 text-[11px]">
-        {r.err && <pre className="font-mono whitespace-pre-wrap text-semantic-error">{r.err}</pre>}
-        {r.logs && r.logs.length > 0 && (
-          <div className="font-mono bg-surface-input rounded p-2">
-            {r.logs.map((l, i) => (
-              <div
-                key={i}
-                className={
-                  l.level === 'error'
-                    ? 'text-semantic-error'
-                    : l.level === 'warn'
-                      ? 'text-semantic-warning'
-                      : 'text-content-secondary'
-                }
-              >
-                {l.text}
-              </div>
-            ))}
-            {r.logsTruncated && <div className="text-content-muted">… log budget reached</div>}
-          </div>
-        )}
-        {r.value !== undefined && r.value !== null && (
-          <pre className="font-mono whitespace-pre-wrap bg-surface-input rounded p-2 overflow-x-auto">
-            {JSON.stringify(r.value, null, 2)}
-          </pre>
-        )}
-      </div>
-    </div>
-  )
-}

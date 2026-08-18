@@ -290,6 +290,17 @@ export interface AutomationLimits {
   maxResultBytes?: number
 }
 
+/** Which half of a transaction a lens renders. */
+export type LensPart = 'request' | 'response' | 'both'
+
+export const LENS_PARTS: LensPart[] = ['request', 'response', 'both']
+
+/** A viewer tab an automation contributes. Bytes in, text out. */
+export interface AutomationLens {
+  label: string
+  part: LensPart
+}
+
 /** The author-owned half of an installed automation. Cannot request capabilities: the
  *  sdkVersion selects a Joro-owned bundle, which is the point of the indirection. */
 export interface AutomationManifest {
@@ -301,6 +312,8 @@ export interface AutomationManifest {
   entrypoint?: string
   triggers?: string[]
   limits?: AutomationLimits
+  /** Set to add a viewer tab. The operator can retitle, repoint and reorder it. */
+  lens?: AutomationLens
   /** Shortest gap between two triggered runs. Combined with the operator's by taking
    *  the longer, which is why it is not inside limits. */
   minIntervalMs?: number
@@ -331,6 +344,10 @@ export interface AutomationState {
   /** Bounds where this automation's runs may send. Exists for trigger-fired runs, which
    *  carry no launching token and are otherwise bounded by scope alone. */
   hostAllow?: string[]
+  /** Overrides for the manifest's lens. Empty takes the author's value. */
+  lensLabel?: string
+  lensPart?: string
+  lensOrder?: number
   installedAt: string
   updatedAt: string
   revisions?: AutomationRevision[]
@@ -355,6 +372,9 @@ export interface AutomationSummary {
   triggers: string[]
   /** The triggers currently live: declared, not switched off, and runnable. */
   armed: string[]
+  /** The author's declaration with the operator's overrides already applied. */
+  lens?: AutomationLens
+  lensOrder?: number
   enabled: boolean
   paused?: boolean
   pausedReason?: string
@@ -1115,18 +1135,34 @@ export const api = {
     req<AutomationSummary>('PUT', `/automation/scripts/${id}/enabled`, { enabled }),
   setScriptPrefs: (
     id: string,
-    prefs: { limits?: AutomationLimits; triggersDisabled?: Record<string, boolean>; hostAllow?: string[] }
+    prefs: {
+      limits?: AutomationLimits
+      triggersDisabled?: Record<string, boolean>
+      hostAllow?: string[]
+      lensLabel?: string
+      lensPart?: string
+      lensOrder?: number
+    }
   ) =>
     req<AutomationSummary>('PUT', `/automation/scripts/${id}/prefs`, prefs),
   // No client timeout below the server's: a run may legitimately take a minute, and
   // aborting it here would leave the operator with no result and the run still going.
-  runScript: (body: { scriptId?: string; source?: string; input?: unknown; timeoutMs?: number }) =>
-    req<ScriptRun>('POST', '/automation/runs', body, 120000),
+  runScript: (body: {
+    scriptId?: string
+    source?: string
+    input?: unknown
+    /** Labels the run in the log; 'lens' also strips the send capabilities. */
+    trigger?: string
+    timeoutMs?: number
+  }) => req<ScriptRun>('POST', '/automation/runs', body, 120000),
   getScriptSdk: () =>
-    req<{ bundle: string; methods: SdkMethod[]; storage: { js: string; description: string }[]; triggers: string[] }>(
-      'GET',
-      '/automation/sdk'
-    ),
+    req<{
+      bundle: string
+      methods: SdkMethod[]
+      storage: { js: string; description: string }[]
+      globals: { js: string; description: string }[]
+      triggers: string[]
+    }>('GET', '/automation/sdk'),
   getMcpState: () => req<McpState>('GET', '/automation/mcp'),
   setMcpState: (body: { enabled?: boolean; port?: number }) =>
     req<McpState>('PUT', '/automation/mcp', body),

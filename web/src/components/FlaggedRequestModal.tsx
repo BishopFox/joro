@@ -5,6 +5,9 @@ import { EditorView } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { Flag, X, WrapText } from 'lucide-react'
 import { ResponseRender, usePrettyJson } from './ResponseRender'
+import LensOutput from './LensOutput'
+import TabButton from './TabButton'
+import { useLenses } from '../lib/lenses'
 import type { FlaggedRequest } from '../stores/teamFlaggedStore'
 
 function b64Decode(s: string) {
@@ -31,7 +34,11 @@ export default function FlaggedRequestModal({
   icon = <Flag size={13} aria-hidden="true" />,
 }: Props) {
   const navigate = useNavigate()
-  const [respTab, setRespTab] = useState<'raw' | 'render'>('raw')
+  // 'raw' | 'render' | a lens automation id.
+  const [respTab, setRespTab] = useState('raw')
+  const respLenses = useLenses('response')
+  const activeRespTab =
+    respTab === 'raw' || respTab === 'render' || respLenses.some((l) => l.id === respTab) ? respTab : 'raw'
   const [prettyJson, setPrettyJson] = usePrettyJson()
   // Line wrapping defaults OFF: wrapping a large (up to 256KB) minified/binary
   // response locks the main thread. Operators can opt in per pane.
@@ -159,28 +166,19 @@ export default function FlaggedRequestModal({
             <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-card">
               <span className="text-xs font-semibold text-content-primary">Response</span>
               <div className="flex items-center gap-0.5 ml-2">
-                <button
-                  onClick={() => setRespTab('raw')}
-                  className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold transition-colors ${
-                    respTab === 'raw'
-                      ? 'bg-accent text-content-primary'
-                      : 'text-content-secondary hover:text-content-primary hover:bg-surface-input'
-                  }`}
-                >
+                <TabButton active={activeRespTab === 'raw'} onClick={() => setRespTab('raw')}>
                   Raw
-                </button>
-                <button
-                  onClick={() => setRespTab('render')}
-                  className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold transition-colors ${
-                    respTab === 'render'
-                      ? 'bg-accent text-content-primary'
-                      : 'text-content-secondary hover:text-content-primary hover:bg-surface-input'
-                  }`}
-                >
+                </TabButton>
+                <TabButton active={activeRespTab === 'render'} onClick={() => setRespTab('render')}>
                   Render
-                </button>
+                </TabButton>
+                {respLenses.map((l) => (
+                  <TabButton key={l.id} active={activeRespTab === l.id} onClick={() => setRespTab(l.id)}>
+                    {l.lens!.label}
+                  </TabButton>
+                ))}
               </div>
-              {respTab === 'raw' && (
+              {activeRespTab === 'raw' && (
                 <button
                   onClick={() => setWrapResp((w) => !w)}
                   title="Line wrapping"
@@ -191,7 +189,7 @@ export default function FlaggedRequestModal({
                   <WrapText size={12} />
                 </button>
               )}
-              {respTab === 'render' && (
+              {activeRespTab === 'render' && (
                 <button
                   onClick={() => setPrettyJson(!prettyJson)}
                   className={`ml-auto w-6 h-5 flex items-center justify-center text-[10px] rounded-sm font-semibold leading-none ${
@@ -208,7 +206,7 @@ export default function FlaggedRequestModal({
               </div>
             )}
             <div className="flex-1 relative min-h-0">
-              {respTab === 'raw' ? (
+              {activeRespTab === 'raw' ? (
                 <div className="absolute inset-0 overflow-hidden">
                   <CodeMirror
                     value={respRaw}
@@ -219,9 +217,16 @@ export default function FlaggedRequestModal({
                     basicSetup={{ lineNumbers: true, foldGutter: false }}
                   />
                 </div>
-              ) : respRaw ? (
+              ) : !respRaw ? null : activeRespTab === 'render' ? (
                 <ResponseRender raw={respRaw} prettyJson={prettyJson} />
-              ) : null}
+              ) : (
+                <LensOutput
+                  scriptId={activeRespTab}
+                  part="response"
+                  raw={respRaw}
+                  meta={{ host: flagged.host, url: flagged.url, method: flagged.method, status: flagged.status }}
+                />
+              )}
             </div>
           </div>
         </div>

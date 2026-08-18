@@ -31,6 +31,9 @@ import type { Range } from '@codemirror/state'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { api } from '../lib/api'
 import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
+import LensOutput from '../components/LensOutput'
+import TabButton from '../components/TabButton'
+import { useLenses } from '../lib/lenses'
 import { rawToCurl } from '../lib/httpTransform'
 import { copyText } from '../lib/clipboard'
 import { useResizable } from '../lib/useResizable'
@@ -275,7 +278,22 @@ function FindingsView() {
   const [detailMenu, setDetailMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [detailRaw, setDetailRaw] = useState<RequestDetail | null>(null)
-  const [detailTab, setDetailTab] = useState<'response' | 'request' | 'rendered'>('response')
+  // 'response' | 'request' | 'rendered' | a lens automation id.
+  const [detailTab, setDetailTab] = useState('response')
+  // Both halves: a lens tab renders whichever part it declares, so the panel's own
+  // request/response toggle does not have to agree with it.
+  const reqLenses = useLenses('request')
+  const respLenses = useLenses('response')
+  const detailLenses = useMemo(
+    () => [...respLenses, ...reqLenses.filter((l) => !respLenses.some((r) => r.id === l.id))],
+    [respLenses, reqLenses]
+  )
+  const activeDetailTab = detailLenses.some((l) => l.id === detailTab)
+    ? detailTab
+    : (['response', 'request', 'rendered'] as string[]).includes(detailTab)
+      ? detailTab
+      : 'response'
+  const activeLens = detailLenses.find((l) => l.id === activeDetailTab) ?? null
   const [wrap, setWrap] = useState(true)
   // Reveal is per-finding and per-visit; it resets whenever the selection
   // changes.
@@ -1027,17 +1045,14 @@ function FindingsView() {
               <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-card shrink-0">
                 <div className="flex items-center gap-0.5">
                   {(['response', 'request', 'rendered'] as const).map((k) => (
-                    <button
-                      key={k}
-                      onClick={() => setDetailTab(k)}
-                      className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold transition-colors ${
-                        detailTab === k
-                          ? 'bg-accent text-content-primary'
-                          : 'text-content-secondary hover:text-content-primary hover:bg-surface-input'
-                      }`}
-                    >
+                    <TabButton key={k} active={activeDetailTab === k} onClick={() => setDetailTab(k)}>
                       {k.charAt(0).toUpperCase() + k.slice(1)}
-                    </button>
+                    </TabButton>
+                  ))}
+                  {detailLenses.map((l) => (
+                    <TabButton key={l.id} active={activeDetailTab === l.id} onClick={() => setDetailTab(l.id)}>
+                      {l.lens!.label}
+                    </TabButton>
                   ))}
                 </div>
                 <div className="flex items-center gap-1 ml-auto">
@@ -1062,11 +1077,22 @@ function FindingsView() {
                     Request no longer in history — the finding and its evidence are kept.
                   </span>
                 </div>
-              ) : detailTab === 'rendered' ? (
+              ) : activeDetailTab === 'rendered' ? (
                 <div className="flex-1 relative min-h-0">
                   <div className="absolute inset-0 overflow-auto">
                     <ResponseRender raw={b64Decode(detailRaw.respRaw)} prettyJson={prettyJson} />
                   </div>
+                </div>
+              ) : activeLens ? (
+                <div className="flex-1 relative min-h-0">
+                  <LensOutput
+                    scriptId={activeLens.id}
+                    part={activeLens.lens!.part === 'request' ? 'request' : 'response'}
+                    raw={b64Decode(
+                      activeLens.lens!.part === 'request' ? detailRaw.reqRaw : detailRaw.respRaw
+                    )}
+                    meta={{ host: selected.host, url: selected.url, method: selected.method }}
+                  />
                 </div>
               ) : (
                 <div className="flex-1 relative min-h-0">

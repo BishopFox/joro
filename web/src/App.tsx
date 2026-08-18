@@ -35,6 +35,7 @@ import SettingsPage from './pages/Settings'
 import ProjectSwitcher from './components/ProjectSwitcher'
 import TestingBrowserButton from './components/TestingBrowserButton'
 import { useProjectStore } from './stores/projectStore'
+import { useAutomationStore } from './stores/automationStore'
 
 // relayDot maps the team relay connection state to the header status dot's color
 // and tooltip.
@@ -110,6 +111,9 @@ export default function App() {
     connectWS()
     checkTeamMode()
     useProjectStore.getState().refresh()
+    // Installed automations, for the lens tabs every request viewer offers and for
+    // History's run-on-a-request menu. Loaded here so a viewer never has to fetch it.
+    useAutomationStore.getState().refreshScripts()
 
     // Load plugin tabs.
     api.listPlugins().then((plugs) => {

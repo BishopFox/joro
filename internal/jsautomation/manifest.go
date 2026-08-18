@@ -25,6 +25,7 @@ const SDKVersion1 = "1"
 // structurally cannot arrive. Offering it would be a trigger that silently never fires.
 const (
 	TriggerManual          = "manual"
+	TriggerRequestSelected = "request.selected"
 	TriggerRequestCaptured = "request.captured"
 	TriggerDetectFinding   = "detect.finding"
 	TriggerFuzzerComplete  = "fuzzer.complete"
@@ -34,10 +35,27 @@ const (
 // first, then cheapest-to-reason-about to most consequential.
 var Triggers = []string{
 	TriggerManual,
+	TriggerRequestSelected,
 	TriggerDetectFinding,
 	TriggerFuzzerComplete,
 	TriggerRequestCaptured,
 }
+
+// TriggerLens labels a run the request/response viewer started to render a lens tab.
+// Not in Triggers: the Lens declaration is what enables it, so there is nothing for an
+// operator to switch on here. It names why a run happened, and selects the send-free
+// principal in Manager.Invoke.
+const TriggerLens = "lens"
+
+// Which half of a transaction a lens renders.
+const (
+	LensPartRequest  = "request"
+	LensPartResponse = "response"
+	LensPartBoth     = "both"
+)
+
+// LensParts lists the valid Lens.Part values, in the order the UI shows them.
+var LensParts = []string{LensPartRequest, LensPartResponse, LensPartBoth}
 
 // Limits on the shape of an installed package.
 const (
@@ -46,6 +64,7 @@ const (
 	MaxVersionLen     = 32
 	MaxDescriptionLen = 400
 	MaxEntrypointLen  = 64
+	MaxLensLabelLen   = 24
 	MaxRevisions      = 50
 )
 
@@ -77,6 +96,15 @@ type ManifestLimits struct {
 	MaxResultBytes int `json:"maxResultBytes,omitempty"`
 }
 
+// Lens declares that this automation renders a tab in the request/response viewer.
+//
+// A lens is a pure function of bytes to text: the viewer hands it the bytes it is
+// already displaying and renders what comes back. Its run holds no send grants.
+type Lens struct {
+	Label string `json:"label"`
+	Part  string `json:"part"` // request | response | both
+}
+
 // Manifest is the author-owned half of a package: what this automation is and what it
 // expects. It cannot request a capability — the SDK version selects a Joro-owned bundle,
 // and that indirection is the whole point. An operator reviewing a package therefore
@@ -92,6 +120,10 @@ type Manifest struct {
 
 	Triggers []string        `json:"triggers,omitempty"`
 	Limits   *ManifestLimits `json:"limits,omitempty"`
+
+	// Lens, when set, adds a viewer tab. The operator can retitle it, point it at the
+	// other half of the transaction, or reorder it; see State.
+	Lens *Lens `json:"lens,omitempty"`
 
 	// MinIntervalMs paces an event trigger: the shortest gap between two runs. Not in
 	// Limits because it is the one value where the conservative choice is the larger
@@ -139,6 +171,14 @@ func (m *Manifest) Normalize() {
 		kept = append(kept, t)
 	}
 	m.Triggers = kept
+
+	if m.Lens != nil {
+		m.Lens.Label = strings.TrimSpace(m.Lens.Label)
+		m.Lens.Part = strings.ToLower(strings.TrimSpace(m.Lens.Part))
+		if m.Lens.Part == "" {
+			m.Lens.Part = LensPartResponse
+		}
+	}
 }
 
 // Validate reports why a manifest cannot be installed. Messages name the field and the
@@ -175,6 +215,18 @@ func (m *Manifest) Validate() error {
 	for _, t := range m.Triggers {
 		if !slices.Contains(Triggers, t) {
 			return fmt.Errorf("unknown trigger %q (known: %s)", t, strings.Join(Triggers, ", "))
+		}
+	}
+
+	if m.Lens != nil {
+		switch {
+		case m.Lens.Label == "":
+			return fmt.Errorf("lens.label is required: it is the viewer tab's title")
+		case len(m.Lens.Label) > MaxLensLabelLen:
+			return fmt.Errorf("lens.label is %d characters, over the %d limit; it has to fit a tab",
+				len(m.Lens.Label), MaxLensLabelLen)
+		case !slices.Contains(LensParts, m.Lens.Part):
+			return fmt.Errorf("unknown lens.part %q (known: %s)", m.Lens.Part, strings.Join(LensParts, ", "))
 		}
 	}
 	return nil
@@ -235,6 +287,12 @@ type State struct {
 	// max, so the operator can only ever add space between runs.
 	MinIntervalMs int `json:"minIntervalMs,omitempty"`
 
+	// Overrides for the manifest's Lens. Empty means take the author's value.
+	// LensOrder sorts the viewer's tabs; equal orders fall back to the label.
+	LensLabel string `json:"lensLabel,omitempty"`
+	LensPart  string `json:"lensPart,omitempty"`
+	LensOrder int    `json:"lensOrder,omitempty"`
+
 	InstalledAt time.Time  `json:"installedAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	Revisions   []Revision `json:"revisions,omitempty"`
@@ -250,6 +308,25 @@ type Automation struct {
 	SourceHash string   `json:"sourceHash"`
 }
 
+// EffectiveLens resolves the lens the viewer should render: the author's declaration
+// with the operator's overrides applied. Nil when the automation declares none.
+//
+// The merge happens here rather than in the frontend so a caller never has to hold both
+// halves and decide which wins.
+func (a *Automation) EffectiveLens() *Lens {
+	if a.Manifest.Lens == nil {
+		return nil
+	}
+	l := *a.Manifest.Lens
+	if s := strings.TrimSpace(a.State.LensLabel); s != "" {
+		l.Label = s
+	}
+	if s := strings.ToLower(strings.TrimSpace(a.State.LensPart)); slices.Contains(LensParts, s) {
+		l.Part = s
+	}
+	return &l
+}
+
 // Summary is an Automation without its source, for lists. Source is withheld rather
 // than merely omitted: a capability that could read other automations' code would be a
 // lateral channel between tokens, which is the same reason the run log stays UI-only.
@@ -261,6 +338,8 @@ type Summary struct {
 	SDKVersion   string    `json:"sdkVersion"`
 	Triggers     []string  `json:"triggers"`
 	Armed        []string  `json:"armed"`
+	Lens         *Lens     `json:"lens,omitempty"`
+	LensOrder    int       `json:"lensOrder,omitempty"`
 	Enabled      bool      `json:"enabled"`
 	Paused       bool      `json:"paused,omitempty"`
 	PausedReason string    `json:"pausedReason,omitempty"`
@@ -275,13 +354,17 @@ type Summary struct {
 // Summarize projects an Automation for a list view.
 func (a *Automation) Summarize() Summary {
 	return Summary{
-		ID:           a.Manifest.ID,
-		Name:         a.Manifest.Name,
-		Version:      a.Manifest.Version,
-		Description:  a.Manifest.Description,
-		SDKVersion:   a.Manifest.SDKVersion,
-		Triggers:     slices.Clone(a.Manifest.Triggers),
-		Armed:        a.ArmedTriggers(),
+		ID:          a.Manifest.ID,
+		Name:        a.Manifest.Name,
+		Version:     a.Manifest.Version,
+		Description: a.Manifest.Description,
+		SDKVersion:  a.Manifest.SDKVersion,
+		Triggers:    slices.Clone(a.Manifest.Triggers),
+		// Never nil: the field is a JSON array in the client's type, and a lens or a
+		// manual-only automation arms nothing.
+		Armed:        orEmpty(a.ArmedTriggers()),
+		Lens:         a.EffectiveLens(),
+		LensOrder:    a.State.LensOrder,
 		Enabled:      a.State.Enabled,
 		Paused:       a.State.Paused,
 		PausedReason: a.State.PausedReason,
@@ -294,20 +377,30 @@ func (a *Automation) Summarize() Summary {
 	}
 }
 
+// orEmpty returns a non-nil slice, so a JSON field declared as an array never encodes
+// as null.
+func orEmpty[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}
+
 // Runnable reports whether an agent or the dispatcher may run this. The operator's own
 // manual run deliberately does not consult it.
 func (a *Automation) Runnable() bool { return a.State.Enabled && !a.State.Paused }
 
 // ArmedTriggers lists the event triggers currently live: declared by the manifest, not
-// switched off by the operator, and only while the automation is runnable. Manual is
-// excluded — it is not something the dispatcher watches for.
+// switched off by the operator, and only while the automation is runnable. Manual and
+// request.selected are excluded — the operator starts both, so the dispatcher does not
+// watch for them.
 func (a *Automation) ArmedTriggers() []string {
 	if !a.Runnable() {
 		return nil
 	}
 	var out []string
 	for _, t := range a.Manifest.Triggers {
-		if t == TriggerManual {
+		if t == TriggerManual || t == TriggerRequestSelected {
 			continue
 		}
 		if a.State.TriggersDisabled[t] {

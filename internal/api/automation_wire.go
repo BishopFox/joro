@@ -60,6 +60,8 @@ func (s *APIServer) SetAutomation(store *automation.Store) {
 			return s.activeProjectConfig
 		},
 
+		SetHighlight: s.setHighlight,
+
 		// The rule stores behind the config-class capabilities. Settings is
 		// deliberately not among them: it lives on this struct behind s.mu, and it is
 		// where the knobs that would matter most are — SOCKS, the team token, the

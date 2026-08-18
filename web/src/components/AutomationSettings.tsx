@@ -7,15 +7,17 @@ import AutomationTokenModal from './AutomationTokenModal'
 import AutomationSecretModal from './AutomationSecretModal'
 import AutomationActivity from './AutomationActivity'
 import ScriptRuns from './ScriptRuns'
+import LensPanel from './automation/LensPanel'
 import ScriptsPanel from './automation/ScriptsPanel'
 import ConfirmModal from './ConfirmModal'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border'
 
-// Three surfaces that share a subject and nothing else: what a client may do, what code
-// is installed, and what has happened. Sub-tabs rather than one long pane, mirroring
-// Settings -> Plugins — and the editor needs the full pane height regardless.
-type SubTab = 'tokens' | 'scripts' | 'activity'
+// Four surfaces that share a subject and nothing else: what a client may do, what code
+// is installed, which of it renders in the viewer, and what has happened. Sub-tabs rather
+// than one long panel, mirroring Settings -> Plugins — and the editor needs the full
+// panel height regardless.
+type SubTab = 'tokens' | 'scripts' | 'lenses' | 'activity'
 
 export default function AutomationSettings() {
   const { tokens, capabilities, profiles, classes, mcp, available, refresh, create, update, rotate, setEnabled, review, revoke, setMcp } =
@@ -38,6 +40,8 @@ export default function AutomationSettings() {
   const [port, setPort] = useState(0)
   const [subTab, setSubTab] = useState<SubTab>('tokens')
   const [scopeReady, setScopeReady] = useState(true)
+  // Set when Lenses asks to open an automation, which lives in the Automations tab.
+  const [editScript, setEditScript] = useState<string | undefined>()
 
   useEffect(() => {
     refresh()
@@ -109,10 +113,22 @@ export default function AutomationSettings() {
       <div className="flex gap-1 px-3 pt-2 pb-0 bg-surface-card border-b border-border shrink-0">
         {tab('tokens', 'Tokens')}
         {tab('scripts', 'Automations')}
+        {tab('lenses', 'Lenses')}
         {tab('activity', 'Activity')}
       </div>
 
-      {subTab === 'scripts' && <ScriptsPanel />}
+      {subTab === 'scripts' && (
+        <ScriptsPanel openEditor={editScript} onEditorOpened={() => setEditScript(undefined)} />
+      )}
+
+      {subTab === 'lenses' && (
+        <LensPanel
+          onEdit={(id) => {
+            setEditScript(id)
+            setSubTab('scripts')
+          }}
+        />
+      )}
 
       {subTab === 'activity' && (
         <div className="flex-1 overflow-auto p-5 space-y-4">

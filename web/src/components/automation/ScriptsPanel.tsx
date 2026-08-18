@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Download, Pause, Play, Plus, Trash2, Upload } from 'lucide-react'
-import { api, type AutomationSummary } from '../../lib/api'
+import { useEffect, useState } from 'react'
+import { Download, Play, Plus, Power, PowerOff, Trash2, Upload } from 'lucide-react'
+import { api } from '../../lib/api'
 import { downloadPackage, pickPackage } from '../../lib/automationPackage'
+import { useAutomationStore } from '../../stores/automationStore'
 import { useToastStore } from '../../stores/toastStore'
 import ConfirmModal from '../ConfirmModal'
 import ScriptEditor, { type EditorDraft } from './ScriptEditor'
@@ -14,28 +15,33 @@ import ScriptEditor, { type EditorDraft } from './ScriptEditor'
  * --automation-scripting). Saying which is missing is the difference between a fixable
  * situation and a mystery.
  */
-export default function ScriptsPanel() {
+export default function ScriptsPanel({
+  /** An automation another tab asked to open, e.g. Lenses. */
+  openEditor,
+  onEditorOpened,
+}: {
+  openEditor?: string
+  onEditorOpened?: () => void
+} = {}) {
   const addToast = useToastStore((s) => s.addToast)
-  const [scripts, setScripts] = useState<AutomationSummary[]>([])
-  const [triggers, setTriggers] = useState<string[]>([])
-  const [unavailable, setUnavailable] = useState<string | null>(null)
+  const {
+    scripts,
+    scriptTriggers: triggers,
+    scriptsUnavailable: unavailable,
+    refreshScripts: load,
+  } = useAutomationStore()
   const [editing, setEditing] = useState<{ id?: string; draft?: EditorDraft } | null>(null)
   const [confirm, setConfirm] = useState<{ id: string } | null>(null)
-
-  const load = useCallback(async () => {
-    try {
-      const d = await api.listScripts()
-      setScripts(d.scripts ?? [])
-      setTriggers(d.triggers ?? [])
-      setUnavailable(null)
-    } catch (e) {
-      setUnavailable(String(e instanceof Error ? e.message : e))
-    }
-  }, [])
 
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    if (!openEditor) return
+    setEditing({ id: openEditor })
+    onEditorOpened?.()
+  }, [openEditor, onEditorOpened])
 
   const guard = async (fn: () => Promise<unknown>, ok?: string) => {
     try {
@@ -169,7 +175,7 @@ export default function ScriptsPanel() {
                     )}
                   </td>
                   <td className="py-1.5 pr-2 font-mono text-[10px] text-content-secondary">
-                    {s.armed.length > 0 ? (
+                    {s.armed?.length ? (
                       s.armed.join(', ')
                     ) : (
                       <span className="text-content-muted">
@@ -209,7 +215,8 @@ export default function ScriptsPanel() {
                       className={`px-1 ${s.enabled ? 'text-semantic-success' : 'text-content-muted'} hover:text-accent`}
                       title={s.enabled ? 'Disable' : s.paused ? 'Enable (clears the pause)' : 'Enable'}
                     >
-                      {s.enabled ? <Pause size={13} strokeWidth={2} /> : <Play size={13} strokeWidth={2} />}
+                      {/* Not Play: it sits beside Run, which is a Play triangle. */}
+                      {s.enabled ? <Power size={13} strokeWidth={2} /> : <PowerOff size={13} strokeWidth={2} />}
                     </button>
                     <button
                       onClick={() => exportOne(s.id)}
