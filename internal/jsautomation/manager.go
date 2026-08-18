@@ -17,6 +17,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"slices"
 	"time"
 
 	"github.com/BishopFox/joro/internal/capability"
@@ -61,6 +63,12 @@ type Deps struct {
 	// same run and is dropped when the run ends — a session belongs to the run that
 	// authenticated it.
 	Contexts *httptools.Contexts
+
+	// Store is the installed-automation directory; Storage is their key/value state.
+	// Both nil-tolerated: without a Store there are no installed automations and only
+	// one-shot runs work, which is exactly phase B's behavior.
+	Store   *Store
+	Storage *Storage
 }
 
 // Manager runs scripts and remembers what they did.
@@ -83,6 +91,13 @@ func New(d Deps) *Manager {
 // Runs exposes the run log for the control plane.
 func (m *Manager) Runs() *RunLog { return m.runs }
 
+// Packages exposes the installed-automation store for the control plane. Nil when
+// scripting is configured without a data directory.
+func (m *Manager) Packages() *Store { return m.deps.Store }
+
+// Storage exposes the automation key/value state, for project save and load.
+func (m *Manager) Storage() *Storage { return m.deps.Storage }
+
 // RunRequest is one script to execute.
 type RunRequest struct {
 	Source string
@@ -94,6 +109,15 @@ type RunRequest struct {
 
 	Trigger string
 	Limits  jsruntime.Limits
+
+	// AutomationID names the installed automation this run belongs to, which is what
+	// gives it a storage namespace. Empty for a one-shot: there is nowhere durable for
+	// such a run to write, and saying so is better than a scratchpad that vanishes.
+	AutomationID      string
+	AutomationVersion string
+
+	// TriggerData is the event payload, merged into ctx.trigger. References only.
+	TriggerData json.RawMessage
 }
 
 // ErrBusy means the concurrent-run limit is reached.
@@ -144,14 +168,17 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 		Input:  req.Input,
 		Limits: req.Limits,
 		Meta: jsruntime.Meta{
-			RunID:       runID,
-			StartedAt:   started.UTC().Format(time.RFC3339),
-			TriggerType: orDefault(req.Trigger, "manual"),
+			RunID:             runID,
+			StartedAt:         started.UTC().Format(time.RFC3339),
+			TriggerType:       orDefault(req.Trigger, "manual"),
+			TriggerData:       req.TriggerData,
+			AutomationID:      req.AutomationID,
+			AutomationVersion: req.AutomationVersion,
 		},
 		SendCaps: sendCapsFrom(reg),
 	}
 
-	res, err := m.deps.Runtime.Run(ctx, rtReq, &registryBridge{inv: reg, principal: principal})
+	res, err := m.deps.Runtime.Run(ctx, rtReq, m.bridgeFor(reg, principal, req.AutomationID))
 	if err != nil {
 		// The runtime itself failed. Record it anyway: an operator investigating a
 		// script that "did nothing" needs to find the attempt.
@@ -163,19 +190,121 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 	}
 
 	run := &Run{
-		ID:         runID,
-		StartedAt:  started.UTC(),
-		DurationMs: res.DurationMs,
-		TokenID:    req.Caller.TokenID,
-		TokenName:  req.Caller.TokenName,
-		Trigger:    rtReq.Meta.TriggerType,
-		Bundle:     BundleVersion,
-		Source:     req.Source,
-		SourceHash: HashSource(req.Source),
-		Result:     res,
+		ID:           runID,
+		StartedAt:    started.UTC(),
+		DurationMs:   res.DurationMs,
+		TokenID:      req.Caller.TokenID,
+		TokenName:    req.Caller.TokenName,
+		AutomationID: req.AutomationID,
+		Trigger:      rtReq.Meta.TriggerType,
+		Bundle:       BundleVersion,
+		Source:       req.Source,
+		SourceHash:   HashSource(req.Source),
+		Result:       res,
 	}
 	m.runs.Add(run)
 	return run, nil
+}
+
+// ErrNotRunnable means an installed automation exists but is not armed.
+var ErrNotRunnable = errors.New("this automation is not enabled")
+
+// List returns every installed automation, without source. Used by the script.list
+// capability and by the control plane.
+func (m *Manager) List() []Summary {
+	if m.deps.Store == nil {
+		return nil
+	}
+	all := m.deps.Store.List()
+	out := make([]Summary, 0, len(all))
+	for _, a := range all {
+		out = append(out, a.Summarize())
+	}
+	return out
+}
+
+// InvokeRequest names one invocation of an installed automation. A struct rather than a
+// parameter list: it grew to six, and a trigger payload silently going missing is exactly
+// the mistake positional arguments invite.
+type InvokeRequest struct {
+	ID     string
+	Input  json.RawMessage
+	Caller capability.Principal
+
+	Trigger     string
+	TriggerData json.RawMessage
+
+	// OperatorRun allows running an automation that is not armed. True only for the
+	// operator's own request through the UI, because reviewing something means being
+	// able to run it before enabling it. Never true for an agent.
+	OperatorRun bool
+}
+
+// Invoke runs an installed automation.
+func (m *Manager) Invoke(ctx context.Context, req InvokeRequest) (*Run, error) {
+	id, input, caller := req.ID, req.Input, req.Caller
+	trigger, operatorRun := req.Trigger, req.OperatorRun
+	if m.deps.Store == nil {
+		return nil, errors.New("installed automations are unavailable")
+	}
+	a, err := m.deps.Store.Load(id)
+	if err != nil {
+		return nil, err
+	}
+	if !operatorRun && !a.Runnable() {
+		if a.State.Paused {
+			return nil, fmt.Errorf("%w: it was paused automatically (%s)", ErrNotRunnable, a.State.PausedReason)
+		}
+		return nil, ErrNotRunnable
+	}
+
+	// A trigger-fired run has no launching token, so nothing carries a host whitelist
+	// into it and scope is its only bound. Where the operator has set one on the
+	// automation, apply it. Only when the caller has none of its own: a token's leash is
+	// already the stricter authority, and two whitelists in one field cannot be ANDed.
+	if len(caller.HostAllow) == 0 && len(a.State.HostAllow) > 0 {
+		caller.HostAllow = slices.Clone(a.State.HostAllow)
+	}
+
+	run, err := m.Run(ctx, RunRequest{
+		Source:            a.Source,
+		Input:             input,
+		Caller:            caller,
+		Trigger:           orDefault(trigger, TriggerManual),
+		TriggerData:       req.TriggerData,
+		Limits:            a.Limits(),
+		AutomationID:      a.Manifest.ID,
+		AutomationVersion: a.Manifest.Version,
+	})
+	if err != nil {
+		return nil, err
+	}
+	m.noteLastRun(a.Manifest.ID, run)
+	return run, nil
+}
+
+// noteLastRun records the outcome on the automation's sidecar, so the list view can show
+// what happened without holding the whole run log. Best-effort: a run that succeeded must
+// not be reported as failed because a sidecar write did.
+func (m *Manager) noteLastRun(id string, run *Run) {
+	if m.deps.Store == nil || run == nil {
+		return
+	}
+	if _, err := m.deps.Store.SetState(id, func(st *State) {
+		st.LastRun = &LastRun{ID: run.ID, At: run.StartedAt, Reason: run.Result.Reason}
+	}); err != nil {
+		log.Printf("[automation] %s: recording last run: %v", id, err)
+	}
+}
+
+// AutomationPrincipal is the caller for a run nothing launched — a trigger firing.
+//
+// It carries a name for the audit trail and no HostAllow, because there is no token to
+// inherit one from. Such a run is therefore bounded by scope alone, which is the
+// engagement boundary and the thing the operator was already relying on; runPrincipal
+// still pins RequireScope on and credentials off.
+func AutomationPrincipal(id string) capability.Principal {
+	return capability.Principal{TokenName: "automation:" + id}
 }
 
 // sendCapsFrom lists the granted capability IDs that put bytes on the wire, so the
@@ -192,12 +321,38 @@ func sendCapsFrom(reg Invoker) []string {
 	return out
 }
 
+// bridgeFor builds the host bridge for one run.
+//
+// Two types rather than one with a nil check: a one-shot run gets a bridge that does not
+// implement jsruntime.StorageBridge at all, so "this run has no namespace" is a fact the
+// type system carries rather than a condition someone has to remember to test.
+func (m *Manager) bridgeFor(reg Invoker, p capability.Principal, automationID string) jsruntime.HostBridge {
+	base := registryBridge{inv: reg, principal: p}
+	if automationID == "" || m.deps.Storage == nil {
+		return &base
+	}
+	return &storageBridge{
+		registryBridge: base,
+		ns:             namespaced{s: m.deps.Storage, id: automationID},
+	}
+}
+
 // registryBridge is the only thing a script can reach. Every call becomes a
 // Registry.Invoke under the run's principal, which is what makes a script's authority
 // identical to a token's: same guard, same scope check, same limits, same audit row.
 type registryBridge struct {
 	inv       Invoker
 	principal capability.Principal
+}
+
+// storageBridge adds joro.storage for a run that belongs to an installed automation.
+type storageBridge struct {
+	registryBridge
+	ns namespaced
+}
+
+func (b *storageBridge) Storage(ctx context.Context, op, key string, value json.RawMessage) (json.RawMessage, error) {
+	return b.ns.Storage(ctx, op, key, value)
 }
 
 func (b *registryBridge) Invoke(ctx context.Context, id string, args json.RawMessage) (json.RawMessage, error) {

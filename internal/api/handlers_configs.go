@@ -200,6 +200,11 @@ type projectConfigFile struct {
 	Highlights     map[string]string        `json:"highlights,omitempty"`
 	RequestHistory []projectCapturedRequest `json:"requestHistory,omitempty"`
 	PluginStates   map[string]string        `json:"pluginStates,omitempty"` // plugin name -> base64(opaque bytes)
+	// AutomationStates is joro.storage: automation id -> base64(opaque bytes), the
+	// same shape and the same machinery as PluginStates. Engagement state, so it
+	// belongs here; the automations themselves are code and live on disk, because a
+	// project config is published to teammates. Added in schema v7.
+	AutomationStates map[string]string `json:"automationStates,omitempty"`
 }
 
 // encodePluginStates base64-encodes each blob for transport inside a JSON
@@ -301,6 +306,7 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		pHighlights[k] = v
 	}
 	projectGhost := s.pendingProjectPluginStates
+	automationGhost := s.pendingProjectAutomationStates
 	s.mu.RUnlock()
 
 	var pReqs []projectCapturedRequest
@@ -322,10 +328,18 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		projectFresh = s.pluginManager.ExportProjectStates()
 	}
 
+	var automationFresh map[string][]byte
+	if s.automationStorage != nil {
+		automationFresh = s.automationStorage.Export()
+	}
+
 	dEnabled, dCfg, dDisabled, dOverrides, dRules, dFindings := s.detectStateForProject()
 
 	return projectConfigFile{
-		Version:           6,
+		// v7 added AutomationStates. No normalizeProjectConfig gate: an absent map
+		// decodes to nil, which is the correct default — a backfill exists only where
+		// the zero value would be wrong, as it was for autoSave and detectEnabled.
+		Version:           7,
 		AutoSave:          autoSave,
 		SaveHistory:       saveHistory,
 		ListenerURL:       listenerURL,
@@ -351,6 +365,11 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		Highlights:     pHighlights,
 		RequestHistory: pReqs,
 		PluginStates:   encodePluginStates(mergePluginStates(projectGhost, projectFresh)),
+		// Same ghost-then-fresh merge as plugin state, and for the same reason: a
+		// teammate's project may reference an automation this machine does not have,
+		// and dropping its bookkeeping would lose the operator who does have it their
+		// state the first time anyone else saves.
+		AutomationStates: encodePluginStates(mergePluginStates(automationGhost, automationFresh)),
 	}
 }
 
@@ -530,7 +549,8 @@ func (s *APIServer) liveStateSignature() string {
 	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%s/rp%d/cd%d/no%d",
 		reqCount, lastSeq, noteCount, maxNoteUpdate, hlCount,
 		scopeSignature(s.scope.Rules()), len(s.replace.Rules()),
-		len(s.customData.Items()), len(s.noise.Patterns())) + s.detectSignature()
+		len(s.customData.Items()), len(s.noise.Patterns())) +
+		s.detectSignature() + s.automationSignature()
 }
 
 // saveProject snapshots live state to the named project's .joro (respecting its
@@ -593,9 +613,15 @@ func (s *APIServer) resetLiveProjectState() {
 	// An automation session belongs to the engagement it authenticated against.
 	s.capContexts.ResetAll()
 
+	// An automation's key/value state describes the engagement it was gathered in.
+	if s.automationStorage != nil {
+		s.automationStorage.Reset()
+	}
+
 	s.mu.Lock()
 	s.highlights = make(map[string]string)
 	s.pendingProjectPluginStates = nil
+	s.pendingProjectAutomationStates = nil
 	teamChanged := s.settings.ListenerURL != "" || s.settings.TeamToken != "" || s.settings.TeamNickname != ""
 	s.settings.ListenerURL = ""
 	s.settings.TeamToken = ""
@@ -661,6 +687,7 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	}
 
 	decodedPluginStates := decodePluginStates(cfg.PluginStates)
+	decodedAutomationStates := decodePluginStates(cfg.AutomationStates)
 
 	// An automation session belongs to the engagement it authenticated against, so
 	// it does not survive into a different project.
@@ -679,6 +706,7 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	s.settings.TeamNickname = nickname
 	s.activeProjectConfig = name
 	s.pendingProjectPluginStates = decodedPluginStates
+	s.pendingProjectAutomationStates = decodedAutomationStates
 	settings := s.settings
 	s.mu.Unlock()
 
@@ -774,6 +802,14 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 		unknownPluginStates = s.pluginManager.ApplyProjectStates(decodedPluginStates)
 	}
 
+	// Automation storage, same shape. "Installed" is decided by asking the store, so a
+	// blob belonging to an automation this machine lacks is reported rather than loaded
+	// into a namespace nothing can read.
+	var unknownAutomationStates []string
+	if s.automationStorage != nil {
+		unknownAutomationStates = s.automationStorage.Apply(decodedAutomationStates, s.automationInstalled)
+	}
+
 	// Refresh the sidecar so the loaded project's counts show without decompressing
 	// the .joro again. An existing sidecar's prefs win over the .joro's copy (the
 	// sidecar is authoritative locally); the .joro seeds them only on first load.
@@ -822,7 +858,32 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	if len(unknownPluginStates) > 0 {
 		resp["unknownPluginStates"] = unknownPluginStates
 	}
+	if len(unknownAutomationStates) > 0 {
+		resp["unknownAutomationStates"] = unknownAutomationStates
+	}
 	return resp
+}
+
+// automationSignature folds joro.storage into the autosave dirty check.
+//
+// A revision counter rather than a count of anything: the state is an opaque blob per
+// automation, so its size can change while the number of automations does not — the same
+// reason detectSignature carries the findings store's revision.
+func (s *APIServer) automationSignature() string {
+	if s.automationStorage == nil {
+		return ""
+	}
+	return fmt.Sprintf("/as%d", s.automationStorage.Revision())
+}
+
+// automationInstalled reports whether an automation id exists on this machine, so a
+// project's storage blob for something uninstalled is preserved rather than loaded.
+func (s *APIServer) automationInstalled(id string) bool {
+	if s.scriptManager == nil || s.scriptManager.Packages() == nil {
+		return false
+	}
+	_, err := s.scriptManager.Packages().Load(id)
+	return err == nil
 }
 
 // ---- Handlers ----

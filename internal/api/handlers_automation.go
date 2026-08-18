@@ -117,7 +117,7 @@ func (s *APIServer) handleCreateAutomationToken(w http.ResponseWriter, r *http.R
 		return
 	}
 	var body createTokenReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -173,7 +173,7 @@ func (s *APIServer) handleUpdateAutomationToken(w http.ResponseWriter, r *http.R
 		return
 	}
 	var body updateTokenReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -242,7 +242,7 @@ func (s *APIServer) handleSetAutomationTokenEnabled(w http.ResponseWriter, r *ht
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -392,7 +392,7 @@ func (s *APIServer) handleSetMCPState(w http.ResponseWriter, r *http.Request) {
 		Enabled *bool `json:"enabled"`
 		Port    *int  `json:"port"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

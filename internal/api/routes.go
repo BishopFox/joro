@@ -275,7 +275,16 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 		mux.HandleFunc("PUT /api/v1/automation/mcp", s.handleSetMCPState)
 		mux.HandleFunc("GET /api/v1/automation/runs", s.handleListScriptRuns)
 		mux.HandleFunc("GET /api/v1/automation/runs/{id}", s.handleGetScriptRun)
+		mux.HandleFunc("POST /api/v1/automation/runs", s.handleRunScript)
 		mux.HandleFunc("DELETE /api/v1/automation/runs", s.handleClearScriptRuns)
+		mux.HandleFunc("GET /api/v1/automation/scripts", s.handleListScripts)
+		mux.HandleFunc("POST /api/v1/automation/scripts", s.handleInstallScript)
+		mux.HandleFunc("GET /api/v1/automation/scripts/{id}", s.handleGetScript)
+		mux.HandleFunc("PUT /api/v1/automation/scripts/{id}", s.handleUpdateScript)
+		mux.HandleFunc("DELETE /api/v1/automation/scripts/{id}", s.handleDeleteScript)
+		mux.HandleFunc("PUT /api/v1/automation/scripts/{id}/enabled", s.handleSetScriptEnabled)
+		mux.HandleFunc("PUT /api/v1/automation/scripts/{id}/prefs", s.handleSetScriptPrefs)
+		mux.HandleFunc("GET /api/v1/automation/sdk", s.handleScriptSDK)
 	}
 
 	// Plugin routes (dynamic, based on loaded plugins).

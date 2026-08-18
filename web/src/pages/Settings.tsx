@@ -230,12 +230,15 @@ export default function SettingsPage() {
         })}
       </nav>
 
-      {/* Content pane. Plugins is full-bleed rather than padded-and-scrolling:
-          its feature-plugin sub-tabs are iframes that need a real height, and a
-          block parent gives a `flex-1` child none. */}
+      {/* Content pane. Plugins and Automation are full-bleed rather than
+          padded-and-scrolling: the former's feature-plugin sub-tabs are iframes and the
+          latter's script editor is a CodeMirror instance, and both need a real height —
+          a block parent gives a `flex-1` child none. Both supply their own padding. */}
       <div className="flex-1 min-h-0">
         <div className={`h-full bg-surface-card rounded-lg shadow-sm ${
-          category === 'plugins' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto p-5'
+          category === 'plugins' || category === 'automation'
+            ? 'flex flex-col overflow-hidden'
+            : 'overflow-y-auto p-5'
         }`}>
           {category === 'project' && <ProjectBrowser />}
 

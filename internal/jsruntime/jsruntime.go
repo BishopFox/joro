@@ -172,6 +172,13 @@ type Meta struct {
 	AutomationVersion string `json:"automationVersion,omitempty"`
 
 	TriggerType string `json:"triggerType"`
+
+	// TriggerData is merged into ctx.trigger beside the type, so an event-driven run
+	// can see what woke it. It carries references — a request seq, a finding id, a
+	// campaign id — and never a resolved object: the script fetches detail through the
+	// SDK, where its principal is enforced. Receiving an event is not permission to
+	// read what the event is about.
+	TriggerData json.RawMessage `json:"triggerData,omitempty"`
 }
 
 // Request is one program to run.
@@ -213,8 +220,12 @@ type Result struct {
 	Logs          []LogLine `json:"logs,omitempty"`
 	LogsTruncated bool      `json:"logsTruncated,omitempty"`
 
-	Calls           int `json:"calls"`
-	SendCalls       int `json:"sendCalls"`
+	Calls     int `json:"calls"`
+	SendCalls int `json:"sendCalls"`
+	// StorageOps counts joro.storage calls. Tracked separately from Calls because
+	// storage is not a capability invocation: it consumes no registry budget, engages
+	// no scope guard, and writes no audit entry.
+	StorageOps      int `json:"storageOps,omitempty"`
 	CallInputBytes  int `json:"callInputBytes"`
 	CallOutputBytes int `json:"callOutputBytes"`
 
@@ -236,6 +247,34 @@ type HostBridge interface {
 	// script can branch on and tells the runtime whether the failure was a denial.
 	Invoke(ctx context.Context, id string, args json.RawMessage) (json.RawMessage, error)
 }
+
+// StorageBridge is the per-automation key/value store, exposed to a script as
+// joro.storage. Optional: a bridge that does not implement it makes joro.storage report
+// that this run has no namespace, which is the honest answer for a one-shot script.
+//
+// This is the one part of the SDK that is not a capability, and the reason is that there
+// is nothing to authorize. The namespace is bound by the host from the automation's own
+// identity and is never an argument, so a script cannot name another automation's data;
+// and storage reaches nothing — not a target, not the operator's configuration, not
+// Joro's state. It is memory, not authority. Making it a capability would add a grant
+// checkbox whose only possible answer is the one already implied by installing the
+// automation.
+//
+// op is one of "get", "set", "delete", "keys".
+type StorageBridge interface {
+	Storage(ctx context.Context, op, key string, value json.RawMessage) (json.RawMessage, error)
+}
+
+// storageUnavailableMsg is reported by both the in-process VM and the worker's parent, so
+// an operator sees one wording however the run was executed.
+const storageUnavailableMsg = "joro.storage is available only to an installed automation: a " +
+	"one-shot script has no namespace of its own. Return the value instead, or install this as " +
+	"an automation"
+
+// maxStorageOps bounds joro.storage calls per run. A fixed constant rather than a
+// configurable limit: it exists to stop a loop from hammering the pipe, not to express an
+// operator's policy, and the wall clock already bounds the run itself.
+const maxStorageOps = 1000
 
 // CallError is a capability failure the script can inspect. Code becomes err.code in
 // JavaScript, so a script can retry on "busy" and give up on "forbidden".

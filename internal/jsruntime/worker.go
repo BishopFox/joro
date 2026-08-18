@@ -9,6 +9,7 @@ import (
 	"io"
 	"os/exec"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -55,6 +56,7 @@ const (
 type frame struct {
 	Job   *Request    `json:"job,omitempty"`
 	Call  *callFrame  `json:"call,omitempty"`
+	Store *storeFrame `json:"store,omitempty"`
 	Reply *replyFrame `json:"reply,omitempty"`
 	Done  *Result     `json:"done,omitempty"`
 	// Fatal reports that the worker could not run at all. Distinct from a Result
@@ -66,6 +68,17 @@ type callFrame struct {
 	ID   int             `json:"id"`
 	Cap  string          `json:"cap"`
 	Args json.RawMessage `json:"args"`
+}
+
+// storeFrame is a joro.storage operation. A separate frame from callFrame because it is
+// not a capability invocation — no ID to authorize, no scope guard, no audit entry — and
+// collapsing the two would invite a handler that treats a storage key as a capability
+// name.
+type storeFrame struct {
+	ID    int             `json:"id"`
+	Op    string          `json:"op"`
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value,omitempty"`
 }
 
 type replyFrame struct {
@@ -242,6 +255,35 @@ func (w *WorkerRuntime) Run(ctx context.Context, req Request, bridge HostBridge)
 				continue
 			}
 
+		case f.Store != nil:
+			// Storage availability is decided here, not in the child: the child's
+			// bridge is the pipe and always implements the interface, so only the
+			// parent knows whether this run actually has a namespace.
+			rep := replyFrame{ID: f.Store.ID}
+			sb, ok := bridge.(StorageBridge)
+			switch {
+			case !ok:
+				rep.Failed = true
+				rep.Code = "storage_unavailable"
+				rep.Msg = storageUnavailableMsg
+			default:
+				data, serr := sb.Storage(runCtx, f.Store.Op, f.Store.Key, f.Store.Value)
+				if serr != nil {
+					rep.Failed = true
+					var ce *CallError
+					if errors.As(serr, &ce) {
+						rep.Code, rep.Msg = ce.Code, ce.Msg
+					} else {
+						rep.Code, rep.Msg = "storage_error", serr.Error()
+					}
+				} else {
+					rep.Data = data
+				}
+			}
+			if err := enc.Encode(frame{Reply: &rep}); err != nil {
+				continue
+			}
+
 		default:
 			_ = wait()
 			return Result{}, errors.New("script worker sent an empty frame")
@@ -250,10 +292,21 @@ func (w *WorkerRuntime) Run(ctx context.Context, req Request, bridge HostBridge)
 }
 
 func workerLostDetail(stderr string) string {
+	s := string(bytes.TrimSpace([]byte(stderr)))
+
+	// Distinguish the two ways a worker vanishes, because they call for opposite
+	// responses. Reclaimed-for-memory is the design working; a Go panic is a bug in the
+	// runtime, and reporting it as containment would guarantee nobody ever looks at it.
+	if strings.Contains(s, "panic:") || strings.Contains(s, "runtime error:") {
+		return "the script worker crashed rather than reporting a result. This is a defect in " +
+			"Joro's script runtime, not a limit being enforced — please report it.\nworker stderr: " +
+			trunc(s, maxWorkerStderr)
+	}
+
 	base := "the script worker exited without reporting a result. The usual cause is the " +
 		"operating system reclaiming it for memory, which is the containment working"
-	if s := bytes.TrimSpace([]byte(stderr)); len(s) > 0 {
-		return base + "\nworker stderr: " + trunc(string(s), maxWorkerStderr)
+	if len(s) > 0 {
+		return base + "\nworker stderr: " + trunc(s, maxWorkerStderr)
 	}
 	return base
 }
@@ -287,9 +340,18 @@ func (b *lockedBuffer) String() string {
 //
 // The host's main should call this and exit. It never returns a Result — the result
 // goes on the wire — only an error that could not be reported that way.
-func RunWorker(ctx context.Context, in io.Reader, out io.Writer) error {
+func RunWorker(ctx context.Context, in io.Reader, out io.Writer) (err error) {
 	dec := json.NewDecoder(io.LimitReader(in, maxWireBytes))
 	enc := json.NewEncoder(out)
+
+	// A panic here would exit the worker on a signal, and the parent can only report
+	// that as "the worker vanished" — losing the run's logs, counters and reason. Turn it
+	// into a frame the parent can attribute instead.
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = enc.Encode(frame{Fatal: fmt.Sprintf("the script worker panicked: %v", rec)})
+		}
+	}()
 
 	var f frame
 	if err := dec.Decode(&f); err != nil {
@@ -335,23 +397,41 @@ type pipeBridge struct {
 }
 
 func (b *pipeBridge) Invoke(_ context.Context, id string, args json.RawMessage) (json.RawMessage, error) {
+	return b.roundTrip(func(reqID int) frame {
+		return frame{Call: &callFrame{ID: reqID, Cap: id, Args: args}}
+	})
+}
+
+// Storage forwards a joro.storage operation. Same request/response discipline as a
+// capability call, and the same id sequence, so the two can never be confused for each
+// other on the wire.
+func (b *pipeBridge) Storage(_ context.Context, op, key string, value json.RawMessage) (json.RawMessage, error) {
+	return b.roundTrip(func(reqID int) frame {
+		return frame{Store: &storeFrame{ID: reqID, Op: op, Key: key, Value: value}}
+	})
+}
+
+// roundTrip sends one frame and waits for its reply. Strict alternation is safe because
+// every SDK call is synchronous inside the VM, so two requests are never in flight.
+func (b *pipeBridge) roundTrip(build func(reqID int) frame) (json.RawMessage, error) {
+	unreachable := &CallError{Code: "handler_error", Msg: "the host is no longer reachable"}
 	if b.broken != nil {
-		return nil, &CallError{Code: "handler_error", Msg: "the host is no longer reachable"}
+		return nil, unreachable
 	}
 	b.nextID++
-	callID := b.nextID
+	reqID := b.nextID
 
-	if err := b.enc.Encode(frame{Call: &callFrame{ID: callID, Cap: id, Args: args}}); err != nil {
-		b.broken = fmt.Errorf("sending a capability call: %w", err)
-		return nil, &CallError{Code: "handler_error", Msg: "the host is no longer reachable"}
+	if err := b.enc.Encode(build(reqID)); err != nil {
+		b.broken = fmt.Errorf("sending a host request: %w", err)
+		return nil, unreachable
 	}
 
 	var f frame
 	if err := b.dec.Decode(&f); err != nil {
-		b.broken = fmt.Errorf("reading a capability reply: %w", err)
-		return nil, &CallError{Code: "handler_error", Msg: "the host is no longer reachable"}
+		b.broken = fmt.Errorf("reading a host reply: %w", err)
+		return nil, unreachable
 	}
-	if f.Reply == nil || f.Reply.ID != callID {
+	if f.Reply == nil || f.Reply.ID != reqID {
 		b.broken = errors.New("host replied out of sequence")
 		return nil, &CallError{Code: "handler_error", Msg: "the host replied out of sequence"}
 	}

@@ -122,7 +122,14 @@ type APIServer struct {
 	// scriptManager runs sandboxed JavaScript against the registry. Nil unless
 	// --automation-scripting was given, which is what keeps script.run unregistered.
 	scriptManager *jsautomation.Manager
-	automationMu  sync.Mutex // serializes MCP start/stop from HTTP handlers
+	// automationStorage is joro.storage: per-automation key/value state that rides in
+	// the project config like plugin state, because it describes one engagement.
+	automationStorage *jsautomation.Storage
+	// scriptTriggers watches Joro's events and runs armed automations. Nil unless
+	// scripting is on; handlers ring its doorbell after a change so an enable takes
+	// effect immediately rather than on the next 250ms tick.
+	scriptTriggers *jsautomation.Dispatcher
+	automationMu   sync.Mutex // serializes MCP start/stop from HTTP handlers
 
 	buildInfo  BuildInfo
 	cancelFunc context.CancelFunc
@@ -145,6 +152,9 @@ type APIServer struct {
 	// so unknown-to-us plugins' data is never dropped.
 	pendingUserPluginStates    map[string][]byte
 	pendingProjectPluginStates map[string][]byte
+	// pendingProjectAutomationStates does the same for joro.storage blobs belonging to
+	// automations not installed here.
+	pendingProjectAutomationStates map[string][]byte
 
 	srv *http.Server
 }

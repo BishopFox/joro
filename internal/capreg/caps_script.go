@@ -22,6 +22,11 @@ import (
 // capability body no reach it did not already have.
 type ScriptRunner interface {
 	Run(ctx context.Context, req jsautomation.RunRequest) (*jsautomation.Run, error)
+	// List reports the installed automations, without their source.
+	List() []jsautomation.Summary
+	// Invoke runs an installed automation. OperatorRun is never set from here: an
+	// agent may run only what the operator has armed.
+	Invoke(ctx context.Context, req jsautomation.InvokeRequest) (*jsautomation.Run, error)
 }
 
 type scriptRunArgs struct {
@@ -31,6 +36,11 @@ type scriptRunArgs struct {
 	TimeoutMs    int `json:"timeoutMs"`
 	MaxCalls     int `json:"maxCalls"`
 	MaxSendCalls int `json:"maxSendCalls"`
+}
+
+type scriptInvokeArgs struct {
+	ID    string          `json:"id"`
+	Input json.RawMessage `json:"input"`
 }
 
 // Output shaping for the tool result.
@@ -152,6 +162,128 @@ func registerScript(r *capability.Registry, d Deps) {
 			return renderRun(run), nil
 		}),
 	})
+
+	r.MustRegister(capability.Capability{
+		ID:         "script.list",
+		Class:      capability.ClassScript,
+		Title:      "List installed automations",
+		Privileged: true,
+		Description: "The automations installed on this Joro, with their id, version, whether the " +
+			"operator has enabled them, which events they are armed for, and how their last run ended. " +
+			"Use an id with script_invoke. Source is never returned: read what an automation does by " +
+			"asking the operator, not by reading their code through this tool.",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		ArgsExample:    json.RawMessage(`{}`),
+		MaxOutputBytes: 32 << 10,
+		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, _ struct{}) (any, error) {
+			if d.Script == nil {
+				return nil, fmt.Errorf("the script runtime is unavailable")
+			}
+			return renderAutomations(d.Script.List()), nil
+		}),
+	})
+
+	r.MustRegister(capability.Capability{
+		ID:    "script.invoke",
+		Class: capability.ClassScript,
+		Title: "Run an installed automation",
+
+		// Privileged for the same reason script.run is: the code it runs holds the whole
+		// SDK bundle. But it is a strictly narrower grant, and the more likely posture —
+		// an operator can let an agent run automations they wrote and reviewed without
+		// letting it submit code of its own.
+		Privileged: true,
+		Mutating:   true,
+
+		Description: "Run an automation the operator has installed and enabled, by id, passing input " +
+			"it is expecting. The code is theirs, not yours; you choose when to run it and what to feed " +
+			"it. Returns the same run report as script_run: logs, the value it returned, and how it " +
+			"ended. An automation that is not enabled cannot be invoked — ask the operator to enable it.",
+
+		InputSchema: json.RawMessage(`{
+  "type":"object",
+  "properties":{
+    "id": {"type":"string","description":"The automation id, from script_list."},
+    "input": {"type":"object","description":"JSON handed to the automation as ctx.input. What it expects is up to that automation."}
+  },
+  "required":["id"],
+  "additionalProperties":false
+}`),
+		ArgsExample: json.RawMessage(`{"id":"idor-check","input":{"ref":1842}}`),
+
+		MaxOutputBytes: scriptRunOutputCap,
+		Timeout:        scriptRunTimeout,
+
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args scriptInvokeArgs) (any, error) {
+			if d.Script == nil {
+				return nil, fmt.Errorf("the script runtime is unavailable")
+			}
+			if strings.TrimSpace(args.ID) == "" {
+				return nil, &capability.Error{Code: capability.CodeInvalidArgs, Msg: "id is required"}
+			}
+
+			run, err := d.Script.Invoke(ctx, jsautomation.InvokeRequest{
+				ID:      args.ID,
+				Input:   args.Input,
+				Caller:  p,
+				Trigger: jsautomation.TriggerManual,
+			})
+			switch {
+			case errors.Is(err, jsautomation.ErrBusy):
+				return nil, &capability.Error{Code: capability.CodeBusy, Msg: err.Error()}
+			case errors.Is(err, jsautomation.ErrNotFound):
+				return nil, &capability.Error{
+					Code: capability.CodeInvalidArgs,
+					Msg:  fmt.Sprintf("no automation with id %q is installed; use script_list", args.ID),
+				}
+			case errors.Is(err, jsautomation.ErrNotRunnable):
+				// Forbidden rather than invalid_args: the automation exists and the
+				// argument was right, the operator has simply not armed it.
+				return nil, &capability.Error{Code: capability.CodeForbidden, Msg: err.Error()}
+			case err != nil:
+				return nil, err
+			}
+
+			capability.RecordChange(ctx, "invoke %s: %s", args.ID, run.Summary())
+			return renderRun(run), nil
+		}),
+	})
+}
+
+// renderAutomations lists installed automations, one per line with aligned columns —
+// the shape the other list tools use, and cheap to scan for the id to invoke.
+func renderAutomations(items []jsautomation.Summary) string {
+	if len(items) == 0 {
+		return "(no automations installed)"
+	}
+
+	rows := make([][3]string, 0, len(items))
+	var idW, verW int
+	for _, a := range items {
+		state := "disabled"
+		switch {
+		case a.Paused:
+			state = "paused"
+		case a.Enabled:
+			state = "enabled"
+		}
+		armed := joinOr(a.Armed, "-")
+		last := "never"
+		if a.LastRun != nil {
+			last = a.LastRun.Reason
+		}
+		rows = append(rows, [3]string{a.ID, a.Version, fmt.Sprintf("%-8s armed=%s last=%s  %s",
+			state, armed, last, a.Name)})
+		idW = max(idW, len(a.ID))
+		verW = max(verW, len(a.Version))
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "n=%d\n", len(items))
+	for _, r := range rows {
+		fmt.Fprintf(&b, "%-*s  %-*s  %s\n", idW, r[0], verW, r[1], r[2])
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // renderRun formats a run for the caller: a header, then logs, then the value.

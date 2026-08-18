@@ -7,9 +7,15 @@ import AutomationTokenModal from './AutomationTokenModal'
 import AutomationSecretModal from './AutomationSecretModal'
 import AutomationActivity from './AutomationActivity'
 import ScriptRuns from './ScriptRuns'
+import ScriptsPanel from './automation/ScriptsPanel'
 import ConfirmModal from './ConfirmModal'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border'
+
+// Three surfaces that share a subject and nothing else: what a client may do, what code
+// is installed, and what has happened. Sub-tabs rather than one long pane, mirroring
+// Settings -> Plugins — and the editor needs the full pane height regardless.
+type SubTab = 'tokens' | 'scripts' | 'activity'
 
 export default function AutomationSettings() {
   const { tokens, capabilities, profiles, classes, mcp, available, refresh, create, update, rotate, setEnabled, review, revoke, setMcp } =
@@ -30,6 +36,7 @@ export default function AutomationSettings() {
   const [secret, setSecret] = useState<{ value: string; name: string } | null>(null)
   const [confirm, setConfirm] = useState<{ message: string; action: () => Promise<void> } | null>(null)
   const [port, setPort] = useState(0)
+  const [subTab, setSubTab] = useState<SubTab>('tokens')
   const [scopeReady, setScopeReady] = useState(true)
 
   useEffect(() => {
@@ -57,7 +64,7 @@ export default function AutomationSettings() {
 
   if (available === false) {
     return (
-      <div>
+      <div className="p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide mb-3">Automation</h2>
         <p className="text-content-muted text-xs">
           Automation is disabled for this run (<code className="font-mono">--no-automation</code>). Restart Joro without
@@ -83,10 +90,42 @@ export default function AutomationSettings() {
     setSecret({ value: s, name: body.name ?? 'token' })
   }
 
+  const tab = (id: SubTab, label: string) => (
+    <button
+      key={id}
+      onClick={() => setSubTab(id)}
+      className={`px-3 py-1.5 text-xs font-semibold rounded-t-sm border-b-2 transition-colors ${
+        subTab === id
+          ? 'border-accent text-accent'
+          : 'border-transparent text-content-secondary hover:text-content-primary'
+      }`}
+    >
+      {label}
+    </button>
+  )
+
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex gap-1 px-3 pt-2 pb-0 bg-surface-card border-b border-border shrink-0">
+        {tab('tokens', 'Tokens')}
+        {tab('scripts', 'Automations')}
+        {tab('activity', 'Activity')}
+      </div>
+
+      {subTab === 'scripts' && <ScriptsPanel />}
+
+      {subTab === 'activity' && (
+        <div className="flex-1 overflow-auto p-5 space-y-4">
+          <AutomationActivity />
+          <ScriptRuns />
+        </div>
+      )}
+
+      {/* The tokens tab. Modals live outside it so switching tabs cannot unmount one. */}
+      {subTab === 'tokens' && (
+      <div className="flex-1 overflow-auto p-5 space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide">Automation</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide">Tokens</h2>
         <button
           onClick={() => setCreating(true)}
           className="bg-accent-tertiary text-black text-xs font-semibold px-2.5 py-1 rounded-sm inline-flex items-center gap-1.5"
@@ -302,9 +341,8 @@ export default function AutomationSettings() {
         in History, where Match &amp; Replace and Custom Data rules apply to them like any other request.
       </p>
 
-      <AutomationActivity />
-
-      <ScriptRuns />
+      </div>
+      )}
 
       {creating && (
         <AutomationTokenModal

@@ -256,6 +256,9 @@ export interface ScriptResult {
   logsTruncated?: boolean
   calls: number
   sendCalls: number
+  /** joro.storage calls, counted apart from capability calls because they consume no
+   *  registry budget, engage no scope guard, and write no audit entry. */
+  storageOps?: number
   callInputBytes: number
   callOutputBytes: number
   durationMs: number
@@ -275,6 +278,104 @@ export interface ScriptRun {
   source?: string
   sourceHash: string
   result: ScriptResult
+}
+
+/** The author's requested budget. Every field optional; the operator may only lower. */
+export interface AutomationLimits {
+  timeoutMs?: number
+  memoryMb?: number
+  maxCalls?: number
+  maxSendCalls?: number
+  maxLogBytes?: number
+  maxResultBytes?: number
+}
+
+/** The author-owned half of an installed automation. Cannot request capabilities: the
+ *  sdkVersion selects a Joro-owned bundle, which is the point of the indirection. */
+export interface AutomationManifest {
+  id: string
+  name: string
+  version: string
+  description?: string
+  sdkVersion: string
+  entrypoint?: string
+  triggers?: string[]
+  limits?: AutomationLimits
+  /** Shortest gap between two triggered runs. Combined with the operator's by taking
+   *  the longer, which is why it is not inside limits. */
+  minIntervalMs?: number
+}
+
+export interface AutomationRevision {
+  hash: string
+  at: string
+  bytes: number
+}
+
+export interface AutomationLastRun {
+  id: string
+  at: string
+  reason: string
+}
+
+/** The operator-owned half, in a separate file so an update never reverts a decision. */
+export interface AutomationState {
+  enabled: boolean
+  /** Set by the runaway breaker, never by the operator. Enabling clears it. */
+  paused?: boolean
+  pausedReason?: string
+  /** Individual triggers switched off: true disables, absent means armed. */
+  triggersDisabled?: Record<string, boolean>
+  limits?: AutomationLimits
+  minIntervalMs?: number
+  /** Bounds where this automation's runs may send. Exists for trigger-fired runs, which
+   *  carry no launching token and are otherwise bounded by scope alone. */
+  hostAllow?: string[]
+  installedAt: string
+  updatedAt: string
+  revisions?: AutomationRevision[]
+  lastRun?: AutomationLastRun
+}
+
+/** One installed automation, source included. */
+export interface AutomationPackage {
+  manifest: AutomationManifest
+  state: AutomationState
+  source?: string
+  sourceHash: string
+}
+
+/** List projection. Source is withheld, not merely omitted. */
+export interface AutomationSummary {
+  id: string
+  name: string
+  version: string
+  description?: string
+  sdkVersion: string
+  triggers: string[]
+  /** The triggers currently live: declared, not switched off, and runnable. */
+  armed: string[]
+  enabled: boolean
+  paused?: boolean
+  pausedReason?: string
+  sourceHash: string
+  sourceBytes: number
+  installedAt: string
+  updatedAt: string
+  revisions: number
+  lastRun?: AutomationLastRun
+}
+
+/** One joro.* method, joined with the capability behind it. */
+export interface SdkMethod {
+  js: string
+  capability: string
+  title?: string
+  description?: string
+  inputSchema?: unknown
+  argsExample?: unknown
+  sendsTraffic?: boolean
+  mutating?: boolean
 }
 
 export interface AuditEntry {
@@ -998,6 +1099,34 @@ export const api = {
     ),
   getScriptRun: (id: string) => req<ScriptRun>('GET', `/automation/runs/${id}`),
   clearScriptRuns: () => req<{ deleted: number }>('DELETE', '/automation/runs'),
+
+  listScripts: () =>
+    req<{ scripts: AutomationSummary[]; triggers: string[]; bundle: string }>(
+      'GET',
+      '/automation/scripts'
+    ),
+  getScript: (id: string) => req<AutomationPackage>('GET', `/automation/scripts/${id}`),
+  installScript: (manifest: AutomationManifest, source: string) =>
+    req<AutomationPackage>('POST', '/automation/scripts', { manifest, source }),
+  updateScript: (id: string, manifest: AutomationManifest, source: string, expectedHash?: string) =>
+    req<AutomationPackage>('PUT', `/automation/scripts/${id}`, { manifest, source, expectedHash }),
+  deleteScript: (id: string) => req<{ status: string }>('DELETE', `/automation/scripts/${id}`),
+  setScriptEnabled: (id: string, enabled: boolean) =>
+    req<AutomationSummary>('PUT', `/automation/scripts/${id}/enabled`, { enabled }),
+  setScriptPrefs: (
+    id: string,
+    prefs: { limits?: AutomationLimits; triggersDisabled?: Record<string, boolean>; hostAllow?: string[] }
+  ) =>
+    req<AutomationSummary>('PUT', `/automation/scripts/${id}/prefs`, prefs),
+  // No client timeout below the server's: a run may legitimately take a minute, and
+  // aborting it here would leave the operator with no result and the run still going.
+  runScript: (body: { scriptId?: string; source?: string; input?: unknown; timeoutMs?: number }) =>
+    req<ScriptRun>('POST', '/automation/runs', body, 120000),
+  getScriptSdk: () =>
+    req<{ bundle: string; methods: SdkMethod[]; storage: { js: string; description: string }[]; triggers: string[] }>(
+      'GET',
+      '/automation/sdk'
+    ),
   getMcpState: () => req<McpState>('GET', '/automation/mcp'),
   setMcpState: (body: { enabled?: boolean; port?: number }) =>
     req<McpState>('PUT', '/automation/mcp', body),

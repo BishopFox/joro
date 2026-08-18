@@ -29,9 +29,14 @@ type Run struct {
 	DurationMs int64     `json:"durationMs"`
 
 	// TokenID and TokenName identify the launching token, not the run's synthetic
-	// principal: the operator wants to know which credential set this off.
+	// principal: the operator wants to know which credential set this off. Both are
+	// empty for a run a trigger started, where TokenName carries the automation name.
 	TokenID   string `json:"tokenId"`
 	TokenName string `json:"tokenName"`
+
+	// AutomationID is set when this run came from an installed automation, which is
+	// also what gave it a storage namespace.
+	AutomationID string `json:"automationId,omitempty"`
 
 	Trigger string `json:"trigger"`
 	Bundle  string `json:"bundle"`

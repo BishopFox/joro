@@ -60,6 +60,23 @@ type VM struct{}
 // New returns an in-process runtime.
 func New() *VM { return &VM{} }
 
+// Validate reports whether a program could be loaded at all: the module preamble must be
+// erasable and the result must parse.
+//
+// It compiles without executing, which is what makes it safe to run in the parent process
+// at install time. Catching a syntax error while whoever submitted the package is still
+// looking at it beats surfacing it hours later as a trigger that quietly does nothing.
+func Validate(source string) error {
+	prepared, err := Prepare(source)
+	if err != nil {
+		return err
+	}
+	if _, err := goja.Compile("automation.js", prepared, true); err != nil {
+		return fmt.Errorf("syntax error: %v", err)
+	}
+	return nil
+}
+
 var (
 	shimOnce sync.Once
 	shimProg *goja.Program
@@ -106,12 +123,36 @@ func (v *VM) Run(ctx context.Context, req Request, bridge HostBridge) (res Resul
 	start := time.Now()
 	sink := &logSink{maxBytes: lim.MaxLogBytes}
 
+	// Per-run counters. Declared before finish so that one place stamps them onto every
+	// Result, success or not — on a failure they are most of what explains it, and
+	// repeating them at each return is how one gets forgotten.
+	var (
+		calls, sendCalls          int
+		storageOps                int
+		callInBytes, callOutBytes int
+	)
+
 	finish := func(r Result) (Result, error) {
 		r.Logs = sink.lines
 		r.LogsTruncated = sink.truncated
+		r.Calls, r.SendCalls, r.StorageOps = calls, sendCalls, storageOps
+		r.CallInputBytes, r.CallOutputBytes = callInBytes, callOutBytes
 		r.DurationMs = time.Since(start).Milliseconds()
 		return r, nil
 	}
+
+	// Last resort. Every known path that touches a script-controlled value is wrapped in
+	// vm.Try, but this package's whole job is to survive whatever the guest does, and a
+	// panic escaping into the caller would be the one failure mode it cannot report. In
+	// the worker that means a signal and a lost run; in-process it would take the proxy.
+	defer func() {
+		if rec := recover(); rec != nil {
+			res, err = finish(Result{
+				Reason: ReasonRuntimeFailure,
+				Err:    fmt.Sprintf("the script runtime panicked: %v", rec),
+			})
+		}
+	}()
 
 	prepared, perr := Prepare(req.Source)
 	if perr != nil {
@@ -137,11 +178,9 @@ func (v *VM) Run(ctx context.Context, req Request, bridge HostBridge) (res Resul
 	// Counters and the denial record, all touched only from the VM goroutine (host
 	// functions run synchronously on it) except halted, which the watchdog writes.
 	var (
-		calls, sendCalls          int
-		callInBytes, callOutBytes int
-		deniedCodes               = map[string]bool{}
-		halted                    halt
-		haltedMu                  sync.Mutex
+		deniedCodes = map[string]bool{}
+		halted      halt
+		haltedMu    sync.Mutex
 	)
 	setHalt := func(h halt) {
 		haltedMu.Lock()
@@ -230,8 +269,40 @@ func (v *VM) Run(ctx context.Context, req Request, bridge HostBridge) (res Resul
 		return okEnvelope(out)
 	}
 
+	// joro.storage. Present in the shim for every run; whether this run has a namespace
+	// to store into is answered here, because only the host knows.
+	storageFn := func(op, key, valueJSON string) string {
+		sb, ok := bridge.(StorageBridge)
+		if !ok {
+			return errEnvelope("storage_unavailable", storageUnavailableMsg)
+		}
+		if h := readHalt(); h.reason != "" {
+			return errEnvelope("halted", "the run has been stopped")
+		}
+		if storageOps >= maxStorageOps {
+			setHalt(halt{reason: ReasonBudget, detail: fmt.Sprintf(
+				"this run reached its limit of %d storage operations", maxStorageOps)})
+			return errEnvelope("budget_exceeded", fmt.Sprintf(
+				"this run reached its limit of %d storage operations", maxStorageOps))
+		}
+		storageOps++
+
+		out, serr := sb.Storage(ctx, op, key, json.RawMessage(valueJSON))
+		if serr != nil {
+			var ce *CallError
+			if errors.As(serr, &ce) {
+				return errEnvelope(ce.Code, ce.Msg)
+			}
+			return errEnvelope("storage_error", serr.Error())
+		}
+		return okEnvelope(out)
+	}
+
 	if err := vm.Set("__joro_invoke", invoke); err != nil {
 		return Result{}, fmt.Errorf("installing the host bridge: %w", err)
+	}
+	if err := vm.Set("__joro_storage", storageFn); err != nil {
+		return Result{}, fmt.Errorf("installing the storage bridge: %w", err)
 	}
 	if err := vm.Set("__joro_log", func(level, text string) { sink.add(level, text) }); err != nil {
 		return Result{}, fmt.Errorf("installing console capture: %w", err)
@@ -252,8 +323,11 @@ func (v *VM) Run(ctx context.Context, req Request, bridge HostBridge) (res Resul
 		return Result{}, fmt.Errorf("compiling the entry hook: %w", eerr)
 	}
 
-	// Watchdogs. Stopped before any post-run inspection so a late interrupt cannot
-	// land on the VM while the result is being read out.
+	// Watchdogs. Deliberately NOT stopped before the result is read out: rendering a
+	// thrown value and exporting a returned one both run script code — a getter, a
+	// toString, a toJSON — so those reads need the deadline and the memory sampler as
+	// much as run() does. Every such read happens inside vm.Try, which turns a landing
+	// interrupt into an error rather than a panic.
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -291,95 +365,84 @@ func (v *VM) Run(ctx context.Context, req Request, bridge HostBridge) (res Resul
 		close(stop)
 		wg.Wait()
 	}
+	defer stopWatchdogs()
 
 	// Phase 1: run the script body, which defines the entry point.
 	_, rerr := vm.RunProgram(userProg)
 	if rerr == nil {
 		_, rerr = vm.RunProgram(entryProg)
 	}
-	vm.GlobalObject().Delete("__joro_entry")
+	_ = vm.Try(func() { vm.GlobalObject().Delete("__joro_entry") })
 
 	if rerr != nil {
-		stopWatchdogs()
-		return finish(v.failure(rerr, readHalt(), deniedCodes, calls, sendCalls, callInBytes, callOutBytes))
+		return finish(failure(vm, rerr, readHalt(), deniedCodes))
 	}
 
 	fn, ok := goja.AssertFunction(entry)
 	if !ok {
-		stopWatchdogs()
 		return finish(Result{
 			Reason: ReasonRuntimeFailure,
 			Err: "no entry point: define `async function run(ctx) { ... }` at the top level. " +
 				"The value returned from run() is the result of the automation.",
-			Calls: calls, SendCalls: sendCalls,
-			CallInputBytes: callInBytes, CallOutputBytes: callOutBytes,
 		})
 	}
 
 	// Phase 2: call it.
 	ctxArg, cerr2 := buildRunContext(vm, req)
 	if cerr2 != nil {
-		stopWatchdogs()
 		return finish(Result{Reason: ReasonRuntimeFailure, Err: cerr2.Error()})
 	}
 
 	out, ferr := fn(goja.Undefined(), ctxArg)
 	if ferr != nil {
-		stopWatchdogs()
-		return finish(v.failure(ferr, readHalt(), deniedCodes, calls, sendCalls, callInBytes, callOutBytes))
+		return finish(failure(vm, ferr, readHalt(), deniedCodes))
 	}
 
 	// An async function returns a promise. Every SDK call is synchronous, so a
 	// promise whose awaits all resolve from SDK calls or settled values is already
 	// settled by the time the call returns, and goja has drained its job queue.
+	//
+	// Export is inside Try because it is not a passive read: for a plain object it walks
+	// own enumerable properties and invokes their accessors, which is script code.
 	settled := out
-	if p, isPromise := out.Export().(*goja.Promise); isPromise {
-		switch p.State() {
+	var promise *goja.Promise
+	if ex := vm.Try(func() { promise, _ = out.Export().(*goja.Promise) }); ex != nil {
+		return finish(failure(vm, ex, readHalt(), deniedCodes))
+	}
+	if promise != nil {
+		switch promise.State() {
 		case goja.PromiseStateFulfilled:
-			settled = p.Result()
+			settled = promise.Result()
 		case goja.PromiseStateRejected:
-			stopWatchdogs()
 			// No Go error here: a rejected promise is not a goja error value, so the
 			// rejection itself is what failure reports on.
-			return finish(v.failure(
-				nil, readHalt(), deniedCodes, calls, sendCalls, callInBytes, callOutBytes,
-				withRejection(vm, p.Result())))
+			return finish(failure(
+				vm, nil, readHalt(), deniedCodes, withRejection(vm, promise.Result())))
 		default:
-			stopWatchdogs()
 			return finish(Result{
 				Reason: ReasonException,
 				Err: "run() returned a promise that never settled. The sandbox has no timers, sockets " +
 					"or filesystem, so every await must resolve from an SDK call or an already-settled " +
 					"value — an await on `new Promise(...)` that nothing resolves will hang here.",
-				Calls: calls, SendCalls: sendCalls,
-				CallInputBytes: callInBytes, CallOutputBytes: callOutBytes,
 			})
 		}
 	}
 
-	stopWatchdogs()
-
 	if h := readHalt(); h.reason != "" {
 		return finish(Result{
 			Reason: h.reason, Err: h.detail,
-			Calls: calls, SendCalls: sendCalls,
-			CallInputBytes: callInBytes, CallOutputBytes: callOutBytes,
 		})
 	}
 
-	value, verr := marshalResult(settled, lim.MaxResultBytes)
+	value, verr := marshalResult(vm, settled, lim.MaxResultBytes)
 	if verr != nil {
 		return finish(Result{
 			Reason: ReasonRuntimeFailure, Err: verr.Error(),
-			Calls: calls, SendCalls: sendCalls,
-			CallInputBytes: callInBytes, CallOutputBytes: callOutBytes,
 		})
 	}
 
 	return finish(Result{
 		Reason: ReasonSuccess, Value: value,
-		Calls: calls, SendCalls: sendCalls,
-		CallInputBytes: callInBytes, CallOutputBytes: callOutBytes,
 	})
 }
 
@@ -398,15 +461,10 @@ func withRejection(vm *goja.Runtime, v goja.Value) *rejection {
 // error: when a run is interrupted, goja surfaces an InterruptedError, but the script
 // may also have been mid-throw, and the operator needs to be told it was stopped
 // rather than that it failed.
-func (v *VM) failure(
-	gerr error, h halt, deniedCodes map[string]bool,
-	calls, sendCalls, inBytes, outBytes int,
-	rej ...*rejection,
-) Result {
-	res := Result{
-		Calls: calls, SendCalls: sendCalls,
-		CallInputBytes: inBytes, CallOutputBytes: outBytes,
-	}
+// Counters are not passed in: finish stamps them onto whatever this returns. It takes the
+// runtime because rendering the thrown value runs script code and needs one.
+func failure(rt *goja.Runtime, gerr error, h halt, deniedCodes map[string]bool, rej ...*rejection) Result {
+	var res Result
 
 	if h.reason != "" {
 		res.Reason = h.reason
@@ -443,7 +501,7 @@ func (v *VM) failure(
 			return res
 		}
 		if exc, ok := gerr.(*goja.Exception); ok {
-			text, code := describeThrown(nil, exc.Value())
+			text, code := describeThrown(rt, exc.Value())
 			if text == "" {
 				text = trunc(exc.String(), maxErrDetail)
 			}
@@ -461,29 +519,42 @@ func (v *VM) failure(
 	return res
 }
 
-// describeThrown renders a thrown JavaScript value and extracts its code property, if
-// it has one. Reading named properties off an object is not the same as exporting it:
-// nothing goja-owned escapes into the host.
-func describeThrown(_ *goja.Runtime, v goja.Value) (text, code string) {
-	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+// describeThrown renders a thrown JavaScript value and extracts its code property, if it
+// has one.
+//
+// Every line of this touches script-controlled machinery, and none of it is a passive
+// read. ToObject on a primitive allocates a wrapper *through the runtime* — which is why
+// it must be given a real one rather than nil — and reading .name, .message, .code or
+// .stack invokes whatever accessor the script defined, as does String() on an object with
+// a toString. goja's own documentation says these panic with *Exception, so the whole body
+// runs inside Try and a failure to render reports a fixed string rather than propagating.
+func describeThrown(rt *goja.Runtime, v goja.Value) (text, code string) {
+	if rt == nil || v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
 		return "", ""
 	}
-	obj := v.ToObject(nil)
-	if obj == nil {
-		return trunc(v.String(), maxErrDetail), ""
-	}
-	get := func(k string) string {
-		pv := obj.Get(k)
-		if pv == nil || goja.IsUndefined(pv) || goja.IsNull(pv) {
-			return ""
+
+	var name, msg, stack, raw string
+	if ex := rt.Try(func() {
+		raw = v.String()
+		obj := v.ToObject(rt)
+		if obj == nil {
+			return
 		}
-		return pv.String()
+		get := func(k string) string {
+			pv := obj.Get(k)
+			if pv == nil || goja.IsUndefined(pv) || goja.IsNull(pv) {
+				return ""
+			}
+			return pv.String()
+		}
+		name, msg, code, stack = get("name"), get("message"), get("code"), get("stack")
+	}); ex != nil {
+		return "the thrown value could not be rendered: reading it threw", ""
 	}
-	name, msg := get("name"), get("message")
-	code = get("code")
+
 	if name == "" && msg == "" && code == "" {
 		// Not an Error at all — a thrown string, number or bare object.
-		return trunc(v.String(), maxErrDetail), ""
+		return trunc(raw, maxErrDetail), ""
 	}
 
 	header := orDefault(name, "Error")
@@ -498,7 +569,7 @@ func describeThrown(_ *goja.Runtime, v goja.Value) (text, code string) {
 	// goja's stack property already begins with "Name: message", so splicing the code
 	// into that first line reads as one error with a trace, where concatenating would
 	// print the message twice.
-	if st := get("stack"); st != "" {
+	if st := stack; st != "" {
 		if rest, ok := strings.CutPrefix(st, header); ok {
 			return trunc(full+rest, maxErrDetail), code
 		}
@@ -520,10 +591,22 @@ func buildRunContext(vm *goja.Runtime, req Request) (goja.Value, error) {
 	}
 
 	m := req.Meta
+
+	// The trigger payload is merged beside the type rather than nested under a "data"
+	// key, so a script reads ctx.trigger.requests instead of ctx.trigger.data.requests.
+	// "type" is written last so a payload cannot shadow it.
+	trigger := map[string]any{}
+	if len(m.TriggerData) > 0 {
+		if err := json.Unmarshal(m.TriggerData, &trigger); err != nil {
+			return nil, fmt.Errorf("trigger payload is not a JSON object: %v", err)
+		}
+	}
+	trigger["type"] = orDefault(m.TriggerType, "manual")
+
 	run := map[string]any{"id": m.RunID, "startedAt": m.StartedAt}
 	ctxObj := map[string]any{
 		"run":     run,
-		"trigger": map[string]any{"type": orDefault(m.TriggerType, "manual")},
+		"trigger": trigger,
 		"input":   input,
 	}
 	if m.AutomationID != "" {
@@ -533,11 +616,17 @@ func buildRunContext(vm *goja.Runtime, req Request) (goja.Value, error) {
 }
 
 // marshalResult serializes run()'s return value under the result ceiling.
-func marshalResult(v goja.Value, maxBytes int) (json.RawMessage, error) {
-	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+func marshalResult(rt *goja.Runtime, v goja.Value, maxBytes int) (json.RawMessage, error) {
+	if rt == nil || v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
 		return nil, nil
 	}
-	exported := v.Export()
+	// Export walks own enumerable properties and invokes their accessors, so a returned
+	// object with a throwing or looping getter runs script code here. Inside Try, that
+	// surfaces as a reportable error instead of taking the process down.
+	var exported any
+	if ex := rt.Try(func() { exported = v.Export() }); ex != nil {
+		return nil, fmt.Errorf("the value returned from run() could not be read: %s", trunc(ex.Error(), 512))
+	}
 	// A function, or an object holding one, has no JSON form. Reporting that
 	// plainly beats the encoder's "unsupported type" against an internal type name.
 	encoded, err := json.Marshal(exported)

@@ -354,6 +354,18 @@ function handleMessage(msg: WSMessage) {
       useDetectStore.setState({ rulesLoaded: false })
       break
     }
+    case 'automation.script.state': {
+      // The only automation event that is not polled, and the only one an agent does not
+      // cause: the runaway breaker pausing an automation the operator armed. Waiting for
+      // the next poll to learn that something stopped itself is the wrong default.
+      const d = msg.data as { id?: string; paused?: boolean; pausedReason?: string }
+      if (d?.paused) {
+        useToastStore
+          .getState()
+          .addToast(`Automation ${d.id ?? ''} was paused: ${d.pausedReason ?? 'runaway'}`, 'error')
+      }
+      break
+    }
     default:
       if (msg.type.startsWith('plugin.')) {
         pluginEventListeners.forEach((fn) => fn(msg))

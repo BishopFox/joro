@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -123,7 +124,15 @@ func (s *APIServer) newScriptManager() *jsautomation.Manager {
 			"script.run is disabled this run", err)
 		return nil
 	}
+	// Installed automations live beside the plugins, not under ~/.joro/configs/: a
+	// project config is published to teammates, and executable code that runs against
+	// the full SDK bundle must not travel with it. Their key/value state does ride in
+	// the project config, because that is engagement data rather than code.
+	s.automationStorage = jsautomation.NewStorage()
+
 	return jsautomation.New(jsautomation.Deps{
+		Store:   jsautomation.NewStore(filepath.Join(s.cfg.DataDir, "automations")),
+		Storage: s.automationStorage,
 		// A getter, for the same reason Deps.BgCtx is one: the capability that starts
 		// a run needs this manager, and this manager needs the sealed registry, so one
 		// of the two edges has to be deferred past construction.
@@ -136,6 +145,21 @@ func (s *APIServer) newScriptManager() *jsautomation.Manager {
 		Runtime:  jsruntime.NewWorkerRuntime(exe, "--script-worker"),
 		Contexts: s.capContexts,
 	})
+}
+
+// startScriptTriggers brings up the trigger dispatcher.
+//
+// Started from here rather than from main.go because this runs inside Start, which is
+// already gated on proxy mode and on automation being configured — and because the
+// dispatcher needs the server-lifetime context, which is the same reason StartDetectLoop
+// takes one. The hub subscription is made here too: jsautomation cannot import this
+// package (api imports it to build the registry), so the wiring belongs on this side.
+func (s *APIServer) startScriptTriggers(ctx context.Context) {
+	if s.scriptManager == nil || s.scriptManager.Packages() == nil {
+		return
+	}
+	s.scriptTriggers = jsautomation.NewDispatcher(s.scriptManager, s.store, s.hub.Broadcast())
+	go s.scriptTriggers.Run(ctx, s.hub.Subscribe(0))
 }
 
 // scriptRunnerDep returns the runner as the interface capreg expects, or a nil
@@ -162,6 +186,7 @@ func (s *APIServer) startAutomation(ctx context.Context) {
 	}
 	s.autoStore.StartFlushLoop(ctx)
 	s.mcpListener.CloseOnContext(ctx)
+	s.startScriptTriggers(ctx)
 
 	state := s.autoStore.MCP()
 	if !state.Enabled {

@@ -73,6 +73,9 @@ type Hub struct {
 	onConnect    OnConnectFunc
 	onDisconnect OnConnectFunc
 	relayState   *relayStateData // last-known team relay state (nil until first set)
+	// subscribers are in-process consumers of the same event stream, for code that
+	// needs to react to what the UI is being told. Guarded by mu; see Subscribe.
+	subscribers []chan any
 }
 
 // NewHub creates a Hub. Call Run() in a goroutine before accepting connections.
@@ -94,6 +97,29 @@ func (h *Hub) SetOnDisconnect(fn OnConnectFunc) {
 	h.onDisconnect = fn
 }
 
+// Subscribe returns a channel carrying every broadcast event, for an in-process consumer
+// such as the automation trigger dispatcher.
+//
+// Deliveries are non-blocking and are dropped when the subscriber is behind, which is not
+// a corner worth softening: several producers send to the broadcast channel *blocking* —
+// every fuzzer result, every callback interaction, the team relay — so a subscriber that
+// could stall Run would stall every WebSocket client and back-pressure the proxy behind
+// them. A consumer that cannot afford a loss must treat its events as a hint and read the
+// authoritative state itself, the way the trigger dispatcher uses a store cursor.
+//
+// Subscriptions are permanent, which is fine because the only subscriber is created once
+// at startup and lives as long as the process.
+func (h *Hub) Subscribe(buf int) <-chan any {
+	if buf <= 0 {
+		buf = 256
+	}
+	ch := make(chan any, buf)
+	h.mu.Lock()
+	h.subscribers = append(h.subscribers, ch)
+	h.mu.Unlock()
+	return ch
+}
+
 // Run reads from the broadcast channel and fans out to all connected clients.
 // It blocks until the channel is closed.
 func (h *Hub) Run() {
@@ -113,6 +139,13 @@ func (h *Hub) Run() {
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 				log.Printf("ws write: %v", err)
 				conn.Close()
+			}
+		}
+		// In-process subscribers get the event, not the JSON: they type-switch on it.
+		for _, sub := range h.subscribers {
+			select {
+			case sub <- msg:
+			default:
 			}
 		}
 		h.mu.RUnlock()

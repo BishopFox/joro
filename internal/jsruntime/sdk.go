@@ -115,8 +115,10 @@ func shimSource() string {
 	"use strict";
 	var invoke = globalThis.__joro_invoke;
 	var log = globalThis.__joro_log;
+	var storage = globalThis.__joro_storage;
 	delete globalThis.__joro_invoke;
 	delete globalThis.__joro_log;
+	delete globalThis.__joro_storage;
 
 	// GoError is goja's own constructor for errors carrying a Go value. Nothing here
 	// ever puts a Go error into the VM — failures arrive as JSON and are thrown as
@@ -186,6 +188,31 @@ func shimSource() string {
 		fmt.Fprintf(&b, "\tns(%q)[%q] = call(%q);\n", nsName, method, bind.Cap)
 	}
 
+	// storage is emitted unconditionally, and whether this run actually has a namespace
+	// is the host's answer at call time. That keeps the shim a single compiled program
+	// shared by every run rather than one generated per run.
+	b.WriteString(`
+	function storageOp(op) {
+		return function (key, value) {
+			var res = JSON.parse(storage(
+				op,
+				key === undefined || key === null ? "" : String(key),
+				JSON.stringify(value === undefined ? null : value)
+			));
+			if (res.ok) { return res.data; }
+			var e = new Error(res.message || res.code || "storage call failed");
+			e.name = "JoroStorageError";
+			e.code = res.code || "";
+			throw e;
+		};
+	}
+	var st = ns("storage");
+	st.get = storageOp("get");
+	st.set = storageOp("set");
+	st["delete"] = storageOp("delete");
+	st.keys = storageOp("keys");
+`)
+
 	b.WriteString(`
 	Object.keys(joro).forEach(function (k) { Object.freeze(joro[k]); });
 	Object.freeze(joro);
@@ -222,17 +249,22 @@ var (
 	reExportList = regexp.MustCompile(`(?m)^[ \t]*export[ \t]*\{[^}\n]*\}[ \t]*;?`)
 )
 
-// Prepare validates a program and erases the module preamble the runtime does not
-// implement.
+// Prepare validates a program and erases the module syntax the runtime does not implement.
 //
 // Every erasure is replaced with spaces of equal length rather than deleted, so byte
-// offsets, line numbers and columns are untouched and a stack trace still points at
-// the line the author wrote.
+// offsets, line numbers and columns are untouched and a stack trace still points at the
+// line the author wrote.
 //
 // An import of anything other than the SDK is an error, never a silent rewrite. The
 // alternative — dropping it and letting the script fail later on an undefined symbol —
 // would report a missing variable when the real problem is that host module resolution
 // does not exist and third-party code has to be bundled before it gets here.
+//
+// Erasure applies only to module syntax in *code* position. Without that, a template
+// literal holding `export const x = 1` would be silently rewritten and a string holding
+// `import y from "lodash"` would reject the whole program — either way the source an
+// operator reads back would not be the source that ran, which is the one property the run
+// log exists to provide.
 func Prepare(source string) (string, error) {
 	if strings.TrimSpace(source) == "" {
 		return "", fmt.Errorf("script is empty: define an entry point, for example `async function run(ctx) { ... }`")
@@ -242,9 +274,14 @@ func Prepare(source string) (string, error) {
 	}
 
 	out := source
+	// Computed once: blanking preserves length, so offsets stay valid across passes.
+	mask := codeMask(out)
+
+	whole := func(m []int) (int, int) { return m[0], m[1] }
+
 	for _, re := range []*regexp.Regexp{reImportFrom, reImportBare} {
 		var bad string
-		out = replaceIndexed(out, re, func(groups []string) bool {
+		out = blankMatches(out, mask, re, whole, func(groups []string) bool {
 			if groups[1] != SDKModule {
 				if bad == "" {
 					bad = groups[1]
@@ -261,29 +298,34 @@ func Prepare(source string) (string, error) {
 		}
 	}
 
-	// `export` is meaningless without a module system, but generated code writes it,
-	// and erasing the keyword leaves a declaration that behaves identically.
-	out = replaceIndexed(out, reExportList, func([]string) bool { return true })
-	out = reExportDecl.ReplaceAllStringFunc(out, func(m string) string {
-		g := reExportDecl.FindStringSubmatch(m)
-		// Keep the indentation and the declaration keyword; blank the rest so the
-		// length is preserved.
-		keep := g[1] + g[3]
-		return keep + strings.Repeat(" ", len(m)-len(keep))
-	})
+	// `export` is meaningless without a module system, but generated code writes it, and
+	// erasing the keyword leaves a declaration that behaves identically.
+	out = blankMatches(out, mask, reExportList, whole, func([]string) bool { return true })
+	out = blankMatches(out, mask, reExportDecl,
+		// Keep the indentation and the declaration keyword; blank only "export" and an
+		// optional "default" between them.
+		func(m []int) (int, int) { return m[3], m[6] },
+		func([]string) bool { return true })
 
 	return out, nil
 }
 
-// replaceIndexed blanks every match for which keep reports true, preserving length.
-// A match the callback rejects is left in place, which lets the caller report it.
-func replaceIndexed(s string, re *regexp.Regexp, keep func(groups []string) bool) string {
+// blankMatches overwrites part of each match with spaces, skipping any match that does not
+// begin in code position and any the keep callback rejects. A rejected match is left in
+// place so the caller can report it.
+func blankMatches(
+	s string, mask []bool, re *regexp.Regexp,
+	span func(m []int) (from, to int), keep func(groups []string) bool,
+) string {
 	matches := re.FindAllStringSubmatchIndex(s, -1)
 	if len(matches) == 0 {
 		return s
 	}
 	b := []byte(s)
 	for _, m := range matches {
+		if m[0] >= len(mask) || !mask[m[0]] {
+			continue
+		}
 		groups := make([]string, len(m)/2)
 		for i := range groups {
 			if m[2*i] >= 0 {
@@ -293,11 +335,103 @@ func replaceIndexed(s string, re *regexp.Regexp, keep func(groups []string) bool
 		if !keep(groups) {
 			continue
 		}
-		for i := m[0]; i < m[1]; i++ {
+		from, to := span(m)
+		for i := from; i < to && i < len(b); i++ {
 			if b[i] != '\n' && b[i] != '\r' {
 				b[i] = ' '
 			}
 		}
 	}
 	return string(b)
+}
+
+// codeMask marks the bytes of src that are program text rather than the inside of a
+// string, template literal or comment.
+//
+// One pass, tracking the nesting that matters: line and block comments, the three quote
+// forms with their escapes, and `${}` inside a template, which can hold arbitrary code
+// including another template.
+//
+// Regex literals are deliberately not tracked — telling `/` as division from `/` as the
+// start of a regex needs the parser. The consequence is bounded and in the safe direction:
+// a `//` sequence inside a regex literal reads as a comment, so the rest of that line is
+// marked non-code and simply escapes erasure. Less rewriting, never more.
+func codeMask(src string) []bool {
+	mask := make([]bool, len(src))
+
+	// tplBraces records, for each enclosing ${} substitution, the brace depth it began at;
+	// returning to that depth means the substitution closed and we are back in a template.
+	var tplBraces []int
+	braces, inTpl, i := 0, false, 0
+
+	for i < len(src) {
+		c := src[i]
+
+		if inTpl {
+			switch {
+			case c == '\\' && i+1 < len(src):
+				i += 2
+			case c == '`':
+				inTpl = false
+				i++
+			case c == '$' && i+1 < len(src) && src[i+1] == '{':
+				tplBraces = append(tplBraces, braces)
+				braces++
+				inTpl = false
+				i += 2
+			default:
+				i++
+			}
+			continue
+		}
+
+		switch c {
+		case '/':
+			if i+1 < len(src) && src[i+1] == '/' {
+				for i < len(src) && src[i] != '\n' {
+					i++
+				}
+				continue
+			}
+			if i+1 < len(src) && src[i+1] == '*' {
+				i += 2
+				for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
+					i++
+				}
+				i = min(i+2, len(src))
+				continue
+			}
+		case '\'', '"':
+			q := c
+			i++
+			for i < len(src) {
+				if src[i] == '\\' {
+					i += 2
+					continue
+				}
+				if src[i] == q || src[i] == '\n' {
+					i++
+					break
+				}
+				i++
+			}
+			continue
+		case '`':
+			inTpl = true
+			i++
+			continue
+		case '{':
+			braces++
+		case '}':
+			braces--
+			if n := len(tplBraces); n > 0 && braces == tplBraces[n-1] {
+				tplBraces = tplBraces[:n-1]
+				inTpl = true
+			}
+		}
+
+		mask[i] = true
+		i++
+	}
+	return mask
 }
