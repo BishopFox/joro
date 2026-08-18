@@ -25,6 +25,7 @@ import (
 	"github.com/BishopFox/joro/internal/event"
 	"github.com/BishopFox/joro/internal/fuzzer"
 	"github.com/BishopFox/joro/internal/httptools"
+	"github.com/BishopFox/joro/internal/jsautomation"
 	"github.com/BishopFox/joro/internal/mcp"
 	"github.com/BishopFox/joro/internal/mythic"
 	"github.com/BishopFox/joro/internal/notes"
@@ -113,12 +114,15 @@ type APIServer struct {
 	// it, and the MCP listener that is its first consumer. All three are nil when
 	// automation is disabled, which leaves the routes unregistered and no second
 	// port bound. See SetAutomation.
-	capRegistry  *capability.Registry
-	capAudit     *capability.AuditLog
-	autoStore    *automation.Store
-	capContexts  *httptools.Contexts
-	mcpListener  *mcp.Listener
-	automationMu sync.Mutex // serializes MCP start/stop from HTTP handlers
+	capRegistry *capability.Registry
+	capAudit    *capability.AuditLog
+	autoStore   *automation.Store
+	capContexts *httptools.Contexts
+	mcpListener *mcp.Listener
+	// scriptManager runs sandboxed JavaScript against the registry. Nil unless
+	// --automation-scripting was given, which is what keeps script.run unregistered.
+	scriptManager *jsautomation.Manager
+	automationMu  sync.Mutex // serializes MCP start/stop from HTTP handlers
 
 	buildInfo  BuildInfo
 	cancelFunc context.CancelFunc

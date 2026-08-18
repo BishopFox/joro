@@ -237,11 +237,53 @@ export interface McpState {
   tokenCount: number
 }
 
+/** One console line captured from a sandboxed script. */
+export interface ScriptLogLine {
+  at: string
+  level: string
+  text: string
+}
+
+/** The outcome of one sandboxed script run. */
+export interface ScriptResult {
+  /** success | script exception | timeout | memory limit | sdk budget exceeded |
+   *  cancelled | capability denied | runtime failure | worker lost */
+  reason: string
+  err?: string
+  /** The JSON value run() returned, still encoded. */
+  value?: unknown
+  logs?: ScriptLogLine[]
+  logsTruncated?: boolean
+  calls: number
+  sendCalls: number
+  callInputBytes: number
+  callOutputBytes: number
+  durationMs: number
+}
+
+export interface ScriptRun {
+  id: string
+  startedAt: string
+  durationMs: number
+  /** The launching token, not the run's own synthetic principal. */
+  tokenId: string
+  tokenName: string
+  trigger: string
+  bundle: string
+  /** Verbatim, and only on the single-run endpoint. A hash alone would not answer
+   *  which code an agent ran, since a one-shot script has no stored artifact. */
+  source?: string
+  sourceHash: string
+  result: ScriptResult
+}
+
 export interface AuditEntry {
   seq: number
   at: string
   tokenId: string
   tokenName: string
+  /** Groups every call one sandboxed script made. Absent on a direct client call. */
+  runId?: string
   capability: string
   result: 'ok' | 'denied' | 'error'
   code?: string
@@ -949,6 +991,13 @@ export const api = {
       classes: string[]
       profiles: AutomationProfile[]
     }>('GET', '/automation/capabilities'),
+  listScriptRuns: (params: { limit?: number } = {}) =>
+    req<{ runs: ScriptRun[]; total: number; offset: number; limit: number }>(
+      'GET',
+      `/automation/runs${params.limit ? `?limit=${params.limit}` : ''}`
+    ),
+  getScriptRun: (id: string) => req<ScriptRun>('GET', `/automation/runs/${id}`),
+  clearScriptRuns: () => req<{ deleted: number }>('DELETE', '/automation/runs'),
   getMcpState: () => req<McpState>('GET', '/automation/mcp'),
   setMcpState: (body: { enabled?: boolean; port?: number }) =>
     req<McpState>('PUT', '/automation/mcp', body),

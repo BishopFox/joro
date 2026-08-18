@@ -273,6 +273,9 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 		mux.HandleFunc("DELETE /api/v1/automation/audit", s.handleClearAutomationAudit)
 		mux.HandleFunc("GET /api/v1/automation/mcp", s.handleGetMCPState)
 		mux.HandleFunc("PUT /api/v1/automation/mcp", s.handleSetMCPState)
+		mux.HandleFunc("GET /api/v1/automation/runs", s.handleListScriptRuns)
+		mux.HandleFunc("GET /api/v1/automation/runs/{id}", s.handleGetScriptRun)
+		mux.HandleFunc("DELETE /api/v1/automation/runs", s.handleClearScriptRuns)
 	}
 
 	// Plugin routes (dynamic, based on loaded plugins).

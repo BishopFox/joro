@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/BishopFox/joro/internal/capreg"
 	"github.com/BishopFox/joro/internal/event"
 	"github.com/BishopFox/joro/internal/httptools"
+	"github.com/BishopFox/joro/internal/jsautomation"
+	"github.com/BishopFox/joro/internal/jsruntime"
 	"github.com/BishopFox/joro/internal/mcp"
 )
 
@@ -34,6 +37,7 @@ func (s *APIServer) SetAutomation(store *automation.Store) {
 	s.autoStore = store
 	s.capAudit = capability.NewAuditLog(capability.DefaultAuditSize)
 	s.capContexts = httptools.NewContexts()
+	s.scriptManager = s.newScriptManager()
 	s.capRegistry = capreg.Build(capreg.Deps{
 		Store:    s.store,
 		Scope:    s.scope,
@@ -78,20 +82,71 @@ func (s *APIServer) SetAutomation(store *automation.Store) {
 		Sliver:     s.sliverClient,
 		Mythic:     s.mythicClient,
 
+		// Scripting is registered only if the manager was actually built: without a
+		// worker executable there is nothing to run, and advertising a tool that
+		// always fails is worse than not having it.
+		Scripting: s.scriptManager != nil,
+		Script:    s.scriptRunnerDep(),
+
 		Broadcast: s.hub.Broadcast(),
 	}, s.capAudit)
 	s.mcpListener = mcp.NewListener()
 
-	if s.cfg.AutomationPrivileged {
+	if s.cfg.AutomationPrivileged || s.scriptManager != nil {
 		var ids []string
 		for _, c := range s.capRegistry.All() {
 			if c.Privileged {
 				ids = append(ids, c.ID)
 			}
 		}
-		log.Printf("[automation] --automation-privileged: %s are grantable to an automation token. "+
+		log.Printf("[automation] privileged capabilities are grantable to an automation token: %s. "+
 			"No profile includes them; grant each by hand.", strings.Join(ids, " "))
 	}
+}
+
+// newScriptManager builds the sandboxed script runner, or returns nil if scripting is
+// off or cannot work on this host.
+//
+// The runtime is a worker-process runtime: each run is a fresh re-exec of this binary
+// in --script-worker mode, so terminating a run is killing a process and a runaway
+// allocation costs the worker rather than the proxy. os.Executable is the only thing
+// that can fail here, and a host where it does cannot spawn a worker at all — so
+// scripting is disabled rather than degraded to an in-process VM, which would quietly
+// weaken the containment the feature is described by.
+func (s *APIServer) newScriptManager() *jsautomation.Manager {
+	if !s.cfg.AutomationScripting {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("[automation] --automation-scripting: cannot locate this executable (%v); "+
+			"script.run is disabled this run", err)
+		return nil
+	}
+	return jsautomation.New(jsautomation.Deps{
+		// A getter, for the same reason Deps.BgCtx is one: the capability that starts
+		// a run needs this manager, and this manager needs the sealed registry, so one
+		// of the two edges has to be deferred past construction.
+		Registry: func() jsautomation.Invoker {
+			if s.capRegistry == nil {
+				return nil
+			}
+			return s.capRegistry
+		},
+		Runtime:  jsruntime.NewWorkerRuntime(exe, "--script-worker"),
+		Contexts: s.capContexts,
+	})
+}
+
+// scriptRunnerDep returns the runner as the interface capreg expects, or a nil
+// interface when scripting is off. Returning the typed nil pointer directly would give
+// capreg a non-nil interface holding nil, and the handler's own nil check would not
+// catch it — the same trap capreg.Build avoids with its Scope assignment.
+func (s *APIServer) scriptRunnerDep() capreg.ScriptRunner {
+	if s.scriptManager == nil {
+		return nil
+	}
+	return s.scriptManager
 }
 
 // automationEnabled reports whether the automation surface is available.

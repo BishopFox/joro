@@ -27,6 +27,11 @@ type AuditEntry struct {
 	// history still reads after the token row is gone.
 	TokenName string `json:"tokenName"`
 
+	// RunID groups every call a single sandboxed script made. Empty for a direct
+	// client call. It is what lets Activity render a run as one collapsible thing
+	// instead of a burst of invocations that look unrelated.
+	RunID string `json:"runId,omitempty"`
+
 	Capability string `json:"capability"`
 	Result     string `json:"result"` // ok | denied | error
 	Code       string `json:"code,omitempty"`

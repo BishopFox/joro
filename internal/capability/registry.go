@@ -239,6 +239,7 @@ func (r *Registry) Invoke(ctx context.Context, p Principal, id string, args json
 		At:           start,
 		TokenID:      p.TokenID,
 		TokenName:    p.TokenName,
+		RunID:        p.RunID,
 		Capability:   id,
 		RequireScope: p.RequireScope,
 		Credentials:  p.AllowCredentials,

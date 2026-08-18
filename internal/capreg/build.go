@@ -67,6 +67,16 @@ type Deps struct {
 	Sliver     *sliver.Client
 	Mythic     *mythic.Client
 
+	// Scripting enables script.run, from --automation-scripting. A separate flag from
+	// Privileged, which means web shell and C2 specifically; this is a different axis
+	// and an operator should be able to take one without the other.
+	//
+	// Script is the runner behind it, held as a narrow interface so a capability body
+	// gets no more than "execute this source and tell me what happened". Zero when
+	// scripting is off, and the handler reports that rather than panicking.
+	Scripting bool
+	Script    ScriptRunner
+
 	// The proxy's behavioral rule stores, for the config-class capabilities. These
 	// are what "modify the proxy configuration" means here: Settings itself lives on
 	// *api.APIServer and stays unreachable, which is also where the genuinely
@@ -122,6 +132,9 @@ func Build(d Deps, audit *capability.AuditLog) *capability.Registry {
 	registerDetect(r, d)
 	if d.Privileged {
 		registerPrivileged(r, d)
+	}
+	if d.Scripting {
+		registerScript(r, d)
 	}
 
 	validateProfiles(r)

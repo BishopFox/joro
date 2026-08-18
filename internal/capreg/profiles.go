@@ -145,10 +145,11 @@ func Profiles() []Profile {
 		{
 			ID:    "operator",
 			Title: "Full operator",
-			Description: "Every capability except execution and C2: reads, sends, fuzzing, configuration and " +
-				"scope, plus the values of Authorization and Cookie headers. Scope enforcement is off so the " +
-				"scope grants work, which means this token can reach any host. Issue it only for an agent you " +
-				"are supervising. Execution and C2 are never bundled into a profile; grant them by hand.",
+			Description: "Every capability except the privileged ones: reads, sends, fuzzing, configuration " +
+				"and scope, plus the values of Authorization and Cookie headers. Scope enforcement is off so " +
+				"the scope grants work, which means this token can reach any host. Issue it only for an agent " +
+				"you are supervising. Execution, C2 and scripting are never bundled into a profile; grant " +
+				"them by hand.",
 			Grants:            nil, // filled from the registry by validateProfiles
 			RequireScope:      false,
 			AllowsSends:       true,
@@ -195,8 +196,10 @@ func validateProfiles(r *capability.Registry) {
 
 		if p.ID == operatorProfileID {
 			// Every capability except the privileged ones. Without the filter, starting
-			// Joro with --automation-privileged would silently widen this profile to
-			// include execution and C2 for anyone who selected it.
+			// Joro with --automation-privileged or --automation-scripting would silently
+			// widen this profile for anyone who had selected it — which is the whole
+			// reason those capabilities carry the flag rather than relying on the launch
+			// flag alone.
 			for _, c := range r.All() {
 				if !c.Privileged {
 					p.Grants = append(p.Grants, c.ID)
@@ -223,8 +226,8 @@ func validateProfiles(r *capability.Registry) {
 				panic(fmt.Sprintf("capreg: profile %q grants %q, which sends traffic, but does not set "+
 					"AllowsSends. Either it should, or the grant does not belong in this profile.", p.ID, id))
 			case c.Privileged:
-				panic(fmt.Sprintf("capreg: profile %q grants privileged capability %q. Execution and C2 "+
-					"are granted per capability by hand, never bundled into a profile.", p.ID, id))
+				panic(fmt.Sprintf("capreg: profile %q grants privileged capability %q. Execution, C2 and "+
+					"scripting are granted per capability by hand, never bundled into a profile.", p.ID, id))
 			case c.UnrestrictedOnly && p.RequireScope:
 				panic(fmt.Sprintf("capreg: profile %q sets RequireScope and grants %q, which is refused to "+
 					"any token restricted by scope. That combination mints a token whose grant is denied on "+

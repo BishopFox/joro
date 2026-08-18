@@ -9,8 +9,19 @@ package capability
 type Principal struct {
 	// TokenID and TokenName identify the caller in the audit log. TokenName is
 	// snapshotted into each entry so a revoked token's history still reads.
+	//
+	// TokenID is also the key for every per-caller limit — the rate bucket, the
+	// concurrency counter, and the cookie jar in internal/httptools. A caller that
+	// wants its own budget and its own session gives itself a distinct TokenID; that
+	// is how a script run isolates its nested calls from the token that launched it.
 	TokenID   string
 	TokenName string
+
+	// RunID groups the calls a single sandboxed script made, so Activity can show one
+	// run as one thing rather than as unrelated invocations that happen to share a
+	// name. Empty for an ordinary client call, which is every call that is not nested
+	// inside a script.
+	RunID string
 
 	// Grants is the fully expanded set of capability IDs this principal may
 	// invoke. There are no wildcards here, by design — see the Grants discussion

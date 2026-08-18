@@ -23,6 +23,7 @@ import (
 	"github.com/BishopFox/joro/internal/callback"
 	"github.com/BishopFox/joro/internal/cert"
 	"github.com/BishopFox/joro/internal/config"
+	"github.com/BishopFox/joro/internal/jsruntime"
 	"github.com/BishopFox/joro/internal/notes"
 	"github.com/BishopFox/joro/internal/plugins"
 	"github.com/BishopFox/joro/internal/proxy"
@@ -62,12 +63,26 @@ func main() {
 	flag.BoolVar(&cfg.DisableUpdateChecks, "disable-update-checks", false, "Disable automatic update checks at startup and in the background (can also be toggled in Settings)")
 	flag.BoolVar(&cfg.NoAutomation, "no-automation", false, "Disable the automation API and MCP listener entirely (no routes, no token file, no second port)")
 	flag.BoolVar(&cfg.AutomationPrivileged, "automation-privileged", false, "Expose web shell execution and Sliver/Mythic C2 as automation capabilities (off by default; still requires an explicit per-capability grant)")
+	flag.BoolVar(&cfg.AutomationScripting, "automation-scripting", false, "Expose script.run, which executes submitted JavaScript in a sandboxed worker process against Joro's automation SDK (off by default; still requires an explicit grant)")
+
+	// scriptWorker is how a script sandbox re-execs this binary. Not an operator
+	// switch: it reads a job from stdin and speaks a private protocol on stdout.
+	scriptWorker := flag.Bool("script-worker", false, "Internal: run as a script sandbox worker")
+	_ = flag.CommandLine.MarkHidden("script-worker")
 
 	buildPlugin := flag.String("build-plugin", "", "Build a plugin from the given directory and exit")
 	installPlugin := flag.Bool("install", false, "Copy built plugin to ~/.joro/plugins/ (use with --build-plugin)")
 	outputPath := flag.StringP("output", "o", "", "Output path for built plugin (use with --build-plugin)")
 	showVersion := flag.BoolP("version", "v", false, "Print version and exit")
 	flag.Parse()
+
+	// Worker mode is checked before anything else can write to stdout, which is the
+	// parent's protocol channel and is corrupted by a single stray byte. It also
+	// exits before any of the ordinary startup below: a worker binds no port, opens
+	// no database, and reads no CA.
+	if *scriptWorker {
+		os.Exit(runScriptWorker())
+	}
 
 	// Listener mode defaults to 0.0.0.0 (needs external callbacks) unless --bind was explicitly set.
 	if cfg.Listener && !flag.CommandLine.Changed("bind") {
@@ -104,6 +119,29 @@ func main() {
 	} else {
 		runProxyMode(ctx, cfg)
 	}
+}
+
+// runScriptWorker is the child half of the script sandbox.
+//
+// The parent re-execs this binary with --script-worker, writes one job to stdin, and
+// answers the capability calls the worker asks for. The worker holds no Joro state at
+// all: it links a JavaScript engine and a pipe, so there is no capture store, token
+// file or HTTP client in the process for a script to reach even in principle.
+//
+// It exists because goja has no memory ceiling. A script that allocates without bound
+// has to kill something, and in a process holding an engagement's captured traffic that
+// something must not be Joro.
+func runScriptWorker() int {
+	// stdout carries the protocol. log already writes to stderr, but say so here
+	// rather than relying on it: one line on the wrong stream breaks every run.
+	log.SetOutput(os.Stderr)
+	log.SetFlags(0)
+
+	if err := jsruntime.RunWorker(context.Background(), os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "script worker:", err)
+		return 1
+	}
+	return 0
 }
 
 func runListenerMode(ctx context.Context, cfg config.Config) {

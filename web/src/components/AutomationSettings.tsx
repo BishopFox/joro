@@ -6,6 +6,7 @@ import { useToastStore } from '../stores/toastStore'
 import AutomationTokenModal from './AutomationTokenModal'
 import AutomationSecretModal from './AutomationSecretModal'
 import AutomationActivity from './AutomationActivity'
+import ScriptRuns from './ScriptRuns'
 import ConfirmModal from './ConfirmModal'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border'
@@ -302,6 +303,8 @@ export default function AutomationSettings() {
       </p>
 
       <AutomationActivity />
+
+      <ScriptRuns />
 
       {creating && (
         <AutomationTokenModal

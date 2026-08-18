@@ -40,6 +40,13 @@ type Config struct {
 	// each by hand. A launch flag rather than a Settings toggle so enabling it cannot
 	// happen without a restart.
 	AutomationPrivileged bool
+	// AutomationScripting registers script.run, which executes submitted JavaScript in
+	// a sandboxed worker process against a fixed SDK bundle. Its own flag rather than
+	// riding on AutomationPrivileged, which means web shell and C2 specifically: an
+	// operator should be able to allow scripting without allowing command execution,
+	// or the reverse. Same posture otherwise — off by default, no profile grants it,
+	// and a restart is required to change it.
+	AutomationScripting bool
 }
 
 // Default returns a Config populated with sensible defaults.

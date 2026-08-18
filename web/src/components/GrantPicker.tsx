@@ -36,6 +36,7 @@ const CLASS_LABELS: Record<string, string> = {
   detect: 'Detection rules & scanning',
   exec: 'Command execution',
   c2: 'C2 servers',
+  script: 'Script automation',
 }
 
 /**
@@ -295,8 +296,14 @@ export default function GrantPicker({
 }
 
 function privilegedMessage(caps: Capability[]): string {
+  const onlyScript = caps.every((c) => c.class === 'script')
   if (caps.length === 1) {
-    return `${caps[0].toolName} lets this token run commands.`
+    return onlyScript
+      ? `${caps[0].toolName} lets this token run code against Joro's whole automation SDK.`
+      : `${caps[0].toolName} lets this token run commands.`
+  }
+  if (onlyScript) {
+    return `These ${caps.length} capabilities let this token run code against Joro's whole automation SDK.`
   }
   return `These ${caps.length} capabilities let this token run commands.`
 }
@@ -307,6 +314,7 @@ function privilegedMessage(caps: Capability[]): string {
 function PrivilegedWarning({ caps }: { caps: Capability[] }) {
   const hasExec = caps.some((c) => c.class === 'exec')
   const hasC2 = caps.some((c) => c.class === 'c2')
+  const hasScript = caps.some((c) => c.class === 'script')
 
   return (
     <div className="space-y-2 text-[11px] text-content-secondary leading-snug">
@@ -337,6 +345,15 @@ function PrivilegedWarning({ caps }: { caps: Capability[] }) {
         <p className="text-semantic-warning">
           Scope and the host whitelist do <strong>not</strong> bound the C2 capabilities — they describe web
           targets, not a C2 server. This grant is the only limit on what they reach.
+        </p>
+      )}
+      {hasScript && (
+        <p className="text-semantic-warning">
+          <code className="font-mono">script_run</code> authorizes the <strong>whole standard automation SDK</strong>{' '}
+          for the code it runs, not just the capabilities ticked here — reading captured traffic, resending and
+          fuzzing, and writing findings and notes. That is what the grant means, not a loophole in it. This token’s
+          scope and host whitelist still bound every request the code makes, and credential values stay masked
+          inside a script whatever this token allows.
         </p>
       )}
 

@@ -43,16 +43,18 @@ const (
 	ClassDetect    Class = "detect"
 	ClassExec      Class = "exec"
 	ClassC2        Class = "c2"
+	ClassScript    Class = "script"
 )
 
 // Classes lists every valid class, in the order the grant picker shows them. The
 // order is load-bearing now that write-heavy classes exist: sorting by ID instead
 // would put config and detect at the top of the picker, leading with the groups an
-// operator should consider last.
+// operator should consider last. Script is last of all, after execution and C2, for
+// the same reason — it is the group whose authority is not its own.
 var Classes = []Class{
 	ClassInstance, ClassHistory, ClassSitemap, ClassScope, ClassFindings, ClassNotes,
 	ClassHTTP, ClassWebSocket, ClassFuzzer, ClassContext, ClassConfig, ClassDetect,
-	ClassExec, ClassC2,
+	ClassExec, ClassC2, ClassScript,
 }
 
 func validClass(c Class) bool { return slices.Contains(Classes, c) }
@@ -105,13 +107,16 @@ type Capability struct {
 	Mutating     bool
 	SendsTraffic bool
 
-	// Privileged marks a capability that drives command execution or an operator's
-	// C2. These are registered only when Joro is started with --automation-privileged,
-	// and even then no profile grants one: the operator must select it by hand.
+	// Privileged marks a capability whose authority exceeds what a grant checkbox
+	// conveys on its own: command execution, an operator's C2, or running submitted
+	// code against a whole SDK bundle. Each is registered only when Joro is started
+	// with the launch flag that exposes it — --automation-privileged for execution and
+	// C2, --automation-scripting for scripting — and even then no profile grants one:
+	// the operator must select it by hand.
 	//
 	// The flag itself is not the gate — an unregistered capability cannot be granted,
-	// listed or invoked at all. It exists so validateProfiles can refuse to bundle
-	// one, the grant picker can mark it, and the audit log can record it.
+	// listed or invoked at all. This field exists so validateProfiles can refuse to
+	// bundle one, the grant picker can mark it, and the audit log can record it.
 	Privileged bool
 
 	// UnrestrictedOnly refuses the capability to any token the operator has

@@ -6,6 +6,7 @@ require github.com/hashicorp/go-uuid v1.0.3
 
 require (
 	github.com/BishopFox/joro/sdk v0.0.0-00010101000000-000000000000
+	github.com/dop251/goja v0.0.0-20260806115107-493f22071ef6
 	github.com/gorilla/websocket v1.5.3
 	github.com/miekg/dns v1.1.72
 	github.com/spf13/pflag v1.0.10
@@ -17,7 +18,10 @@ require (
 )
 
 require (
+	github.com/dlclark/regexp2/v2 v2.5.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
+	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
