@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Download, Play, Plus, Power, PowerOff, Trash2, Upload } from 'lucide-react'
+import { Bot, Download, Play, Plus, Power, PowerOff, Trash2, Upload } from 'lucide-react'
 import { api } from '../../lib/api'
 import { downloadPackage, pickPackage } from '../../lib/automationPackage'
 import { useAutomationStore } from '../../stores/automationStore'
 import { useToastStore } from '../../stores/toastStore'
 import ConfirmModal from '../ConfirmModal'
-import ScriptEditor, { type EditorDraft } from './ScriptEditor'
+import ScriptEditor, { OPERATOR_STARTED, type EditorDraft } from './ScriptEditor'
+
+/** The declared triggers the Dispatcher would watch — what enabling an automation arms. */
+function declaredEvents(triggers: string[] | undefined): string[] {
+  return (triggers ?? []).filter((t) => !OPERATOR_STARTED.includes(t))
+}
 
 /**
  * Installed automations: the list, and the editor it opens.
@@ -164,6 +169,15 @@ export default function ScriptsPanel({
                     >
                       {s.name}
                     </button>
+                    {s.author && (
+                      <span
+                        className="inline-flex items-center gap-1 ml-1.5 px-1 py-px rounded-sm bg-surface-input text-content-secondary text-[10px] align-middle"
+                        title={`Stored by ${s.author}. Read the code before enabling it.`}
+                      >
+                        <Bot size={9} strokeWidth={2} aria-hidden="true" />
+                        {s.author}
+                      </span>
+                    )}
                     <div className="text-content-muted font-mono text-[10px]">
                       {s.id} v{s.version} · sha256:{s.sourceHash.slice(0, 12)}
                       {s.revisions > 1 ? ` · ${s.revisions} revisions` : ''}
@@ -180,6 +194,13 @@ export default function ScriptsPanel({
                     ) : (
                       <span className="text-content-muted">
                         {s.enabled ? 'manual only' : 'disabled'}
+                        {/* What Enable would arm. An absent triggersDisabled key means
+                            armed, so enabling arms every event the manifest declares at
+                            once — and until then this column is the only place the
+                            operator can see which ones those are. */}
+                        {!s.enabled && declaredEvents(s.triggers).length > 0 && (
+                          <> · declares {declaredEvents(s.triggers).join(', ')}</>
+                        )}
                       </span>
                     )}
                   </td>
@@ -246,6 +267,13 @@ export default function ScriptsPanel({
           <code className="font-mono">~/.joro/automations/</code> and never travels inside a project
           config — what an automation stores with{' '}
           <code className="font-mono">joro.storage</code> does, because that describes one engagement.
+        </p>
+        <p className="text-[10px] text-content-muted leading-relaxed max-w-2xl">
+          An automation a token stored with <code className="font-mono">script_install</code> arrives
+          disabled and labelled with that token. A token holding{' '}
+          <code className="font-mono">script_replace</code> can rewrite any automation you do not
+          currently have enabled, including one you wrote — enabling an automation is what puts its
+          code beyond their reach.
         </p>
       </div>
 

@@ -68,6 +68,11 @@ const (
 	MaxRevisions      = 50
 )
 
+// MaxAgentPackages bounds how many packages a capability may leave in the operator's
+// list. One directory per attempt, each up to the operator's program-size limit, is a
+// list nobody reads — and reviewing it is the only thing that makes storing one useful.
+const MaxAgentPackages = 32
+
 var (
 	// idPattern is the plugin name pattern, reused so an operator learns one rule for
 	// both kinds of extension. It excludes '/', '\' and '.', which is what makes an ID
@@ -294,6 +299,18 @@ type State struct {
 	// max, so the operator can only ever add space between runs.
 	MinIntervalMs int `json:"minIntervalMs,omitempty"`
 
+	// Author names the automation token whose capability call last wrote this package's
+	// code. Empty means the operator, which is also what a package installed before this
+	// field existed reads as — both mean "not agent-authored".
+	//
+	// Display only. Nothing authorizes on it: whether a capability may replace a package
+	// turns on whether the operator has enabled it, and on nothing else. It is here so
+	// the operator can see whose code they are about to arm.
+	//
+	// In State rather than Manifest because the manifest is submitted content: a package
+	// that could name its own author could name the operator.
+	Author string `json:"author,omitempty"`
+
 	// Overrides for the manifest's Lens. Empty means take the author's value.
 	// LensOrder sorts the viewer's tabs; equal orders fall back to the label.
 	LensLabel string `json:"lensLabel,omitempty"`
@@ -352,6 +369,7 @@ type Summary struct {
 	PausedReason string    `json:"pausedReason,omitempty"`
 	SourceHash   string    `json:"sourceHash"`
 	SourceBytes  int       `json:"sourceBytes"`
+	Author       string    `json:"author,omitempty"`
 	InstalledAt  time.Time `json:"installedAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 	Revisions    int       `json:"revisions"`
@@ -377,6 +395,7 @@ func (a *Automation) Summarize() Summary {
 		PausedReason: a.State.PausedReason,
 		SourceHash:   a.SourceHash,
 		SourceBytes:  len(a.Source),
+		Author:       a.State.Author,
 		InstalledAt:  a.State.InstalledAt,
 		UpdatedAt:    a.State.UpdatedAt,
 		Revisions:    len(a.State.Revisions),

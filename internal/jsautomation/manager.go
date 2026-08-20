@@ -157,6 +157,27 @@ func (m *Manager) Packages() *Store { return m.deps.Store }
 // Storage exposes the automation key/value state, for project save and load.
 func (m *Manager) Storage() *Storage { return m.deps.Storage }
 
+// InstallPackage stores a new automation, disabled and unarmed, recording the caller as
+// its author.
+//
+// A forwarder rather than logic: the store owns validation, the disabled default, the
+// package ceiling and the path rules. It exists so a capability can reach installation
+// through capreg.ScriptRunner instead of through a capreg.Deps field — see that interface.
+func (m *Manager) InstallPackage(mf Manifest, source, author string) (*Automation, error) {
+	if m.deps.Store == nil {
+		return nil, errors.New("installed automations are unavailable")
+	}
+	return m.deps.Store.InstallAs(mf, source, author)
+}
+
+// ReplacePackage overwrites an installed automation the operator has not enabled.
+func (m *Manager) ReplacePackage(id string, mf Manifest, source, expectedHash, author string) (*Automation, error) {
+	if m.deps.Store == nil {
+		return nil, errors.New("installed automations are unavailable")
+	}
+	return m.deps.Store.ReplaceDisabled(id, mf, source, expectedHash, author)
+}
+
 // RunRequest is one script to execute.
 type RunRequest struct {
 	Source string

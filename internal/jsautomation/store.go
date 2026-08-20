@@ -36,6 +36,16 @@ var (
 	ErrNotFound     = errors.New("no such automation")
 	ErrExists       = errors.New("an automation with that id is already installed")
 	ErrHashMismatch = errors.New("the automation changed since it was read")
+
+	// ErrEnabled means a capability tried to replace code the operator has armed.
+	// Enabling it is them agreeing to supervise that code, so replacing it underneath
+	// them is not something a token gets to do.
+	ErrEnabled = errors.New("this automation is enabled; the operator has to disable it " +
+		"before its code can be replaced")
+
+	// ErrTooManyPackages means MaxAgentPackages is reached.
+	ErrTooManyPackages = errors.New("this Joro already holds the maximum number of " +
+		"token-stored automations; the operator has to remove one first")
 )
 
 const (
@@ -94,7 +104,10 @@ func (s *Store) path(id string) (string, error) {
 func (s *Store) List() []*Automation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.listLocked()
+}
 
+func (s *Store) listLocked() []*Automation {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -182,6 +195,17 @@ func (s *Store) loadLocked(id string) (*Automation, error) {
 // overwriting: replacing installed code is Update's job, and Update has the
 // hash precondition that makes a replacement deliberate.
 func (s *Store) Install(m Manifest, source string) (*Automation, error) {
+	return s.InstallAs(m, source, "")
+}
+
+// InstallAs is Install, recording which automation token submitted the code and refusing
+// once MaxAgentPackages token-stored packages exist. Install delegates here with an empty
+// author, which is what the operator's own path means.
+//
+// The ceiling applies only to token-stored packages, and counts them wherever they sit:
+// enabling one does not make room, because the point of the limit is a reviewable list,
+// not a quota on disk.
+func (s *Store) InstallAs(m Manifest, source, author string) (*Automation, error) {
 	m.Normalize()
 	if err := m.Validate(); err != nil {
 		return nil, err
@@ -202,12 +226,16 @@ func (s *Store) Install(m Manifest, source string) (*Automation, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("checking %s: %w", dir, err)
 	}
+	if author != "" && s.countAuthoredLocked() >= MaxAgentPackages {
+		return nil, ErrTooManyPackages
+	}
 
 	now := time.Now().UTC()
 	st := State{
 		// Installed disabled. An operator reviews code, triggers and limits, and then
 		// arms it; nothing an install can do should start something running.
 		Enabled:     false,
+		Author:      author,
 		InstalledAt: now,
 		UpdatedAt:   now,
 		Revisions:   []Revision{{Hash: HashSource(source), At: now, Bytes: len(source)}},
@@ -233,17 +261,67 @@ func (s *Store) Install(m Manifest, source string) (*Automation, error) {
 // something is actively triggering is how an operator ends up supervising an automation
 // they have not read, so a concurrent edit has to lose rather than win.
 func (s *Store) Update(id string, m Manifest, source, expectedHash string) (*Automation, error) {
-	m.Normalize()
-	if err := m.Validate(); err != nil {
-		return nil, err
-	}
-	if err := ValidateSource(source, s.sourceLimit()); err != nil {
-		return nil, err
-	}
+	return s.UpdateAs(id, m, source, expectedHash, "")
+}
 
+// UpdateAs is Update, recording the author. The operator's own path passes an empty one,
+// which clears the field — the right reading: they have read the code and rewritten it as
+// their own.
+func (s *Store) UpdateAs(id string, m Manifest, source, expectedHash, author string) (*Automation, error) {
+	if err := s.validateWrite(&m, source); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.updateLocked(id, m, source, expectedHash, author, false)
+}
 
+// ReplaceDisabled overwrites an installed package the operator has not enabled, whoever
+// wrote it.
+//
+// The enabled test happens here, under the store's own lock. A capability that loaded the
+// package, saw it disabled and then called Update would leave a window in which the
+// operator arms it and the write still lands anyway.
+//
+// expectedHash is required unconditionally, unlike Update, which demands one only while
+// the package is armed. It is a staleness guard rather than a permission — Summarize
+// reports every package's hash, so a caller can always obtain one — but it does mean a
+// blind overwrite costs a prior read.
+func (s *Store) ReplaceDisabled(id string, m Manifest, source, expectedHash, author string) (*Automation, error) {
+	if err := s.validateWrite(&m, source); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.updateLocked(id, m, source, expectedHash, author, true)
+}
+
+// validateWrite normalizes and checks what every write path checks, outside the lock —
+// manifest shape and a source that compiles.
+func (s *Store) validateWrite(m *Manifest, source string) error {
+	m.Normalize()
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	return ValidateSource(source, s.sourceLimit())
+}
+
+// countAuthoredLocked counts packages a capability stored. See MaxAgentPackages.
+func (s *Store) countAuthoredLocked() int {
+	n := 0
+	for _, a := range s.listLocked() {
+		if a.State.Author != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// updateLocked is the shared body of every replacement. requireDisabled adds the rule that
+// separates a capability's write from the operator's: they may replace armed code, having
+// stated the hash; a token may not, at all.
+func (s *Store) updateLocked(id string, m Manifest, source, expectedHash, author string,
+	requireDisabled bool) (*Automation, error) {
 	cur, err := s.loadLocked(id)
 	if err != nil {
 		return nil, err
@@ -252,7 +330,25 @@ func (s *Store) Update(id string, m Manifest, source, expectedHash string) (*Aut
 		return nil, fmt.Errorf("cannot change an automation's id (%q -> %q); install a new one instead",
 			cur.Manifest.ID, m.ID)
 	}
-	if cur.Runnable() {
+	switch {
+	case requireDisabled:
+		// Paused counts as armed: it is something the breaker stopped and the operator
+		// has not answered about yet, so their Enabled flag still records their intent.
+		if cur.State.Enabled || cur.State.Paused {
+			return nil, ErrEnabled
+		}
+		// The sentinel goes last here, unlike the operator's branch below: this message
+		// leads with what to supply, and "the automation changed since it was read" is
+		// not what happened when nothing was stated at all.
+		if expectedHash == "" {
+			return nil, fmt.Errorf("expectedHash is required: state the source hash the "+
+				"automation has now, so this cannot overwrite a revision that was never "+
+				"read (%w)", ErrHashMismatch)
+		}
+		if expectedHash != cur.SourceHash {
+			return nil, ErrHashMismatch
+		}
+	case cur.Runnable():
 		switch {
 		case expectedHash == "":
 			return nil, fmt.Errorf("%w: this automation is enabled, so an update must state the "+
@@ -270,6 +366,7 @@ func (s *Store) Update(id string, m Manifest, source, expectedHash string) (*Aut
 	now := time.Now().UTC()
 	st := cur.State
 	st.UpdatedAt = now
+	st.Author = author
 	newHash := HashSource(source)
 	if newHash != cur.SourceHash {
 		st.Revisions = append(st.Revisions, Revision{Hash: newHash, At: now, Bytes: len(source)})

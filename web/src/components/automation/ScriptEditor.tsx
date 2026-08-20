@@ -3,7 +3,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { javascript } from '@codemirror/lang-javascript'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { Download, Play, Save, X } from 'lucide-react'
+import { Bot, Download, Play, Save, X } from 'lucide-react'
 import {
   api,
   LENS_PARTS,
@@ -23,7 +23,10 @@ const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-bo
 // The two triggers the operator starts, so the Dispatcher never watches them and a lens may
 // still declare them. Mirrors dispatched() in internal/jsautomation/manifest.go, which drops
 // the rest from a manifest that declares a lens.
-const OPERATOR_STARTED = ['manual', 'request.selected']
+//
+// Exported because ScriptsPanel needs the same split to say what enabling an automation
+// would arm, and a second copy of this list would be one to keep in step.
+export const OPERATOR_STARTED = ['manual', 'request.selected']
 
 const STARTER = `async function run(ctx) {
   // ctx.trigger tells you why this ran; ctx.input carries anything passed in.
@@ -84,6 +87,9 @@ export default function ScriptEditor({
   const [busy, setBusy] = useState(false)
   const [run, setRun] = useState<ScriptRun | null>(null)
   const [input, setInput] = useState('{}')
+  // Which token last wrote this code, shown beside the hash. Saving here clears it on the
+  // server, so it is cleared locally on save too rather than lingering until a reload.
+  const [author, setAuthor] = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -95,6 +101,7 @@ export default function ScriptEditor({
         setManifest(pkg.manifest)
         setSource(pkg.source ?? '')
         setBaseHash(pkg.sourceHash)
+        setAuthor(pkg.state.author ?? '')
         setOverride(pkg.state.limits ?? {})
         setEffective(pkg.effectiveLimits ?? null)
       })
@@ -143,6 +150,8 @@ export default function ScriptEditor({
         const pkg = await api.installScript(manifest, source)
         setBaseHash(pkg.sourceHash)
       }
+      // Saving from here is the operator writing the code, whoever wrote it before.
+      setAuthor('')
     }, id ? 'Saved' : 'Installed (disabled until you enable it)')
     if (ok) onSaved()
   }
@@ -192,7 +201,18 @@ export default function ScriptEditor({
             {id ? manifest.name || id : 'New automation'}
           </h3>
           {baseHash && (
-            <p className="text-[10px] text-content-muted font-mono">sha256:{baseHash.slice(0, 16)}</p>
+            <p className="text-[10px] text-content-muted font-mono">
+              sha256:{baseHash.slice(0, 16)}
+              {author && (
+                <span
+                  className="inline-flex items-center gap-1 ml-1.5 px-1 py-px rounded-sm bg-surface-input text-content-secondary font-sans"
+                  title={`Stored by ${author}. Saving here makes the code yours.`}
+                >
+                  <Bot size={9} strokeWidth={2} aria-hidden="true" />
+                  {author}
+                </span>
+              )}
+            </p>
           )}
         </div>
         <div className="ml-auto flex items-center gap-1.5">

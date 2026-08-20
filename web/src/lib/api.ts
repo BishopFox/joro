@@ -355,6 +355,10 @@ export interface AutomationState {
   lensLabel?: string
   lensPart?: string
   lensOrder?: number
+  /** The automation token whose capability call last wrote this code. Absent means the
+   *  operator wrote it, and saving one here clears the field. Nothing authorizes on it —
+   *  whether a token may replace the code turns on `enabled` alone. */
+  author?: string
   installedAt: string
   updatedAt: string
   revisions?: AutomationRevision[]
@@ -445,6 +449,9 @@ export interface AutomationSummary {
   pausedReason?: string
   sourceHash: string
   sourceBytes: number
+  /** The automation token whose capability call last wrote this code; absent for the
+   *  operator's own. See AutomationState.author. */
+  author?: string
   installedAt: string
   updatedAt: string
   revisions: number

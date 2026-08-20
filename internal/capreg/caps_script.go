@@ -31,6 +31,16 @@ type ScriptRunner interface {
 	// shape what an agent gets back — widening this interface rather than Deps, which
 	// is the field set whose growth would break the import rule in build.go.
 	Budget() jsruntime.BudgetPolicy
+
+	// InstallPackage stores an automation the caller wrote, disabled and unarmed. The
+	// operator arms it or nothing does, which is the same rule Invoke states above.
+	// Widened here rather than on Deps for the reason Budget gives.
+	InstallPackage(m jsautomation.Manifest, source, author string) (*jsautomation.Automation, error)
+
+	// ReplacePackage overwrites an installed automation, and refuses one the operator has
+	// enabled. Separate from InstallPackage because it backs a separate grant: a token
+	// may be allowed to store automations without being allowed to overwrite them.
+	ReplacePackage(id string, m jsautomation.Manifest, source, expectedHash, author string) (*jsautomation.Automation, error)
 }
 
 type scriptRunArgs struct {
@@ -45,6 +55,44 @@ type scriptRunArgs struct {
 type scriptInvokeArgs struct {
 	ID    string          `json:"id"`
 	Input json.RawMessage `json:"input"`
+}
+
+// scriptInstallArgs is the submittable half of a manifest.
+//
+// Deliberately absent, each for its own reason. entrypoint and sdkVersion: Normalize
+// supplies both, there is one bundled file, and its name is Joro's to pick. limits: an
+// author's request can only ever narrow what the operator already allows, so offering it
+// buys nothing and costs a field for a caller to invent and an operator to check. lens: a
+// lens runs unattended on every transaction the operator opens once it is enabled, which
+// is the sharpest surface here, and the editor is where one belongs.
+//
+// minIntervalMs stays, because it combines by taking the larger of author and operator —
+// declaring one is self-restraint, and it is the only field here a caller can use to make
+// its own automation safer.
+type scriptInstallArgs struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Version       string   `json:"version"`
+	Description   string   `json:"description"`
+	Source        string   `json:"source"`
+	Triggers      []string `json:"triggers"`
+	MinIntervalMs int      `json:"minIntervalMs"`
+}
+
+func (a scriptInstallArgs) manifest() jsautomation.Manifest {
+	return jsautomation.Manifest{
+		ID:            a.ID,
+		Name:          a.Name,
+		Version:       a.Version,
+		Description:   a.Description,
+		Triggers:      a.Triggers,
+		MinIntervalMs: a.MinIntervalMs,
+	}
+}
+
+type scriptReplaceArgs struct {
+	scriptInstallArgs
+	ExpectedHash string `json:"expectedHash"`
 }
 
 // Output shaping for the tool result.
@@ -148,7 +196,9 @@ func registerScript(r *capability.Registry, d Deps) {
 			"the run report names both. Each run has its own request budget and " +
 			"wall-clock deadline, both set by the operator and possibly above or below the maxima here; ask " +
 			"for what you need, and read your result for what you were actually given. console.log output " +
-			"and the return value both come back to you.",
+			"and the return value both come back to you. A run here is ephemeral — nothing survives it but " +
+			"the report. If the program turns out to be worth keeping, store it with script_install and the " +
+			"operator can review and enable it.",
 
 		InputSchema: json.RawMessage(`{
   "type":"object",
@@ -220,6 +270,159 @@ func registerScript(r *capability.Registry, d Deps) {
 			capability.RecordChange(ctx, "%s", run.Summary())
 
 			return renderRun(run, logCap, resultCap), nil
+		}),
+	})
+
+	// The triggers enum below duplicates jsautomation.Triggers, as every schema in this
+	// package duplicates the Go values it describes. Adding a trigger constant means
+	// adding it here too; Manifest.Validate refuses an unknown one and names the known
+	// set, so the drift fails loudly rather than silently accepting a dead subscription.
+	const triggerEnum = `["manual","request.selected","detect.finding","fuzzer.complete","request.captured"]`
+
+	r.MustRegister(capability.Capability{
+		ID:    "script.install",
+		Class: capability.ClassScript,
+		Title: "Store a JavaScript automation for the operator",
+
+		// Privileged for the same reasons script.run is, and Mutating because this is the
+		// one capability that writes executable code into the operator's data directory.
+		//
+		// It adds no execution authority: what it writes cannot run until the operator
+		// enables it. What it adds is durability and visibility, which is a different
+		// thing from running something once and worth its own grant. What bounds it: the
+		// id pattern admits no path separator and the store re-validates it at the join,
+		// the entrypoint is Joro's to name, size is bounded by the operator's program-size
+		// budget and count by jsautomation.MaxAgentPackages, and a package never travels
+		// inside a project config.
+		Privileged: true,
+		Mutating:   true,
+
+		Description: "Store a script as an installed automation, so it outlives this session and the " +
+			"operator can read it, edit it, enable it or remove it in Settings → Automation. Run it with " +
+			"script_run first: an automation nobody has seen work is not worth storing. It arrives " +
+			"DISABLED and unarmed — the triggers you declare are a request, not an arming, script_invoke " +
+			"will refuse it, and only the operator can change that. An id that already exists is a " +
+			"refusal, not an overwrite; replacing stored code is script_replace, a separate grant. You " +
+			"cannot read any installed automation's source back, including your own.",
+
+		InputSchema: json.RawMessage(`{
+  "type":"object",
+  "properties":{
+    "id": {
+      "type":"string",
+      "description":"Permanent handle: lowercase letters, digits, hyphen and underscore, starting with a letter or digit, 64 characters at most. It is the directory name, the script_invoke handle and the joro.storage namespace, and it cannot be changed later."
+    },
+    "name": {"type":"string","description":"Human label for the operator's list, 80 characters at most. Defaults to the id."},
+    "version": {"type":"string","description":"Your own version string, 32 characters at most. Defaults to 0.0.0."},
+    "description": {
+      "type":"string",
+      "description":"What this automation does and when it should run, 400 characters at most. The operator reads this before deciding whether to enable it, which makes it the most useful field here."
+    },
+    "source": {
+      "type":"string",
+      "description":"The program, identical in shape to script_run's: must define 'async function run(ctx)' at the top level. Compiled before it is stored, so a syntax error is refused rather than saved. Bundle any dependencies in; nothing is resolvable at runtime."
+    },
+    "triggers": {
+      "type":"array",
+      "items":{"type":"string","enum":` + triggerEnum + `},
+      "description":"Events this automation is written to handle. A declaration only: nothing is armed until the operator enables the automation, and they can switch off any one of these. Defaults to manual."
+    },
+    "minIntervalMs": {
+      "type":"integer","minimum":0,
+      "description":"Shortest gap between two triggered runs. The operator's own figure is combined with this by taking the longer, so asking for space here is the one limit you can genuinely tighten."
+    }
+  },
+  "required":["id","source"],
+  "additionalProperties":false
+}`),
+		ArgsExample: json.RawMessage(`{"id":"idor-sweep","name":"IDOR sweep","version":"0.1.0","description":"Resends a request with neighbouring object ids and reports which ones answer 200.","source":"async function run(ctx) {\n  return { checked: ctx.input.ref };\n}","triggers":["manual"]}`),
+
+		MaxOutputBytes: 4 << 10,
+
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args scriptInstallArgs) (any, error) {
+			if err := checkScriptWrite(d, args); err != nil {
+				return nil, err
+			}
+			a, err := d.Script.InstallPackage(args.manifest(), args.Source, storedBy(p))
+			if err != nil {
+				return nil, storeError(err, "script_replace")
+			}
+
+			capability.RecordChange(ctx, "store %s v%s (%d bytes, disabled, triggers %s): sha256:%s",
+				a.Manifest.ID, a.Manifest.Version, len(a.Source),
+				joinOr(a.Manifest.Triggers, "-"), short(a.SourceHash))
+			announceStored(d, a, p, true)
+			return renderStored(a, false), nil
+		}),
+	})
+
+	r.MustRegister(capability.Capability{
+		ID:    "script.replace",
+		Class: capability.ClassScript,
+		Title: "Replace a stored automation's code",
+
+		// A separate grant from script.install on purpose: storing something new and
+		// rewriting something that is already there are different acts, and an operator
+		// should be able to permit the first without the second.
+		//
+		// The one test is whether the operator has the automation enabled. A disabled
+		// automation may be replaced whoever wrote it, including one the operator wrote
+		// and left switched off — so this grant is wider than "iterate on your own drafts"
+		// and the description says so.
+		Privileged: true,
+		Mutating:   true,
+
+		Description: "Replace the code of an automation already stored on this Joro, by id. Only one the " +
+			"operator does not currently have enabled: arming an automation is them agreeing to supervise " +
+			"that code, so replacing it underneath them is refused and they have to disable it first. " +
+			"Otherwise any stored automation can be replaced, including one they wrote themselves. State " +
+			"the sourceHash you are replacing, from script_list; a stale one is refused rather than " +
+			"overwriting whatever is there now. The replacement is stored disabled if it was disabled, " +
+			"which it must have been, so nothing is armed by this call.",
+
+		InputSchema: json.RawMessage(`{
+  "type":"object",
+  "properties":{
+    "id": {"type":"string","description":"The automation id, from script_list."},
+    "expectedHash": {
+      "type":"string",
+      "description":"The sourceHash script_list reports for this automation right now. Required: it is what stops this call overwriting a revision you have not seen."
+    },
+    "name": {"type":"string","description":"Human label for the operator's list, 80 characters at most. Defaults to the id."},
+    "version": {"type":"string","description":"Your own version string, 32 characters at most. Bump it when the source changes."},
+    "description": {"type":"string","description":"What this automation does and when it should run, 400 characters at most."},
+    "source": {
+      "type":"string",
+      "description":"The replacement program. Must define 'async function run(ctx)' at the top level, and is compiled before it is stored."
+    },
+    "triggers": {
+      "type":"array",
+      "items":{"type":"string","enum":` + triggerEnum + `},
+      "description":"Events this automation is written to handle. A trigger the operator switched off stays off, and a newly declared one is not armed by being declared."
+    },
+    "minIntervalMs": {"type":"integer","minimum":0,"description":"Shortest gap between two triggered runs; combined with the operator's by taking the longer."}
+  },
+  "required":["id","source","expectedHash"],
+  "additionalProperties":false
+}`),
+		ArgsExample: json.RawMessage(`{"id":"idor-sweep","version":"0.2.0","expectedHash":"9f2b1c0d5e6a7b8c","source":"async function run(ctx) {\n  return { checked: ctx.input.ref };\n}"}`),
+
+		MaxOutputBytes: 4 << 10,
+
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args scriptReplaceArgs) (any, error) {
+			if err := checkScriptWrite(d, args.scriptInstallArgs); err != nil {
+				return nil, err
+			}
+			a, err := d.Script.ReplacePackage(args.ID, args.manifest(), args.Source,
+				args.ExpectedHash, storedBy(p))
+			if err != nil {
+				return nil, storeError(err, "script_install")
+			}
+
+			capability.RecordChange(ctx, "replace %s v%s (was sha256:%s): sha256:%s",
+				a.Manifest.ID, a.Manifest.Version, short(args.ExpectedHash), short(a.SourceHash))
+			announceStored(d, a, p, false)
+			return renderStored(a, true), nil
 		}),
 	})
 
@@ -311,6 +514,115 @@ func registerScript(r *capability.Registry, d Deps) {
 	})
 }
 
+// checkScriptWrite rejects what both write paths reject before the store is touched, so a
+// caller hears about a missing argument rather than about a failed filesystem write.
+func checkScriptWrite(d Deps, args scriptInstallArgs) error {
+	switch {
+	case d.Script == nil:
+		return fmt.Errorf("the script runtime is unavailable")
+	case strings.TrimSpace(args.ID) == "":
+		return &capability.Error{Code: capability.CodeInvalidArgs, Msg: "id is required"}
+	case strings.TrimSpace(args.Source) == "":
+		return &capability.Error{
+			Code: capability.CodeInvalidArgs,
+			Msg:  "source is required: define `async function run(ctx) { ... }`",
+		}
+	}
+	return nil
+}
+
+// storedBy names the author to record. The token's name rather than its id, because the
+// value is shown to the operator beside the code — and a run nothing launched has no
+// token, which reads as the operator's own.
+func storedBy(p capability.Principal) string {
+	if name := strings.TrimSpace(p.TokenName); name != "" {
+		return name
+	}
+	return "automation"
+}
+
+// storeError maps the package store's sentinels onto capability codes. other names the
+// sibling tool the caller should have reached for, which differs by direction: an id that
+// exists wants script_replace, and one that does not wants script_install.
+//
+// ErrEnabled is forbidden rather than invalid_args for the reason ErrNotRunnable is in
+// script.invoke: the argument was right and the automation exists, the operator's decision
+// is what refuses. ErrTooManyPackages is forbidden rather than busy because busy means
+// retry shortly, and nothing here clears without the operator removing something.
+//
+// A filesystem failure is returned unwrapped and surfaces as the registry's handler_error,
+// which is the honest code for it: nothing the caller can restate would help.
+func storeError(err error, other string) error {
+	switch {
+	case errors.Is(err, jsautomation.ErrEnabled), errors.Is(err, jsautomation.ErrTooManyPackages):
+		return &capability.Error{Code: capability.CodeForbidden, Msg: err.Error()}
+	case errors.Is(err, jsautomation.ErrExists), errors.Is(err, jsautomation.ErrNotFound):
+		return &capability.Error{
+			Code: capability.CodeInvalidArgs,
+			Msg:  fmt.Sprintf("%s; use %s", err.Error(), other),
+		}
+	case err == jsautomation.ErrHashMismatch:
+		// Compared rather than errors.Is'd, deliberately: the store also wraps this
+		// sentinel for a hash that was never stated, and that message already says what
+		// to supply. Only the bare mismatch needs telling where the current hash is.
+		return &capability.Error{
+			Code: capability.CodeInvalidArgs,
+			Msg:  fmt.Sprintf("%s: re-read it with script_list and retry with the hash it reports", err.Error()),
+		}
+	case err != nil:
+		// Everything left from the store's front half is a fixable argument: a bad id, an
+		// over-long field, a source over the operator's program-size limit, or a syntax
+		// error the compile caught. Those messages name the field and the rule already.
+		var ce *capability.Error
+		if errors.As(err, &ce) {
+			return err
+		}
+		return &capability.Error{Code: capability.CodeInvalidArgs, Msg: err.Error()}
+	}
+	return nil
+}
+
+// announceStored pushes the one event the Automations panel needs. It loads on mount and
+// after its own actions and nothing else, so a package stored while the operator is
+// looking at that panel would otherwise be invisible until they left it and came back.
+//
+// Droppable, like every capability broadcast: a stale panel is better than a handler that
+// stalls on a full hub channel.
+func announceStored(d Deps, a *jsautomation.Automation, p capability.Principal, created bool) {
+	broadcast(d, "automation.script.stored", map[string]any{
+		"id":         a.Manifest.ID,
+		"name":       a.Manifest.Name,
+		"version":    a.Manifest.Version,
+		"sourceHash": a.SourceHash,
+		"author":     storedBy(p),
+		"created":    created,
+	})
+}
+
+// renderStored tells the caller what it just gave up control of. Every line is something a
+// caller gets wrong otherwise: that this armed nothing, that the triggers it declared are
+// inert until the operator acts, and what it would take to change the code again.
+func renderStored(a *jsautomation.Automation, replaced bool) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s v%s  %d bytes  sha256:%s\n",
+		pick(replaced, "replaced", "stored"), a.Manifest.ID, a.Manifest.Version,
+		len(a.Source), short(a.SourceHash))
+	fmt.Fprintf(&b, "state: disabled — script_invoke refuses it until the operator enables it\n")
+	fmt.Fprintf(&b, "triggers declared: %s (not armed)\n", joinOr(a.Manifest.Triggers, "-"))
+	b.WriteString("the operator can read, edit, enable or remove it in Settings → Automation; " +
+		"script_replace can change the code while it stays disabled")
+	return b.String()
+}
+
+// short is the hash prefix these reports quote, in one place so the run report and the
+// store reports cite the same number of characters.
+func short(hash string) string {
+	if len(hash) > 16 {
+		return hash[:16]
+	}
+	return hash
+}
+
 // renderAutomations lists installed automations, one per line with aligned columns —
 // the shape the other list tools use, and cheap to scan for the id to invoke.
 func renderAutomations(items []jsautomation.Summary) string {
@@ -364,7 +676,7 @@ func renderRun(run *jsautomation.Run, logCap, resultCap int) string {
 	fmt.Fprintf(&b, "sdk calls: %d/%d (%d/%d sending)   sdk bytes: %d in / %d out\n",
 		res.Calls, res.Budget.MaxCalls, res.SendCalls, res.Budget.MaxSendCalls,
 		res.CallInputBytes, res.CallOutputBytes)
-	fmt.Fprintf(&b, "bundle: %s   source: sha256:%s\n", run.Bundle, run.SourceHash[:16])
+	fmt.Fprintf(&b, "bundle: %s   source: sha256:%s\n", run.Bundle, short(run.SourceHash))
 	// The same argument as the budget line above, for the other half of what a run was
 	// held to. A run inherits its policy rather than asking for one, so this is the only
 	// place a caller learns which posture refused its sends.
