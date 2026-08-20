@@ -215,8 +215,14 @@ func (s *APIServer) handleUploadPlugin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDeletePlugin removes a plugin file from the plugins directory.
-// A restart is required for the change to take effect.
+// handleDeletePlugin removes a plugin file from the plugins directory, and with
+// purgeData=true its per-plugin data directory as well.
+//
+// A plugin that loaded keeps running until a restart, so the response reports
+// whether one is needed rather than implying the plugin is gone. Plugin state
+// held in user and project configs is never touched: mergePluginStates keeps it
+// deliberately, so a config still round-trips through a machine that lacks the
+// plugin.
 func (s *APIServer) handleDeletePlugin(w http.ResponseWriter, r *http.Request) {
 	if s.pluginManager == nil {
 		writeError(w, http.StatusInternalServerError, "plugin manager not initialized")
@@ -228,6 +234,7 @@ func (s *APIServer) handleDeletePlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "filename is required")
 		return
 	}
+	purgeData := r.URL.Query().Get("purgeData") == "true"
 
 	// Sanitize: only allow base filenames, no path traversal.
 	filename = filepath.Base(filename)
@@ -246,6 +253,17 @@ func (s *APIServer) handleDeletePlugin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The data directory is keyed on the manifest name, which is only readable
+	// while the plugin is still loaded — resolve it before unlinking. A file that
+	// failed to load has no name and so no data directory.
+	pluginName := ""
+	for _, p := range s.pluginManager.List() {
+		if p.Filename == filename {
+			pluginName = p.Name
+			break
+		}
+	}
+
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {
 			writeError(w, http.StatusNotFound, "plugin file not found")
@@ -255,10 +273,48 @@ func (s *APIServer) handleDeletePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"filename": filename,
-		"message":  "plugin removed — restart Joro to apply",
+	restartRequired := s.pluginManager.MarkRemoved(filename)
+
+	// Best-effort, like the project delete's browser profile: the plugin file is
+	// already gone, so failing the request here would report a delete that did
+	// not happen.
+	dataPurged := false
+	if purgeData && pluginName != "" {
+		dir := s.pluginManager.PluginDataDir(pluginName)
+		if err := removeDirNoSymlink(dir); err != nil {
+			log.Printf("[plugins] deleted %q but its data directory remains: %v", filename, err)
+		} else {
+			dataPurged = true
+		}
+	}
+
+	msg := "plugin removed"
+	if restartRequired {
+		msg = "plugin removed — restart Joro to unload it"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"filename":        filename,
+		"restartRequired": restartRequired,
+		"dataPurged":      dataPurged,
+		"message":         msg,
 	})
+}
+
+// removeDirNoSymlink deletes a directory and its contents, refusing to follow a
+// symlink — os.RemoveAll through one would empty the target instead. A missing
+// directory is success.
+func removeDirNoSymlink(dir string) error {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symlink", dir)
+	}
+	return os.RemoveAll(dir)
 }
 
 // registerPluginRoutes registers all dynamic routes for loaded plugins.

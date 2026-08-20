@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -159,6 +160,32 @@ func profileInUse(profileDir string) bool {
 		}
 	}
 	return false
+}
+
+// RemoveProfile deletes a testing-browser profile directory and everything under
+// it. A missing directory is success.
+//
+// The in-use refusal is not politeness: Chrome holds its databases open and
+// rewrites them on exit, so wiping a live profile leaves a half-deleted
+// directory that the next launch inherits and cannot repair. The symlink
+// refusal matters because this is the one path derived from an operator-supplied
+// project name, and os.RemoveAll through a symlinked profile would delete the
+// target's contents.
+func RemoveProfile(profileDir string) error {
+	info, err := os.Lstat(profileDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("profile %s is a symlink", profileDir)
+	}
+	if profileInUse(profileDir) {
+		return fmt.Errorf("profile %s is still open in a running browser", profileDir)
+	}
+	return os.RemoveAll(profileDir)
 }
 
 // ClearCookies removes the cookie databases from a Chrome profile directory.

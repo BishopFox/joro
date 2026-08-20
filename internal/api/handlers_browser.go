@@ -86,12 +86,17 @@ func (s *APIServer) browserProfile() (key, dir string, ephemeral bool) {
 	active := s.activeProjectConfig
 	s.mu.RUnlock()
 	ephemeral = active == ""
-	key = active
-	if key == "" {
-		key = "default"
-	}
-	key = sanitizeProfileKey(key)
-	return key, filepath.Join(s.cfg.DataDir, "browser-profiles", key), ephemeral
+	key = sanitizeProfileKey(active)
+	return key, s.profileDirFor(active), ephemeral
+}
+
+// profileDirFor maps a project name to its testing-browser profile directory.
+// The empty name is the no-project "default" profile. Every caller that needs a
+// profile path goes through here, so the name-to-directory mapping has one
+// definition — deleting a project's profile must resolve to the same directory
+// the launch created.
+func (s *APIServer) profileDirFor(project string) string {
+	return filepath.Join(s.cfg.DataDir, "browser-profiles", sanitizeProfileKey(project))
 }
 
 // sanitizeProfileKey maps a project name to a filesystem-safe directory name.

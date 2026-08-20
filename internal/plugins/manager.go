@@ -36,8 +36,12 @@ type Manager struct {
 	interactProviders map[string]sdk.InteractProvider
 	proxyHooks        []sdk.ProxyHook
 	dashboard         sdk.DashboardProvider
-	allPlugins        []PluginInfo
-	broadcast         chan<- any
+	// allPlugins is built once by Start and is otherwise immutable — the rest of
+	// this package reads it without expecting change, since a loaded Go plugin
+	// cannot be unloaded. MarkRemoved is the single exception, and exists because
+	// a list that never changes makes a successful delete look like a no-op.
+	allPlugins []PluginInfo
+	broadcast  chan<- any
 }
 
 // NewManager creates a plugin manager that loads plugins from pluginDir.
@@ -61,9 +65,21 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("create plugin dir: %w", err)
 	}
 
-	plugins, errs := loadPlugins(m.pluginDir)
+	plugins, failed, errs := loadPlugins(m.pluginDir)
 	for _, err := range errs {
 		log.Printf("[plugins] %v", err)
+	}
+
+	// A file that would not load still gets a row, so the operator can see why
+	// and delete it. There is no manifest to read a name, version or type from,
+	// so those stay empty and the UI shows the filename instead.
+	for _, f := range failed {
+		log.Printf("[plugins] plugin %s: %v", f.filename, f.err)
+		m.allPlugins = append(m.allPlugins, PluginInfo{
+			Status:   "error",
+			Error:    f.err.Error(),
+			Filename: f.filename,
+		})
 	}
 
 	for _, lp := range plugins {
@@ -79,7 +95,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		}
 
 		// Create scoped data directory for this plugin.
-		dataDir := filepath.Join(filepath.Dir(m.pluginDir), "plugin-data", manifest.Name)
+		dataDir := m.PluginDataDir(manifest.Name)
 		if err := os.MkdirAll(dataDir, 0o700); err != nil {
 			info.Status = "error"
 			info.Error = fmt.Sprintf("create data dir: %v", err)
@@ -254,6 +270,42 @@ func (m *Manager) Dashboard() sdk.DashboardProvider {
 // PluginDir returns the directory where plugin .so/.dylib files are stored.
 func (m *Manager) PluginDir() string {
 	return m.pluginDir
+}
+
+// PluginDataDir returns the per-plugin data directory handed to a plugin as
+// sdk.PluginContext.DataDir. Both the Start path that creates it and the delete
+// path that removes it resolve it here, so a plugin's data cannot be created in
+// one place and looked for in another. Keyed on the manifest name, not the
+// filename, which is why a caller deleting a plugin must resolve the name from
+// PluginInfo before the file is gone.
+func (m *Manager) PluginDataDir(name string) string {
+	return filepath.Join(filepath.Dir(m.pluginDir), "plugin-data", name)
+}
+
+// MarkRemoved records that a plugin's file has been deleted from disk, and
+// reports whether a restart is needed to finish the job.
+//
+// A plugin that loaded is still running: Go cannot unload one, so its code,
+// routes and hooks stay live and the row stays visible as "removed" until a
+// restart. A file that never loaded has nothing to unload, so its row simply
+// goes away and no restart is required.
+func (m *Manager) MarkRemoved(filename string) (restartRequired bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, p := range m.allPlugins {
+		if p.Filename != filename {
+			continue
+		}
+		if p.Status == "error" && p.Name == "" {
+			m.allPlugins = append(m.allPlugins[:i], m.allPlugins[i+1:]...)
+			return false
+		}
+		m.allPlugins[i].Status = "removed"
+		m.allPlugins[i].Error = ""
+		return true
+	}
+	return false
 }
 
 // HasPlugins returns true if any plugins are loaded.

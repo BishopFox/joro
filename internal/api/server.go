@@ -139,6 +139,14 @@ type APIServer struct {
 
 	highlights map[string]string // requestID → highlight color name
 
+	// projectFileMu serializes every mutation of a project's on-disk files: the
+	// .joro written by saveProject, its .meta.json sidecar, and the delete that
+	// removes both. Without it an auto-save tick that has already passed its
+	// active-project check can SaveGzip the file a concurrent delete just
+	// unlinked, resurrecting a deleted project as a .joro with no sidecar.
+	// Lock order is projectFileMu then mu, never the reverse.
+	projectFileMu sync.Mutex
+
 	mu                  sync.RWMutex
 	settings            Settings
 	activeUserConfig    string

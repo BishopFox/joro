@@ -32,6 +32,14 @@ func (s *APIServer) StartAutoSaveLoop(ctx context.Context) {
 // active, the active project has autoSave disabled, or nothing changed since the
 // last save.
 func (s *APIServer) autoSaveTick() {
+	// Deciding which project to save and writing it must be one atomic step
+	// against a concurrent delete. Reading the active name outside the file lock
+	// and passing it to a save that acquires the lock later is what lets a tick
+	// that began before a delete write the project back out after it — the file
+	// reappears with no sidecar and no way for the operator to tell why.
+	s.projectFileMu.Lock()
+	defer s.projectFileMu.Unlock()
+
 	s.mu.RLock()
 	active := s.activeProjectConfig
 	lastSig := s.lastSaveSig
@@ -45,7 +53,7 @@ func (s *APIServer) autoSaveTick() {
 	if s.liveStateSignature() == lastSig {
 		return
 	}
-	if err := s.saveProject(active); err != nil {
+	if err := s.saveProjectLocked(active); err != nil {
 		log.Printf("[autosave] failed to save project %q: %v", active, err)
 	}
 }

@@ -542,7 +542,10 @@ export interface PluginInfo {
   version: string
   description: string
   type: string // "exec_provider" | "tab" | "feature" | "proxy_hook" | "dashboard"
-  status: string // "loaded" | "error"
+  // "removed" means the file is deleted but the code is still loaded, which lasts
+  // until a restart. A row with status "error" and an empty name is a file that
+  // would not load at all, so it has only a filename and a reason.
+  status: string // "loaded" | "error" | "removed"
   error?: string
   hash: string
   filename: string
@@ -794,7 +797,8 @@ export const api = {
   listProjectConfigs: () => req<{ configs: string[]; active: string; projects: ProjectMeta[] }>('GET', '/configs/project'),
   saveProjectConfig: (name: string) => req<{ status: string; name: string }>('POST', '/configs/project', { name }),
   loadProjectConfig: (name: string) => req<unknown>('PUT', `/configs/project/${name}`),
-  deleteProjectConfig: (name: string) => req<unknown>('DELETE', `/configs/project/${name}`),
+  deleteProjectConfig: (name: string) =>
+    req<{ status: string; wasActive: boolean }>('DELETE', `/configs/project/${name}`),
   switchProject: (name: string, opts?: { action?: 'save' | 'discard'; saveScratchAs?: string }) =>
     req<Record<string, unknown>>('POST', '/configs/project/switch', { name, ...(opts ?? {}) }),
   newProject: (name: string, opts: { empty: boolean; action?: 'save' | 'discard'; saveScratchAs?: string }) =>
@@ -1166,8 +1170,11 @@ export const api = {
     }
     return res.json() as Promise<{ filename: string; message: string }>
   },
-  deletePlugin: (filename: string) =>
-    req<{ filename: string; message: string }>('DELETE', `/plugins/${encodeURIComponent(filename)}`),
+  deletePlugin: (filename: string, opts?: { purgeData?: boolean }) =>
+    req<{ filename: string; restartRequired: boolean; dataPurged: boolean; message: string }>(
+      'DELETE',
+      `/plugins/${encodeURIComponent(filename)}${opts?.purgeData ? '?purgeData=true' : ''}`,
+    ),
   listExecProviders: () => req<ExecProviderInfo[]>('GET', '/plugins/exec-providers'),
   pluginGraph: () => req<Record<string, PluginGraphInfo>>('GET', '/plugins/graph'),
   pluginConnect: (name: string, config: Record<string, string>) =>

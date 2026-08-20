@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useProjectStore } from '../stores/projectStore'
 import { useToastStore } from '../stores/toastStore'
 import { api, type ProjectMeta } from '../lib/api'
+import ConfirmModal from './ConfirmModal'
 import NewProjectModal from './NewProjectModal'
 import ProjectSettings from './ProjectSettings'
 
@@ -10,6 +11,10 @@ function formatBytes(n: number): string {
   const units = ['B', 'KB', 'MB', 'GB']
   const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)))
   return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`
 }
 
 function formatWhen(iso: string): string {
@@ -32,9 +37,11 @@ export default function ProjectBrowser() {
   const createEmpty = useProjectStore((s) => s.createEmpty)
   const setPrefs = useProjectStore((s) => s.setPrefs)
   const saveActive = useProjectStore((s) => s.saveActive)
+  const remove = useProjectStore((s) => s.remove)
   const addToast = useToastStore((s) => s.addToast)
 
   const [creating, setCreating] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<ProjectMeta | null>(null)
   const [pending, setPending] = useState<{ name: string; scratch: boolean } | null>(null)
   const [scratchName, setScratchName] = useState('')
   const [err, setErr] = useState('')
@@ -90,6 +97,18 @@ export default function ProjectBrowser() {
       addToast(`Failed to create: ${String(e)}`, 'error')
     }
     setCreating(false)
+  }
+
+  async function handleDelete(name: string) {
+    try {
+      const wasActive = await remove(name)
+      addToast(
+        wasActive ? `Deleted ${name}; session continues unnamed` : `Deleted ${name}`,
+        'info',
+      )
+    } catch (e) {
+      addToast(`Failed to delete: ${String(e)}`, 'error')
+    }
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -204,6 +223,12 @@ export default function ProjectBrowser() {
                       >
                         {p.active ? 'Loaded' : 'Switch'}
                       </button>
+                      <button
+                        onClick={() => setConfirmDelete(p)}
+                        className="text-semantic-error hover:underline font-medium"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -226,6 +251,33 @@ export default function ProjectBrowser() {
           onClose={() => setCreating(false)}
           onCreateCurrent={handleCreateCurrent}
           onCreateEmpty={handleCreateEmpty}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete project"
+          message={
+            confirmDelete.active
+              ? `Delete ${confirmDelete.name}? Its project file and testing-browser profile are removed. Your session stays loaded as an unnamed Scratch session — save it under a new name to keep it. This cannot be undone.`
+              : `Delete ${confirmDelete.name}? Its project file and testing-browser profile are removed. This cannot be undone.`
+          }
+          body={
+            <p className="text-xs text-content-muted">
+              {plural(confirmDelete.requestCount, 'request')} &middot;{' '}
+              {plural(confirmDelete.noteCount, 'note')} &middot;{' '}
+              {plural(confirmDelete.findingCount, 'finding')} &middot;{' '}
+              {formatBytes(confirmDelete.sizeBytes)}
+            </p>
+          }
+          confirmLabel="Delete"
+          deliberate
+          onConfirm={() => {
+            const name = confirmDelete.name
+            setConfirmDelete(null)
+            void handleDelete(name)
+          }}
+          onClose={() => setConfirmDelete(null)}
         />
       )}
 

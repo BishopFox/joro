@@ -16,7 +16,10 @@ interface ProjectState {
   // createEmpty resets live state to a fresh baseline and saves it as a new project,
   // first saving the outgoing session per opts (like a switch).
   createEmpty: (name: string, opts?: { action?: 'save' | 'discard'; saveScratchAs?: string }) => Promise<void>
-  remove: (name: string) => Promise<void>
+  // remove deletes a project's files and its testing-browser profile, resolving
+  // to whether it was the active one. Live state is deliberately left alone, so
+  // deleting the active project leaves the session loaded but unnamed.
+  remove: (name: string) => Promise<boolean>
   setPrefs: (name: string, prefs: { autoSave?: boolean; saveHistory?: boolean }) => Promise<void>
   // saveActive snapshots the current live state into the active project in place
   // (unconditional server-side save, independent of the autoSave pref). No-op if
@@ -55,8 +58,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await get().refresh()
   },
   remove: async (name) => {
-    await api.deleteProjectConfig(name)
+    const resp = await api.deleteProjectConfig(name)
+    // No applyProjectResp here, unlike every sibling action: a delete changes no
+    // live state, and rehydrating would clear the history and findings the
+    // operator still has loaded. refresh() alone picks up the cleared name.
     await get().refresh()
+    return resp.wasActive
   },
   setPrefs: async (name, prefs) => {
     await api.setProjectPrefs(name, prefs)

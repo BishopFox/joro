@@ -4,6 +4,13 @@ import type { PluginInfo } from '../lib/api'
 import { useUpdateStore } from '../stores/updateStore'
 import { currentTheme } from '../lib/theme'
 import { Tooltip } from './Tooltip'
+import ConfirmModal from './ConfirmModal'
+
+// errText unwraps a thrown Error to its message. String(err) would prefix it
+// with "Error: ", which reads as noise in the status strip.
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
 
 const TYPE_LABELS: Record<string, string> = {
   exec_provider: 'Execution Provider',
@@ -74,6 +81,14 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [restartPending, setRestartPending] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<PluginInfo | null>(null)
+  const [purgeData, setPurgeData] = useState(false)
+
+  // A "removed" row is a plugin whose file is gone but whose code is still
+  // loaded, so the prompt has to outlive this component's own state — deriving
+  // it from the list is what makes it survive navigating away and back. Uploads
+  // still need the local flag, since an uploaded plugin is not in the list yet.
+  const needsRestart = restartPending || plugins.some((p) => p.status === 'removed')
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -86,22 +101,21 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
       setRestartPending(true)
       onRefresh()
     } catch (err) {
-      setMessage({ text: String(err), type: 'error' })
+      setMessage({ text: errText(err), type: 'error' })
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
-  async function handleDelete(filename: string) {
+  async function handleDelete(filename: string, alsoPurgeData: boolean) {
     setMessage(null)
     try {
-      const res = await api.deletePlugin(filename)
+      const res = await api.deletePlugin(filename, { purgeData: alsoPurgeData })
       setMessage({ text: res.message, type: 'success' })
-      setRestartPending(true)
       onRefresh()
     } catch (err) {
-      setMessage({ text: String(err), type: 'error' })
+      setMessage({ text: errText(err), type: 'error' })
     }
   }
 
@@ -121,7 +135,7 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
       <div className="bg-surface-card rounded border border-border">
         <div className="px-3 py-2 border-b border-border flex items-center justify-between">
           <h2 className="text-xs font-semibold text-content-primary uppercase tracking-wide">
-            Loaded Plugins
+            Plugins
           </h2>
           <label className={`px-3 py-1 rounded-sm text-xs font-semibold cursor-pointer ${
             uploading
@@ -148,7 +162,7 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
           </div>
         )}
 
-        {restartPending && (
+        {needsRestart && (
           <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-input">
             <span className="text-xs text-content-secondary">
               Restart required to apply plugin changes.
@@ -186,16 +200,18 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
             </thead>
             <tbody>
               {plugins.map((p) => (
-                <tr key={p.name} className="border-t border-border-subtle hover:bg-surface-hover">
-                  <td className="px-3 py-2 text-content-primary font-medium">{p.name}</td>
+                <tr key={p.filename} className="border-t border-border-subtle hover:bg-surface-hover">
+                  <td className="px-3 py-2 text-content-primary font-medium">{p.name || '—'}</td>
                   <td className="px-3 py-2 text-content-secondary">{p.version}</td>
                   <td className="px-3 py-2">
                     {/* No `/20` opacity here: Tailwind can't apply an opacity
                         modifier to a var()-backed color, so the utility is
                         never emitted and the chip renders with no background. */}
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-input text-accent-secondary">
-                      {TYPE_LABELS[p.type] || p.type}
-                    </span>
+                    {p.type && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-input text-accent-secondary">
+                        {TYPE_LABELS[p.type] || p.type}
+                      </span>
+                    )}
                     {p.hasGraph && (
                       <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-input text-accent-tertiary">
                         Graph
@@ -205,6 +221,10 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
                   <td className="px-3 py-2">
                     {p.status === 'loaded' ? (
                       <span className="text-semantic-success font-semibold">Loaded</span>
+                    ) : p.status === 'removed' ? (
+                      <Tooltip content="File deleted. The plugin keeps running until you restart.">
+                        <span className="text-semantic-warning font-semibold">Removed</span>
+                      </Tooltip>
                     ) : (
                       <Tooltip content={p.error || 'Error'}>
                         <span className="text-semantic-error font-semibold">
@@ -217,14 +237,16 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
                     {p.filename}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <Tooltip content="Remove plugin file (restart required)">
-                      <button
-                        onClick={() => handleDelete(p.filename)}
-                        className="px-2 py-0.5 rounded text-[10px] font-semibold text-semantic-error hover:bg-semantic-error-bg hover:text-content-primary transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </Tooltip>
+                    {p.status !== 'removed' && (
+                      <Tooltip content="Remove plugin file (restart required)">
+                        <button
+                          onClick={() => { setPurgeData(false); setConfirmDelete(p) }}
+                          className="px-2 py-0.5 rounded text-[10px] font-semibold text-semantic-error hover:bg-semantic-error-bg hover:text-content-primary transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </Tooltip>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -237,6 +259,45 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
         Plugins must be compiled with the same Go version as the Joro binary.
         Changes take effect after a restart. Only load plugins from trusted sources.
       </p>
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete plugin"
+          message={
+            confirmDelete.status === 'error'
+              ? `Delete ${confirmDelete.filename}? This file never loaded, so nothing is running and no restart is needed. This cannot be undone.`
+              : `Delete ${confirmDelete.filename}? ${confirmDelete.name} keeps running until you restart Joro — its code, routes and hooks stay live. This cannot be undone.`
+          }
+          body={
+            confirmDelete.name ? (
+              <label className="flex items-start gap-2 text-xs text-content-secondary">
+                <input
+                  type="checkbox"
+                  checked={purgeData}
+                  onChange={(e) => setPurgeData(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Also delete its stored data{' '}
+                  <code className="text-content-muted">
+                    ~/.joro/plugin-data/{confirmDelete.name}/
+                  </code>
+                  . Plugin state saved in your user and project configs is kept either way.
+                </span>
+              </label>
+            ) : undefined
+          }
+          confirmLabel="Delete"
+          deliberate
+          onConfirm={() => {
+            const { filename } = confirmDelete
+            const alsoPurge = purgeData
+            setConfirmDelete(null)
+            void handleDelete(filename, alsoPurge)
+          }}
+          onClose={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   )
 }

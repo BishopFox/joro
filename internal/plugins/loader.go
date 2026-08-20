@@ -29,19 +29,34 @@ type loadedPlugin struct {
 	filename string // original filename, e.g. "my-plugin.so"
 }
 
+// loadFailure is a plugin file that could not be loaded, carried out of the
+// loader rather than only logged.
+//
+// The operator has to be able to name the file to delete it, and a file that
+// fails to load is the one most likely to need deleting: a plugin built against
+// a different toolchain than the host is rejected by dlopen and will fail again
+// on every start. A list of successful loads is exactly what hides it, leaving
+// no way to remove it short of a shell.
+type loadFailure struct {
+	filename string
+	err      error
+}
+
 // loadPlugins scans dir for .so/.dylib files, opens each via Go's plugin
-// package, and looks up the exported "Extension" symbol.
-func loadPlugins(dir string) ([]loadedPlugin, []error) {
+// package, and looks up the exported "Extension" symbol. Per-file problems come
+// back as failures (one per file, with its name); the []error return is for
+// directory-level problems, which belong to no single file.
+func loadPlugins(dir string) ([]loadedPlugin, []loadFailure, []error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, []error{fmt.Errorf("read plugin dir: %w", err)}
+		return nil, nil, []error{fmt.Errorf("read plugin dir: %w", err)}
 	}
 
 	var loaded []loadedPlugin
-	var errs []error
+	var failed []loadFailure
 	seen := map[string]bool{}
 
 	for _, entry := range entries {
@@ -56,26 +71,29 @@ func loadPlugins(dir string) ([]loadedPlugin, []error) {
 		path := filepath.Join(dir, name)
 		lp, err := loadOne(path)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("plugin %s: %w", name, err))
+			failed = append(failed, loadFailure{filename: name, err: err})
 			continue
 		}
 		lp.filename = name
 
 		manifest := lp.ext.Manifest()
 		if err := validateManifest(manifest); err != nil {
-			errs = append(errs, fmt.Errorf("plugin %s: %w", name, err))
+			failed = append(failed, loadFailure{filename: name, err: err})
 			continue
 		}
 
 		if seen[manifest.Name] {
-			errs = append(errs, fmt.Errorf("plugin %s: duplicate name %q", name, manifest.Name))
+			failed = append(failed, loadFailure{
+				filename: name,
+				err:      fmt.Errorf("duplicate name %q", manifest.Name),
+			})
 			continue
 		}
 		seen[manifest.Name] = true
 		loaded = append(loaded, lp)
 	}
 
-	return loaded, errs
+	return loaded, failed, nil
 }
 
 func loadOne(path string) (loadedPlugin, error) {
