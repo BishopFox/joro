@@ -13,3 +13,6 @@ web/node_modules/
 
 # Tests are not committed to the public repo
 *test*.go
+
+# Agent instructions are local-only
+CLAUDE.md
