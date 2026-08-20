@@ -361,7 +361,7 @@ func registerDetect(r *capability.Registry, d Deps) {
   "type":"object",
   "properties":{
     "scope": {"type":"string","enum":["all","host"],"description":"Rescan everything, or one host. Default all."},
-    "host":  {"type":"string","description":"Required when scope is \"host\"."}
+    "host":  {"type":"string","description":"Required when scope is \"host\". Matched exactly, unlike the substring host filters on listings, so pass a full host as history_stats reports it."}
   },
   "additionalProperties":false
 }`),

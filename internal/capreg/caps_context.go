@@ -34,7 +34,7 @@ func registerSitemap(r *capability.Registry, d Deps) {
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
-    "host":        {"type":"string","description":"Restrict to one host."},
+    "host":        {"type":"string","description":"Case-insensitive substring of the host, e.g. \"acme\"."},
     "method":      {"type":"string","description":"Comma-separated methods."},
     "status":      {"type":"string","description":"Status expression, e.g. \"2xx,3xx\"."},
     "contentType": {"type":"string","description":"Content-type keywords, comma-separated."},
@@ -132,7 +132,7 @@ func registerFindings(r *capability.Registry, d Deps) {
   "properties":{
     "severity":   {"type":"string","description":"Comma-separated severities to include: critical, high, medium, low, info. Omit for everything above info."},
     "category":   {"type":"string","description":"Comma-separated categories."},
-    "host":       {"type":"string","description":"Restrict to one host."},
+    "host":       {"type":"string","description":"Case-insensitive substring of the host, e.g. \"acme\"."},
     "ruleId":     {"type":"string","description":"Restrict to one rule."},
     "search":     {"type":"string","description":"Substring of the rule name, host or URL."},
     "confidence": {"type":"string","description":"Restrict to one confidence level."},

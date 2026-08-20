@@ -18,7 +18,7 @@ import (
 // schema and must decode through the handler's own decoder — keeping that pairing
 // true by hand is what stops the schema and the Go struct drifting apart.
 const historyFilterProps = `
-    "host":         {"type":"string","description":"Exact host to filter to, e.g. api.example.com."},
+    "host":         {"type":"string","description":"Case-insensitive substring of the host, so \"acme\" matches app.acme.com. A full FQDN works too, with or without a port."},
     "method":       {"type":"string","description":"Comma-separated methods, OR'd: \"GET,POST\"."},
     "status":       {"type":"string","description":"Status expression OR'ing classes, exact codes and ranges: \"4xx,5xx,403,500-599\". \"none\" matches requests with no captured response."},
     "search":       {"type":"string","description":"Case-insensitive substring of the URL."},
@@ -69,7 +69,7 @@ func registerHistory(r *capability.Registry, d Deps) {
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
-    "host":      {"type":"string","description":"Restrict the summary to one host."},
+    "host":      {"type":"string","description":"Case-insensitive substring of the host, e.g. \"acme\"."},
     "method":    {"type":"string","description":"Comma-separated methods."},
     "status":    {"type":"string","description":"Status expression, e.g. \"4xx,5xx\"."},
     "scopeOnly": {"type":"boolean","description":"Restrict to requests matching Joro's configured scope."}

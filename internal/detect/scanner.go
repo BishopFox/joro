@@ -241,6 +241,11 @@ func (s *Scanner) StartRescan(ctx context.Context, req RescanRequest) (ScanStatu
 	}
 
 	items := s.store.All()
+	// Exact, and deliberately not the case-insensitive substring that
+	// proxy.RequestFilter.Host uses. A rescan is work, not a view: a substring
+	// that happens to match several hosts silently multiplies the scan rather
+	// than widening a listing. Callers enumerate the exact values with
+	// history.stats first.
 	if req.Scope == "host" && req.Host != "" {
 		filtered := items[:0:0]
 		for _, it := range items {

@@ -135,6 +135,7 @@ type requestMatcher struct {
 	f              RequestFilter
 	extSet         map[string]struct{}
 	includeMode    bool
+	hostNeedle     string
 	methodSet      map[string]struct{}
 	status         statusMatcher
 	ctMatches      []string
@@ -144,12 +145,13 @@ type requestMatcher struct {
 	contentNeedle  string
 }
 
-// newRequestMatcher precompiles the filter's extension set, method set, status
-// expression, content-type keywords, and content regex/needle.
+// newRequestMatcher precompiles the filter's host needle, extension set, method
+// set, status expression, content-type keywords, and content regex/needle.
 func newRequestMatcher(f RequestFilter) *requestMatcher {
 	m := &requestMatcher{
 		f:              f,
 		includeMode:    strings.EqualFold(f.ExtMode, "include"),
+		hostNeedle:     strings.ToLower(f.Host),
 		contentExclude: strings.EqualFold(f.ContentMode, "exclude"),
 		contentActive:  f.Content != "",
 	}
@@ -213,9 +215,18 @@ func newRequestMatcher(f RequestFilter) *requestMatcher {
 
 // match reports whether a request satisfies the filter (host, method, status,
 // URL search, extensions, content-type, raw content, scope).
+//
+// Host is a case-insensitive substring of the captured Host header, matching the
+// findings and WebSocket stores rather than diverging from them. Substring is the
+// useful semantic here because the captured value is the Host header verbatim: it
+// carries a :port for a non-default port, so an exact match would reject the very
+// hostname the operator reads off the site map. It also lets a caller who knows
+// the target by a bare label find its traffic without first guessing the FQDN.
+// The cost is that a filter can match a superstring host, which a preamble naming
+// the matched host makes visible rather than silent.
 func (m *requestMatcher) match(r *CapturedRequest) bool {
 	f := m.f
-	if f.Host != "" && r.Host != f.Host {
+	if m.hostNeedle != "" && !strings.Contains(strings.ToLower(r.Host), m.hostNeedle) {
 		return false
 	}
 	if len(m.methodSet) > 0 {
