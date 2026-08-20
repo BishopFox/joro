@@ -44,6 +44,19 @@ func checkTarget(p Principal, sc ScopeChecker, t Target) error {
 	if p.RequireScope {
 		switch {
 		case sc == nil || !sc.IsEnabled():
+			// A script run gets different wording, because the token remedy is one it
+			// cannot take: a run's policy is inherited, so "issue a token with
+			// requireScope disabled" names something already done when the launching
+			// token had it off, and something that does not exist when nothing launched
+			// the run. The run wording therefore asserts no source — a run reaching here
+			// was either launched by a requireScope token, or raced a scope edit
+			// mid-flight, and both read correctly.
+			if p.RunID != "" {
+				return errf(CodeScopeDisabled,
+					"scope is disabled in Joro, and this run requires an in-scope target. A run inherits "+
+						"that from the token that launched it, or from Joro's scope configuration when no "+
+						"token did, and cannot clear it itself. Enable scope and add an include rule for %s.", host)
+			}
 			return errf(CodeScopeDisabled,
 				"scope is disabled in Joro, and this token requires an in-scope target. "+
 					"Enable scope and add an include rule for %s, or issue a token with requireScope disabled.", host)
@@ -58,8 +71,14 @@ func checkTarget(p Principal, sc ScopeChecker, t Target) error {
 	}
 
 	if len(p.HostAllow) > 0 && !matchesAnyGlob(p.HostAllow, host) {
+		// "run" rather than "token" for a run, because the whitelist bounding it is often
+		// the automation's own, set in the script editor, and not a token's at all.
+		owner := "token"
+		if p.RunID != "" {
+			owner = "run"
+		}
 		return errf(CodeHostNotAllowed,
-			"%s is not in this token's host whitelist (%s).", host, strings.Join(p.HostAllow, ", "))
+			"%s is not in this %s's host whitelist (%s).", host, owner, strings.Join(p.HostAllow, ", "))
 	}
 	return nil
 }

@@ -175,6 +175,16 @@ func (m *Manifest) Normalize() {
 		if m.Lens.Part == "" {
 			m.Lens.Part = LensPartResponse
 		}
+
+		// A lens is started by the viewer, not by an event, so an event trigger declared
+		// beside one is a switch that does nothing. Dropped here rather than rejected in
+		// Validate, which runs on every Load: refusing the pair would make an
+		// already-installed package unloadable. The two the operator starts survive — a
+		// lens in History's context menu is a coherent pairing.
+		m.Triggers = slices.DeleteFunc(m.Triggers, dispatched)
+		if len(m.Triggers) == 0 {
+			m.Triggers = []string{TriggerManual}
+		}
 	}
 }
 
@@ -387,6 +397,14 @@ func orEmpty[T any](s []T) []T {
 // manual run deliberately does not consult it.
 func (a *Automation) Runnable() bool { return a.State.Enabled && !a.State.Paused }
 
+// dispatched reports whether the Dispatcher watches this trigger. Manual and
+// request.selected are excluded because the operator starts both. One predicate rather than
+// two spellings of it: Normalize drops exactly this set from a lens, and the two answers must
+// not drift.
+func dispatched(t string) bool {
+	return t != TriggerManual && t != TriggerRequestSelected
+}
+
 // ArmedTriggers lists the event triggers currently live: declared by the manifest, not
 // switched off by the operator, and only while the automation is runnable. Manual and
 // request.selected are excluded — the operator starts both, so the dispatcher does not
@@ -397,7 +415,7 @@ func (a *Automation) ArmedTriggers() []string {
 	}
 	var out []string
 	for _, t := range a.Manifest.Triggers {
-		if t == TriggerManual || t == TriggerRequestSelected {
+		if !dispatched(t) {
 			continue
 		}
 		if a.State.TriggersDisabled[t] {

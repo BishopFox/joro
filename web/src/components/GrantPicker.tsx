@@ -352,8 +352,8 @@ function PrivilegedWarning({ caps }: { caps: Capability[] }) {
           <code className="font-mono">script_run</code> authorizes the <strong>whole standard automation SDK</strong>{' '}
           for the code it runs, not just the capabilities ticked here — reading captured traffic, resending and
           fuzzing, and writing findings and notes. That is what the grant means, not a loophole in it. This token’s
-          scope and host whitelist still bound every request the code makes, and credential values stay masked
-          inside a script whatever this token allows.
+          own scope requirement, host whitelist and credential setting still apply to every request the code makes
+          — a script inherits this token’s reach, it does not widen it.
         </p>
       )}
 

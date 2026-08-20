@@ -164,6 +164,12 @@ func (s *APIServer) newScriptManager() *jsautomation.Manager {
 			}
 			return s.autoStore.ScriptBudget()
 		},
+		// The policy a run no token launched inherits — the operator's own boundary, read
+		// live for the same reason Budget is. A getter also keeps jsautomation clear of a
+		// proxy handle: the whole question it needs answered is this one bool.
+		ScopeConfigured: func() bool {
+			return s.scope != nil && s.scope.IsEnabled() && s.scope.RuleCount() > 0
+		},
 	})
 }
 

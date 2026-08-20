@@ -144,6 +144,9 @@ func Build(d Deps, audit *capability.AuditLog) *capability.Registry {
 	}
 
 	validateProfiles(r)
+	// Not inside the d.Scripting branch above: the bundle is a constant of the binary, so
+	// a bundle that must not ship should stop every start, not only the scripting ones.
+	validateBundle(r)
 	r.Seal()
 	return r
 }

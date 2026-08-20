@@ -38,9 +38,10 @@ type Binding struct {
 //     profile.
 //   - detect.* writes, including rescan — same argument: they change what the
 //     operator sees rather than what the script learns.
-//   - scope.addrule / scope.enable — these are UnrestrictedOnly, and a run pins
-//     RequireScope, so including one would fail the profile validation at startup.
-//     That is the intended outcome: scope is the control that bounds the run.
+//   - scope.addrule / scope.enable — these are UnrestrictedOnly, and scope is the control
+//     that bounds a run, so a run must not be able to edit it. Enforced by
+//     capreg.validateBundle, which panics at startup on a bundle naming one: a run whose
+//     policy resolves unrestricted would otherwise be permitted to invoke it.
 //   - exec.* and c2.* — command execution and an operator's C2 are granted one at a
 //     time by hand, never bundled.
 //   - script.* — a script that can start scripts launders its own budget.

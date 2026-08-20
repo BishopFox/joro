@@ -393,6 +393,10 @@ func (s *APIServer) handleRunScript(w http.ResponseWriter, r *http.Request) {
 		run, err = s.scriptManager.Run(r.Context(), jsautomation.RunRequest{
 			Source:  body.Source,
 			Input:   body.Input,
+			// A name for the audit trail and no policy, exactly like
+			// AutomationPrincipal: no token launched this, so runPrincipal resolves
+			// policy from the operator's own configuration rather than from a flag on a
+			// token they never issued.
 			Caller:  capability.Principal{TokenName: "operator"},
 			Trigger: trigger,
 			NoSend:  trigger == jsautomation.TriggerLens,

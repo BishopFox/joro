@@ -77,6 +77,39 @@ const (
 	scriptRunTimeout = jsruntime.CapTimeout + 10*time.Second
 )
 
+// validateBundle panics if the SDK grant bundle names a capability a run must not hold.
+//
+// This is the only thing keeping the bundle's exclusions real. A run whose policy resolves
+// unrestricted passes Capability.availableTo, so nothing in the guard would stop it
+// invoking an UnrestrictedOnly capability the bundle happened to name — and
+// validateProfiles is no help, since it only ever validates the five profiles and never
+// sees jsruntime.CapabilityIDs().
+//
+// Called unconditionally from Build, not under d.Scripting. The bundle is a constant of
+// the binary, so gating the check on --automation-scripting would ship the bug and bite
+// only the operators who use the flag.
+func validateBundle(r *capability.Registry) {
+	for _, id := range jsautomation.BundleGrants() {
+		c, ok := r.Get(id)
+		switch {
+		case !ok:
+			panic(fmt.Sprintf("capreg: the SDK bundle grants %q, which is not registered. A renamed or "+
+				"removed capability must be updated in jsruntime.Bindings too, or the SDK exposes a "+
+				"method that throws on every call.", id))
+		case capability.IsReserved(id):
+			panic(fmt.Sprintf("capreg: the SDK bundle grants reserved ID %q", id))
+		case c.UnrestrictedOnly:
+			panic(fmt.Sprintf("capreg: the SDK bundle grants %q, which is UnrestrictedOnly. Scope is the "+
+				"control that bounds a run, so a run must not be able to edit it — and a run launched "+
+				"by an unrestricted token would now be permitted to.", id))
+		case c.Privileged:
+			panic(fmt.Sprintf("capreg: the SDK bundle grants privileged capability %q. Execution, C2 and "+
+				"scripting are granted one at a time by hand; script.* in particular would let a script "+
+				"launder its own budget by starting another.", id))
+		}
+	}
+}
+
 // agentCaps reports how much of a run the caller gets back, from the operator's policy.
 func agentCaps(r ScriptRunner) (logBytes, resultBytes int) {
 	h := r.Budget().Host.Resolved()
@@ -109,8 +142,10 @@ func registerScript(r *capability.Registry, d Deps) {
 			"writing findings and notes: joro.http.read, joro.http.resend, joro.http.batch, joro.http.diff, " +
 			"joro.history.list, joro.findings.create, joro.notes.create, and more; every method takes the same " +
 			"arguments as the tool of the same name and throws on failure, with err.code carrying the reason. " +
-			"There is no network, filesystem, process or module access — joro is the only way out, and " +
-			"credential headers are masked in everything it returns. Each run has its own request budget and " +
+			"There is no network, filesystem, process or module access — joro is the only way out. Every send " +
+			"the code makes is bounded by this token's own scope requirement and host whitelist, exactly as a " +
+			"direct http_resend would be, and credential headers are masked unless this token is allowed them; " +
+			"the run report names both. Each run has its own request budget and " +
 			"wall-clock deadline, both set by the operator and possibly above or below the maxima here; ask " +
 			"for what you need, and read your result for what you were actually given. console.log output " +
 			"and the return value both come back to you.",
@@ -330,6 +365,11 @@ func renderRun(run *jsautomation.Run, logCap, resultCap int) string {
 		res.Calls, res.Budget.MaxCalls, res.SendCalls, res.Budget.MaxSendCalls,
 		res.CallInputBytes, res.CallOutputBytes)
 	fmt.Fprintf(&b, "bundle: %s   source: sha256:%s\n", run.Bundle, run.SourceHash[:16])
+	// The same argument as the budget line above, for the other half of what a run was
+	// held to. A run inherits its policy rather than asking for one, so this is the only
+	// place a caller learns which posture refused its sends.
+	fmt.Fprintf(&b, "policy: scope %s, credentials %s\n",
+		pick(run.RequireScope, "required", "exempt"), pick(run.Credentials, "visible", "masked"))
 
 	if res.Err != "" {
 		b.WriteString("\n")
@@ -368,6 +408,15 @@ func renderRun(run *jsautomation.Run, logCap, resultCap int) string {
 	}
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// pick returns one of two labels. Named states rather than a bare bool: "scope exempt"
+// tells a reader what happened, where "requireScope: false" makes them work it out.
+func pick(cond bool, yes, no string) string {
+	if cond {
+		return yes
+	}
+	return no
 }
 
 // oneLine keeps a multi-line log message from breaking the one-record-per-line shape

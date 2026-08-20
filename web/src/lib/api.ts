@@ -280,6 +280,10 @@ export interface ScriptRun {
    *  which code an agent ran, since a one-shot script has no stored artifact. */
   source?: string
   sourceHash: string
+  /** The policy the run was held to: inherited from the launching token, or from the
+   *  operator's scope configuration when no token launched it. */
+  requireScope: boolean
+  credentials: boolean
   result: ScriptResult
 }
 

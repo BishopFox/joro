@@ -20,6 +20,11 @@ import SdkReference from './SdkReference'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border w-full'
 
+// The two triggers the operator starts, so the Dispatcher never watches them and a lens may
+// still declare them. Mirrors dispatched() in internal/jsautomation/manifest.go, which drops
+// the rest from a manifest that declares a lens.
+const OPERATOR_STARTED = ['manual', 'request.selected']
+
 const STARTER = `async function run(ctx) {
   // ctx.trigger tells you why this ran; ctx.input carries anything passed in.
   // joro.* is the whole SDK — see the reference on the right.
@@ -277,17 +282,32 @@ export default function ScriptEditor({
 
           <Field label="Triggers">
             <div className="space-y-0.5">
-              {triggers.map((t) => (
-                <label key={t} className="flex items-center gap-1.5 text-[11px] text-content-secondary">
-                  <input
-                    type="checkbox"
-                    checked={(manifest.triggers ?? []).includes(t)}
-                    onChange={() => toggleTrigger(t)}
-                  />
-                  <code className="font-mono">{t}</code>
-                </label>
-              ))}
+              {triggers.map((t) => {
+                const off = !!manifest.lens && !OPERATOR_STARTED.includes(t)
+                return (
+                  <label
+                    key={t}
+                    className={`flex items-center gap-1.5 text-[11px] text-content-secondary ${
+                      off ? 'opacity-40 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={(manifest.triggers ?? []).includes(t)}
+                      disabled={off}
+                      onChange={() => toggleTrigger(t)}
+                    />
+                    <code className="font-mono">{t}</code>
+                  </label>
+                )
+              })}
             </div>
+            {manifest.lens && (
+              <p className="text-[10px] text-content-muted mt-1 leading-snug">
+                A lens is started by the viewer, so it subscribes to no event. Only the triggers you
+                start yourself apply.
+              </p>
+            )}
             {(manifest.triggers ?? []).includes('request.captured') && (
               <p className="text-[10px] text-semantic-warning mt-1 leading-snug">
                 A traffic-triggered automation that sends requests skips the traffic its own run
@@ -299,10 +319,25 @@ export default function ScriptEditor({
 
           <Field label="Lens">
             <label className="flex items-center gap-1.5 text-[11px] text-content-secondary mb-1">
+              {/* Ticking this clears the event triggers in state rather than merely hiding
+                  them, so what the form shows is what gets stored: Normalize drops them
+                  server-side anyway, and un-ticking must not offer back something the server
+                  will not keep. */}
               <input
                 type="checkbox"
                 checked={!!manifest.lens}
-                onChange={(e) => patch({ lens: e.target.checked ? { label: '', part: 'response' } : undefined })}
+                onChange={(e) =>
+                  patch(
+                    e.target.checked
+                      ? {
+                          lens: { label: '', part: 'response' },
+                          triggers: (manifest.triggers ?? []).filter((t) =>
+                            OPERATOR_STARTED.includes(t)
+                          ),
+                        }
+                      : { lens: undefined }
+                  )
+                }
               />
               Render a viewer tab
             </label>

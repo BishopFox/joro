@@ -44,6 +44,15 @@ type Run struct {
 	Source     string `json:"source"`
 	SourceHash string `json:"sourceHash"`
 
+	// The policy this run was held to, resolved at start: inherited from the launching
+	// token, or from the operator's own configuration when no token launched it. Recorded
+	// because it varies, and because a run whose sends were all refused should say which
+	// policy refused them rather than leaving the operator to reconstruct it. Named as
+	// capability.AuditEntry names the same two fields, so one concept has one name across
+	// the API, and not omitempty: an absent false would read as unknown.
+	RequireScope bool `json:"requireScope"`
+	Credentials  bool `json:"credentials"`
+
 	Result jsruntime.Result `json:"result"`
 }
 

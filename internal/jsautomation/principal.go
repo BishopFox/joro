@@ -42,6 +42,19 @@ func newRunID() string {
 	return "run_" + hex.EncodeToString(b[:])
 }
 
+// tokenLaunched reports whether a real automation token started this run.
+//
+// Derived from TokenID rather than carried as a flag on RunRequest, because the two
+// token paths — script.run and script.invoke — receive their principal from
+// Registry.Invoke, which always sets it. So this cannot be forgotten the way a bool can,
+// and a token path added later gets it for free. The hand-built callers (the operator's
+// own UI request, a trigger firing, a lens) have no token and no TokenID.
+//
+// A run's own synthetic principal, whose TokenID is "run_<hex>", can never arrive here as
+// a caller: script.* is excluded from the SDK bundle, and capreg.validateBundle panics at
+// startup if that ever stops being true.
+func tokenLaunched(caller capability.Principal) bool { return caller.TokenID != "" }
+
 // runPrincipal builds the principal a run's capability calls are made under.
 //
 // This is where the whole authorization story lives, and it has two halves that behave
@@ -52,12 +65,24 @@ func newRunID() string {
 // resends requests without also holding history.list and http.resend, because the
 // operator authorized a standard automation surface rather than a list of checkboxes.
 //
-// Policy narrows and never widens. RequireScope is pinned on and AllowCredentials
-// pinned off regardless of what the launching token allows, and HostAllow is inherited
-// verbatim. Grants say what the code may do; policy says where it may reach. Without
-// this half, an operator who leashed a token to one staging host and then granted
-// script.run would have silently handed an agent every host in scope — a widening they
-// could not see, against a guard written to fail closed.
+// Policy is inherited, never synthesized. A run launched by a token inherits that token's
+// policy verbatim; a run nothing launched inherits the operator's own configuration, which
+// is what scopeConfigured carries. Grants say what the code may do; policy says where it
+// may reach — and pinning a policy value is not narrowing it. A pinned RequireScope would
+// enforce scope on a token the operator deliberately issued unrestricted, then answer with
+// a scope_disabled message naming the one remedy they had already applied. Inheritance
+// closes the hazard a pin is reached for anyway: a token leashed to one staging host
+// leashes its runs, through HostAllow and through its own RequireScope.
+//
+// Note what a false RequireScope does not mean. Automation sends go through Joro's own
+// proxy, so the live scope configuration still filters capture and MITM exactly as it does
+// for the operator's browser. Clearing it stops scope being an authorization control; it
+// does not turn scope off.
+//
+// AllowCredentials has no counterpart in the operator's configuration, so a run with no
+// token has nothing to inherit and stays masked. Defaulting it on would not be inheriting
+// an operator setting, it would be inventing a permissive one for the paths that run
+// unattended.
 //
 // The identity is synthetic, and that is what makes nested calls work. Every per-caller
 // limit in the registry — the token bucket, the concurrency counter, the cookie jar —
@@ -70,13 +95,22 @@ func newRunID() string {
 // noSend drops every capability in sendCaps from the grant set, so the run cannot put
 // bytes on the wire. It is a grant restriction rather than a budget because Limits
 // cannot express it: Normalize reads a non-positive MaxSendCalls as "take the default".
-func runPrincipal(caller capability.Principal, runID string, sendCaps []string, noSend bool) capability.Principal {
+func runPrincipal(caller capability.Principal, runID string, sendCaps []string, noSend, scopeConfigured bool) capability.Principal {
 	grants := make(map[string]struct{}, len(BundleGrants()))
 	for _, id := range BundleGrants() {
 		if noSend && slices.Contains(sendCaps, id) {
 			continue
 		}
 		grants[id] = struct{}{}
+	}
+
+	requireScope, allowCreds := caller.RequireScope, caller.AllowCredentials
+	if !tokenLaunched(caller) {
+		// No token to inherit from, so the operator's own configuration is the policy.
+		// Written out rather than left to the caller's zero value, so the reason sits at
+		// the point of decision and a caller that later sets these cannot widen a run.
+		requireScope = scopeConfigured
+		allowCreds = false
 	}
 
 	return capability.Principal{
@@ -86,9 +120,13 @@ func runPrincipal(caller capability.Principal, runID string, sendCaps []string, 
 
 		Grants: grants,
 
-		RequireScope:     true,
+		RequireScope: requireScope,
+		// Inherited in both branches. For a token that is the operator's leash on it; for
+		// a run nothing launched it is the automation's own whitelist, which Manager.Invoke
+		// substitutes in — operator-owned, edited in the UI, and with RequireScope possibly
+		// false it is the narrowing control for anyone who wants one.
 		HostAllow:        slices.Clone(caller.HostAllow),
-		AllowCredentials: false,
+		AllowCredentials: allowCreds,
 
 		// The run budget is the real throttle inside a run: a rate limit here would
 		// only convert a budget breach into a slower budget breach, while making the

@@ -76,6 +76,19 @@ type Deps struct {
 	// store, which this package does not import; nil, or a zero policy, means the
 	// runtime's own defaults and ceilings apply.
 	Budget func() jsruntime.BudgetPolicy
+
+	// ScopeConfigured reports whether the operator has set a capture boundary: scope
+	// enabled with at least one rule. It is the policy a run no token launched inherits —
+	// bounded by their rules where they set some, bounded by nothing where they did not,
+	// which is how their browser, Manipulate and the fuzzer already behave. The rule
+	// count is part of the question: scope enabled with no rules restricts nothing, so
+	// reading it as a restriction would refuse every send from an operator who set none.
+	//
+	// A getter for the same reason Budget is one — it changes at runtime, and this package
+	// must not hold a proxy handle. Nil means fail closed, not fail open: an unwired
+	// getter is a programming error, and refusing every send is the loud failure where
+	// allowing them all is the silent one.
+	ScopeConfigured func() bool
 }
 
 // Manager runs scripts and remembers what they did.
@@ -128,6 +141,15 @@ func (m *Manager) budget() jsruntime.BudgetPolicy {
 	return m.deps.Budget()
 }
 
+// scopeConfigured reports whether the operator has set a capture boundary. Nil getter
+// reads as "configured", so a wiring mistake refuses sends rather than permitting them.
+func (m *Manager) scopeConfigured() bool {
+	if m.deps.ScopeConfigured == nil {
+		return true
+	}
+	return m.deps.ScopeConfigured()
+}
+
 // Packages exposes the installed-automation store for the control plane. Nil when
 // scripting is configured without a data directory.
 func (m *Manager) Packages() *Store { return m.deps.Store }
@@ -140,8 +162,10 @@ type RunRequest struct {
 	Source string
 	Input  json.RawMessage
 
-	// Caller is the launching token's principal. Its grants are deliberately not
-	// consulted; its policy fields are, and only to narrow. See runPrincipal.
+	// Caller is whoever started the run. Its grants are deliberately not consulted. Its
+	// policy fields are, when it is a token: a token-launched run inherits that token's
+	// policy verbatim, and a run nothing launched inherits the operator's own
+	// configuration instead. See runPrincipal.
 	Caller capability.Principal
 
 	Trigger string
@@ -191,7 +215,7 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 
 	runID := newRunID()
 	sendCaps := sendCapsFrom(reg)
-	principal := runPrincipal(req.Caller, runID, sendCaps, req.NoSend)
+	principal := runPrincipal(req.Caller, runID, sendCaps, req.NoSend, m.scopeConfigured())
 
 	// Tear down everything keyed on the run's synthetic identity. Without the Forget
 	// the registry's limiter map grows an entry per run and nothing ever prunes it;
@@ -246,6 +270,13 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 		Source:       req.Source,
 		SourceHash:   HashSource(req.Source),
 		Result:       res,
+
+		// The policy the run was actually held to, not the policy anyone asked for. It
+		// varies with the launching token, or with the operator's scope configuration, so
+		// a run that reported only its budget would leave the operator inferring the half
+		// most likely to have refused its sends.
+		RequireScope: principal.RequireScope,
+		Credentials:  principal.AllowCredentials,
 	}
 	m.runs.Add(run)
 	return run, nil
@@ -346,12 +377,17 @@ func (m *Manager) noteLastRun(id string, run *Run) {
 	}
 }
 
-// AutomationPrincipal is the caller for a run nothing launched — a trigger firing.
+// AutomationPrincipal is the caller for a run nothing launched — a trigger firing, or the
+// operator's own request through the UI.
 //
-// It carries a name for the audit trail and no HostAllow, because there is no token to
-// inherit one from. Such a run is therefore bounded by scope alone, which is the
-// engagement boundary and the thing the operator was already relying on; runPrincipal
-// still pins RequireScope on and credentials off.
+// It carries a name for the audit trail and deliberately no policy. Policy for such a run
+// is not this function's to state: there is no token to inherit from, so runPrincipal
+// resolves it from the operator's own configuration instead. Do not "fix" the permissive
+// look of the zero value by pinning something on here — a value written here would
+// silently outrank the operator's configuration, which is the one thing it must not do.
+//
+// HostAllow is likewise absent, and Manager.Invoke substitutes the automation's own
+// whitelist when the caller carries none.
 func AutomationPrincipal(id string) capability.Principal {
 	return capability.Principal{TokenName: "automation:" + id}
 }

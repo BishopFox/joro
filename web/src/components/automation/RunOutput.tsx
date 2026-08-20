@@ -26,6 +26,16 @@ export default function RunOutput({ run, onClose }: { run: ScriptRun; onClose: (
             : ''}
           {r.storageOps ? ` · ${r.storageOps} storage` : ''}
         </span>
+        {/* The policy half of what the run was held to. A run inherits it rather than
+            asking for one, so an operator whose sends were all refused reads why here.
+            Only the exception is called out in warning colour: scope enforced and
+            credentials masked are the ordinary states and earn no badge. */}
+        <span className="text-[10px] font-mono">
+          <span className={run.requireScope ? 'text-content-muted' : 'text-semantic-warning'}>
+            scope {run.requireScope ? 'required' : 'exempt'}
+          </span>
+          {run.credentials && <span className="text-semantic-warning"> · credentials visible</span>}
+        </span>
         <button onClick={onClose} className="ml-auto text-content-muted hover:text-content-primary" aria-label="Dismiss">
           <X size={13} strokeWidth={2} />
         </button>
