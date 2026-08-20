@@ -14,7 +14,7 @@ import (
 const (
 	DefaultHistoryLimit = 50
 	MaxHistoryLimit     = 200
-	MaxFingerprintRefs  = 50
+	MaxFingerprintSeqs  = 50
 )
 
 // HistoryArgs maps one-to-one onto proxy.RequestFilter, so this tool adds no
@@ -280,37 +280,37 @@ func HistoryStats(store *proxy.Store, scope *proxy.Scope, args HistoryArgs) stri
 
 // FingerprintArgs is the argument shape of http.fingerprint.
 type FingerprintArgs struct {
-	Ref    int    `json:"ref"`
-	Refs   []int  `json:"refs"`
+	Seq    int    `json:"seq" alias:"ref"`
+	Seqs   []int  `json:"seqs" alias:"refs"`
 	Fields string `json:"fields"` // "+fullhash"
 }
 
-// FingerprintRefs computes fingerprints for one or more captured responses.
-func FingerprintRefs(store *proxy.Store, args FingerprintArgs) (string, error) {
-	refs := args.Refs
-	if args.Ref > 0 {
-		refs = append([]int{args.Ref}, refs...)
+// FingerprintSeqs computes fingerprints for one or more captured responses.
+func FingerprintSeqs(store *proxy.Store, args FingerprintArgs) (string, error) {
+	seqs := args.Seqs
+	if args.Seq > 0 {
+		seqs = append([]int{args.Seq}, seqs...)
 	}
-	if len(refs) == 0 {
-		return "", fmt.Errorf("ref or refs is required")
+	if len(seqs) == 0 {
+		return "", fmt.Errorf("seq or seqs is required")
 	}
-	if len(refs) > MaxFingerprintRefs {
-		return "", fmt.Errorf("%d refs exceeds the %d-ref limit; call again with a smaller set", len(refs), MaxFingerprintRefs)
+	if len(seqs) > MaxFingerprintSeqs {
+		return "", fmt.Errorf("%d seqs exceeds the %d-seq limit; call again with a smaller set", len(seqs), MaxFingerprintSeqs)
 	}
 	wantFull := strings.Contains(args.Fields, "+fullhash")
 
-	fps := make([]Fingerprint, 0, len(refs))
-	for _, ref := range refs {
-		item := store.GetBySeq(ref)
+	fps := make([]Fingerprint, 0, len(seqs))
+	for _, seq := range seqs {
+		item := store.GetBySeq(seq)
 		if item == nil {
-			fps = append(fps, Fingerprint{Seq: ref, Err: "no captured request with this seq"})
+			fps = append(fps, Fingerprint{Seq: seq, Err: "no captured request with this seq"})
 			continue
 		}
 		if len(item.RespRaw) == 0 {
-			fps = append(fps, Fingerprint{Seq: ref, Err: "no response was captured"})
+			fps = append(fps, Fingerprint{Seq: seq, Err: "no response was captured"})
 			continue
 		}
-		fps = append(fps, fingerprintResponse(ref, item.RespRaw, item.Duration.Milliseconds(), wantFull))
+		fps = append(fps, fingerprintResponse(seq, item.RespRaw, item.Duration.Milliseconds(), wantFull))
 	}
 	return renderFingerprints(fps, wantFull), nil
 }

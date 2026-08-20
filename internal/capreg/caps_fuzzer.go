@@ -30,7 +30,7 @@ const (
 )
 
 type fuzzStartArgs struct {
-	Ref        int              `json:"ref"`
+	Seq        int              `json:"seq" alias:"ref"`
 	Edits      []httptools.Edit `json:"edits"`
 	Wordlist   []string         `json:"wordlist"`
 	Scheme     string           `json:"scheme"`
@@ -65,7 +65,7 @@ func registerFuzzer(r *capability.Registry, d Deps) {
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
-    "ref":        {"type":"integer","description":"Seq of the captured request to use as the template."},
+    "seq":        {"type":"integer","description":"The captured request to use as the template."},
     "edits":      {"type":"array","items":` + editSchema + `,"description":"Edits that must introduce the marker FUZZ, e.g. {\"op\":\"setQuery\",\"name\":\"id\",\"value\":\"FUZZ\"}."},
     "wordlist":   {"type":"array","items":{"type":"string"},"minItems":1,"maxItems":500,"description":"Payloads substituted for FUZZ, one request each. Max 500 entries, 64 KB total."},
     "scheme":     {"type":"string","enum":["http","https"],"description":"Override the scheme; defaults to the captured request's."},
@@ -73,14 +73,14 @@ func registerFuzzer(r *capability.Registry, d Deps) {
     "threads":    {"type":"integer","minimum":1,"maximum":10,"description":"Concurrent requests; default 4."},
     "ratePerSec": {"type":"number","minimum":0,"maximum":50,"description":"Requests per second across all threads; 0 means unlimited."}
   },
-  "required":["ref","wordlist"],
+  "required":["seq","wordlist"],
   "additionalProperties":false
 }`),
-		ArgsExample: json.RawMessage(`{"ref":1204,"edits":[{"op":"setPath","value":"/admin/FUZZ"}],` +
+		ArgsExample: json.RawMessage(`{"seq":1204,"edits":[{"op":"setPath","value":"/admin/FUZZ"}],` +
 			`"wordlist":["users","config","backup"],"ratePerSec":10}`),
 		MaxOutputBytes: 8 << 10,
 		Target: capability.TypedTarget(func(args fuzzStartArgs) (capability.Target, error) {
-			return resolveTarget(d, args.Ref, args.Scheme, args.Host, args.Edits)
+			return resolveTarget(d, args.Seq, args.Scheme, args.Host, args.Edits)
 		}),
 		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, args fuzzStartArgs) (any, error) {
 			if d.Fuzzer == nil || d.Transport == nil {
@@ -89,12 +89,12 @@ func registerFuzzer(r *capability.Registry, d Deps) {
 			if d.Store == nil {
 				return nil, fmt.Errorf("capture store is unavailable")
 			}
-			item := d.Store.GetBySeq(args.Ref)
+			item := d.Store.GetBySeq(args.Seq)
 			if item == nil {
-				return nil, fmt.Errorf("no captured request with seq %d", args.Ref)
+				return nil, fmt.Errorf("no captured request with seq %d", args.Seq)
 			}
 			if len(item.ReqRaw) == 0 {
-				return nil, fmt.Errorf("request %d has no captured bytes to fuzz", args.Ref)
+				return nil, fmt.Errorf("request %d has no captured bytes to fuzz", args.Seq)
 			}
 
 			words, err := checkWordlist(args.Wordlist)
@@ -113,7 +113,7 @@ func registerFuzzer(r *capability.Registry, d Deps) {
 					`{"op":"replaceInBody","find":"8291","value":"FUZZ"}`)
 			}
 
-			scheme, host, _, _, err := httptools.TargetOf(d.Store, args.Ref, args.Scheme, args.Host, args.Edits)
+			scheme, host, _, _, err := httptools.TargetOf(d.Store, args.Seq, args.Scheme, args.Host, args.Edits)
 			if err != nil {
 				return nil, err
 			}

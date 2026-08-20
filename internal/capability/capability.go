@@ -16,7 +16,6 @@
 package capability
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"slices"
@@ -183,16 +182,13 @@ type Result struct {
 // DisallowUnknownFields is deliberate. The UI is a program that matches the server,
 // but an automation client is a language model that invents arguments. Silently
 // ignoring an invented "limit" would return an unbounded result set instead of the
-// error the agent needs in order to correct itself.
+// error the agent needs in order to correct itself. Rejecting is only half of that —
+// decodeArgs names the field the client probably meant, when one is close enough.
 func Typed[T any](fn func(ctx context.Context, p Principal, args T) (any, error)) Handler {
 	return func(ctx context.Context, in Input) (any, error) {
-		var args T
-		if len(in.Args) > 0 && !bytes.Equal(bytes.TrimSpace(in.Args), []byte("null")) {
-			dec := json.NewDecoder(bytes.NewReader(in.Args))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&args); err != nil {
-				return nil, &Error{Code: CodeInvalidArgs, Msg: err.Error()}
-			}
+		args, err := decodeArgs[T](in.Args)
+		if err != nil {
+			return nil, err
 		}
 		return fn(ctx, in.Principal, args)
 	}
@@ -203,13 +199,9 @@ func Typed[T any](fn func(ctx context.Context, p Principal, args T) (any, error)
 // don't parse have no target to check.
 func TypedTarget[T any](fn func(args T) (Target, error)) TargetExtractor {
 	return func(raw json.RawMessage) (Target, error) {
-		var args T
-		if len(raw) > 0 && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			dec := json.NewDecoder(bytes.NewReader(raw))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&args); err != nil {
-				return Target{}, &Error{Code: CodeInvalidArgs, Msg: err.Error()}
-			}
+		args, err := decodeArgs[T](raw)
+		if err != nil {
+			return Target{}, err
 		}
 		return fn(args)
 	}

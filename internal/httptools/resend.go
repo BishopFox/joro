@@ -23,7 +23,7 @@ const (
 // a redirect by reading the Location from the result and issuing a second,
 // separately guarded call.
 type ResendArgs struct {
-	Ref                 int    `json:"ref"`
+	Seq                 int    `json:"seq" alias:"ref"`
 	Edits               []Edit `json:"edits"`
 	Scheme              string `json:"scheme"`
 	Host                string `json:"host"`
@@ -49,10 +49,10 @@ type ResendDeps struct {
 // the same destination the send will actually use. It reads the capture store,
 // which is why explicit host arguments and the captured URL have to agree on
 // precedence here and in Resend.
-func TargetOf(store *proxy.Store, ref int, scheme, host string, edits []Edit) (dialScheme, dialHost, method, path string, err error) {
-	item := store.GetBySeq(ref)
+func TargetOf(store *proxy.Store, seq int, scheme, host string, edits []Edit) (dialScheme, dialHost, method, path string, err error) {
+	item := store.GetBySeq(seq)
 	if item == nil {
-		return "", "", "", "", fmt.Errorf("no captured request with seq %d", ref)
+		return "", "", "", "", fmt.Errorf("no captured request with seq %d", seq)
 	}
 	capScheme, capHost := hostFromCapture(item.URL)
 	dialScheme = firstNonEmpty(strings.ToLower(scheme), capScheme, "https")
@@ -88,12 +88,12 @@ func TargetOf(store *proxy.Store, ref int, scheme, host string, edits []Edit) (d
 // Resend applies structural edits to a captured request and sends it through
 // Joro's proxy, returning a fingerprint rather than a body.
 func Resend(ctx context.Context, d ResendDeps, args ResendArgs) (string, error) {
-	item := d.Store.GetBySeq(args.Ref)
+	item := d.Store.GetBySeq(args.Seq)
 	if item == nil {
-		return "", fmt.Errorf("no captured request with seq %d", args.Ref)
+		return "", fmt.Errorf("no captured request with seq %d", args.Seq)
 	}
 	if len(item.ReqRaw) == 0 {
-		return "", fmt.Errorf("request %d has no captured bytes to resend", args.Ref)
+		return "", fmt.Errorf("request %d has no captured bytes to resend", args.Seq)
 	}
 
 	raw, err := ApplyEdits(item.ReqRaw, args.Edits)
@@ -104,7 +104,7 @@ func Resend(ctx context.Context, d ResendDeps, args ResendArgs) (string, error) 
 		raw = proxy.UpdateContentLength(raw)
 	}
 
-	scheme, host, _, _, err := TargetOf(d.Store, args.Ref, args.Scheme, args.Host, args.Edits)
+	scheme, host, _, _, err := TargetOf(d.Store, args.Seq, args.Scheme, args.Host, args.Edits)
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +154,7 @@ func renderResend(args ResendArgs, res *ProxySendResult, fp Fingerprint, supplie
 	if res.Seq == 0 {
 		seqLabel = "seq -"
 	}
-	fmt.Fprintf(&b, "%s <- ref %d (%d edits)  %s %s\n", seqLabel, args.Ref, len(args.Edits), res.Method, res.URL)
+	fmt.Fprintf(&b, "%s <- from %d (%d edits)  %s %s\n", seqLabel, args.Seq, len(args.Edits), res.Method, res.URL)
 	fmt.Fprintf(&b, "status=%d len=%d ms=%d ct=%s bhash=%s shash=%s words=%d lines=%d\n",
 		fp.Status, fp.Len, fp.DurationMs, fp.CT, fp.BodyHash, fp.StructHash, fp.Words, fp.Lines)
 	if fp.Note != "" || fp.Server != "" || fp.Decoded != "" {
@@ -181,7 +181,7 @@ func renderResend(args ResendArgs, res *ProxySendResult, fp Fingerprint, supplie
 	// A breadcrumb: the exact follow-up calls with the handle already filled in.
 	// Models follow these; without them they guess at argument shapes and spend a
 	// call finding out.
-	fmt.Fprintf(&b, "read: http_read{ref:%d}   diff: http_diff{a:%d,b:%d}", res.Seq, args.Ref, res.Seq)
+	fmt.Fprintf(&b, "read: http_read{seq:%d}   diff: http_diff{a:%d,b:%d}", res.Seq, args.Seq, res.Seq)
 	return b.String()
 }
 

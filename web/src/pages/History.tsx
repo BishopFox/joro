@@ -445,7 +445,7 @@ function HTTPHistory() {
         await api.runScript({
           scriptId,
           trigger: 'request.selected',
-          input: { ref: item.seq, method: item.method, url: item.url, host: item.host },
+          input: { seq: item.seq, method: item.method, url: item.url, host: item.host },
         })
       )
     } catch (e) {

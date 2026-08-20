@@ -20,7 +20,7 @@ const (
 
 // ReadArgs is the argument shape of http.read.
 type ReadArgs struct {
-	Ref      int    `json:"ref"`
+	Seq      int    `json:"seq" alias:"ref"`
 	Part     string `json:"part"`     // req | resp
 	Section  string `json:"section"`  // headers | body | raw
 	Offset   int    `json:"offset"`   // negative reads from the end
@@ -35,7 +35,7 @@ type ReadArgs struct {
 // The two forms are never both sent — text may be 16 KB, and duplicating it as
 // structuredContent would double the cost of every read.
 type ReadResult struct {
-	Ref         int    `json:"ref"`
+	Seq         int    `json:"seq"`
 	Part        string `json:"part"`
 	Section     string `json:"section"`
 	Encoding    string `json:"encoding"`
@@ -81,7 +81,7 @@ func ReadRange(reqRaw, respRaw []byte, args ReadArgs, maskCredentials bool) (*Re
 		return nil, fmt.Errorf(`part must be "req" or "resp", got %q`, args.Part)
 	}
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("no %s bytes were captured for request %d", part, args.Ref)
+		return nil, fmt.Errorf("no %s bytes were captured for request %d", part, args.Seq)
 	}
 
 	var spans []maskSpan
@@ -129,7 +129,7 @@ func ReadRange(reqRaw, respRaw []byte, args ReadArgs, maskCredentials bool) (*Re
 	window := sel[start:end]
 
 	res := &ReadResult{
-		Ref:         args.Ref,
+		Seq:         args.Seq,
 		Part:        part,
 		Section:     section,
 		TotalLength: total,
@@ -188,8 +188,8 @@ func encodeWindow(window []byte, want string, baseOffset int) (encoding, text st
 // credential it will report as absent.
 func (r *ReadResult) Render() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "ref=%d part=%s section=%s enc=%s total=%d off=%d ret=%d truncated=%t",
-		r.Ref, r.Part, r.Section, r.Encoding, r.TotalLength, r.Offset, r.Returned, r.Truncated)
+	fmt.Fprintf(&b, "seq=%d part=%s section=%s enc=%s total=%d off=%d ret=%d truncated=%t",
+		r.Seq, r.Part, r.Section, r.Encoding, r.TotalLength, r.Offset, r.Returned, r.Truncated)
 	if r.Decoded != "" {
 		fmt.Fprintf(&b, " decoded=%s", r.Decoded)
 	}

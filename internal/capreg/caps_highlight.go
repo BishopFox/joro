@@ -18,7 +18,7 @@ var highlightColors = []string{
 }
 
 type highlightArgs struct {
-	Ref   int    `json:"ref"`
+	Seq   int    `json:"seq" alias:"ref"`
 	Color string `json:"color"`
 }
 
@@ -35,13 +35,13 @@ func registerHighlight(r *capability.Registry, d Deps) {
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
-    "ref":   {"type":"integer","minimum":1,"description":"Request seq, as returned by history_list."},
+    "seq":   {"type":"integer","minimum":1,"description":"The captured request, as returned by history_list."},
     "color": {"type":"string","enum":["red","orange","yellow","green","cyan","blue","purple","pink","gray",""],"description":"Highlight colour. An empty string clears the highlight."}
   },
-  "required":["ref","color"],
+  "required":["seq","color"],
   "additionalProperties":false
 }`),
-		ArgsExample:    json.RawMessage(`{"ref":1842,"color":"red"}`),
+		ArgsExample:    json.RawMessage(`{"seq":1842,"color":"red"}`),
 		MaxOutputBytes: 4 << 10,
 		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, args highlightArgs) (any, error) {
 			if d.Store == nil || d.SetHighlight == nil {
@@ -52,18 +52,18 @@ func registerHighlight(r *capability.Registry, d Deps) {
 				return nil, fmt.Errorf("colour %q is not one of %s, or \"\" to clear",
 					args.Color, strings.Join(highlightColors, ", "))
 			}
-			item := d.Store.GetBySeq(args.Ref)
+			item := d.Store.GetBySeq(args.Seq)
 			if item == nil {
-				return nil, fmt.Errorf("no captured request with seq %d", args.Ref)
+				return nil, fmt.Errorf("no captured request with seq %d", args.Seq)
 			}
 			d.SetHighlight(item.ID, color)
 
 			if color == "" {
-				capability.RecordChange(ctx, "clear highlight on seq %d (%s)", args.Ref, item.Host)
-				return fmt.Sprintf("cleared highlight on seq %d", args.Ref), nil
+				capability.RecordChange(ctx, "clear highlight on seq %d (%s)", args.Seq, item.Host)
+				return fmt.Sprintf("cleared highlight on seq %d", args.Seq), nil
 			}
-			capability.RecordChange(ctx, "highlight seq %d %s (%s)", args.Ref, color, item.Host)
-			return fmt.Sprintf("highlighted seq %d %s", args.Ref, color), nil
+			capability.RecordChange(ctx, "highlight seq %d %s (%s)", args.Seq, color, item.Host)
+			return fmt.Sprintf("highlighted seq %d %s", args.Seq, color), nil
 		}),
 	})
 }

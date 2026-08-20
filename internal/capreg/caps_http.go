@@ -54,19 +54,19 @@ func registerHTTP(r *capability.Registry, d Deps) {
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
-    "ref":    {"type":"integer","description":"A captured request's seq, as shown by history_list."},
-    "refs":   {"type":"array","items":{"type":"integer"},"maxItems":50,"description":"Several seqs, rendered as a comparison table. Max 50."},
+    "seq":    {"type":"integer","description":"A captured request, as shown by history_list."},
+    "seqs":   {"type":"array","items":{"type":"integer"},"maxItems":50,"description":"Several captured requests, rendered as a comparison table. Max 50."},
     "fields": {"type":"string","description":"\"+fullhash\" to include the full SHA-256 rather than its 8-hex prefix."}
   },
   "additionalProperties":false
 }`),
-		ArgsExample:    json.RawMessage(`{"refs":[1204,1209,1213]}`),
+		ArgsExample:    json.RawMessage(`{"seqs":[1204,1209,1213]}`),
 		MaxOutputBytes: 64 << 10,
 		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, args httptools.FingerprintArgs) (any, error) {
 			if d.Store == nil {
 				return nil, fmt.Errorf("capture store is unavailable")
 			}
-			return httptools.FingerprintRefs(d.Store, args)
+			return httptools.FingerprintSeqs(d.Store, args)
 		}),
 	})
 
@@ -84,13 +84,13 @@ func registerHTTP(r *capability.Registry, d Deps) {
 			"the bytes returned is named, and only that. " +
 			"As a tool this renders one metadata line, then the bytes, then any notes: the bytes begin after " +
 			"the first newline and nothing is ever inserted ahead of them. From the SDK it is an object — " +
-			"{ref, part, section, encoding, totalLength, offset, returned, truncated, text, redacted[], " +
+			"{seq, part, section, encoding, totalLength, offset, returned, truncated, text, redacted[], " +
 			"decoded} — where text is exactly the bytes, with no metadata and no notes, so a script reads " +
 			"fields instead of parsing.",
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
-    "ref":      {"type":"integer","description":"A captured request's seq."},
+    "seq":      {"type":"integer","description":"A captured request, as shown by history_list."},
     "part":     {"type":"string","enum":["req","resp"],"description":"Which half to read; default resp."},
     "section":  {"type":"string","enum":["headers","body","raw"],"description":"Which section; default body. \"raw\" is the whole dump with no decoding."},
     "offset":   {"type":"integer","description":"Byte offset within the section. Negative reads from the end."},
@@ -98,18 +98,18 @@ func registerHTTP(r *capability.Registry, d Deps) {
     "decode":   {"type":"boolean","description":"Decompress gzip/deflate before slicing; default true. Forced off for section \"raw\"."},
     "encoding": {"type":"string","enum":["auto","text","hex","base64"],"description":"How to render the bytes; default auto."}
   },
-  "required":["ref"],
+  "required":["seq"],
   "additionalProperties":false
 }`),
-		ArgsExample:    json.RawMessage(`{"ref":1204,"offset":-2048}`),
+		ArgsExample:    json.RawMessage(`{"seq":1204,"offset":-2048}`),
 		MaxOutputBytes: 128 << 10,
 		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args httptools.ReadArgs) (any, error) {
 			if d.Store == nil {
 				return nil, fmt.Errorf("capture store is unavailable")
 			}
-			item := d.Store.GetBySeq(args.Ref)
+			item := d.Store.GetBySeq(args.Seq)
 			if item == nil {
-				return nil, fmt.Errorf("no captured request with seq %d", args.Ref)
+				return nil, fmt.Errorf("no captured request with seq %d", args.Seq)
 			}
 			return httptools.ReadRange(item.ReqRaw, item.RespRaw, args, !p.AllowCredentials)
 		}),
@@ -120,7 +120,7 @@ func registerHTTP(r *capability.Registry, d Deps) {
 		Class: capability.ClassHTTP,
 		Title: "Search captured traffic",
 		Description: "Find a string or regex across captured traffic and return match offsets with surrounding " +
-			"context, without returning any bodies. With ref set it searches one request; without it, it " +
+			"context, without returning any bodies. With seq set it searches one request; without it, it " +
 			"searches a filtered corpus. Matching is against the bytes as captured, so a compressed response " +
 			"will not match a plaintext pattern unless deep is set. Matching is case-insensitive by default. " +
 			"Unless this token has credential visibility, sensitive header values are masked before matching, " +
@@ -130,7 +130,7 @@ func registerHTTP(r *capability.Registry, d Deps) {
   "properties":{
     "pattern":       {"type":"string","description":"The string or RE2 pattern to find."},
     "regex":         {"type":"boolean","description":"Treat pattern as a regular expression."},
-    "ref":           {"type":"integer","description":"Search only this captured request. Omit to search the corpus."},
+    "seq":           {"type":"integer","description":"Search only this captured request, as shown by history_list. Omit to search the corpus."},
     "part":          {"type":"string","enum":["req","resp","both"],"description":"Which half to search; default resp."},` +
 			historyFilterProps + `,
     "maxRequests":   {"type":"integer","minimum":1,"maximum":200,"description":"Corpus mode: requests to scan; default 50."},
@@ -218,7 +218,7 @@ func registerHTTP(r *capability.Registry, d Deps) {
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
-    "ref":                 {"type":"integer","description":"Seq of the captured request to base this on."},
+    "seq":                 {"type":"integer","description":"The captured request to base this on."},
     "edits":               {"type":"array","items":` + editSchema + `,"description":"Structural edits, applied in order."},
     "scheme":              {"type":"string","enum":["http","https"],"description":"Override the scheme; defaults to the captured request's."},
     "host":                {"type":"string","description":"Override the host; defaults to the captured request's. Must pass this token's scope and host whitelist."},
@@ -226,14 +226,14 @@ func registerHTTP(r *capability.Registry, d Deps) {
     "timeoutMs":           {"type":"integer","minimum":1000,"maximum":60000,"description":"Per-request timeout; default 15000."},
     "useContext":          {"type":"boolean","description":"Apply and record this token's session cookies; default true. Set false to send exactly what you specified, e.g. when testing unauthenticated access."}
   },
-  "required":["ref"],
+  "required":["seq"],
   "additionalProperties":false
 }`),
-		ArgsExample:    json.RawMessage(`{"ref":1204,"edits":[{"op":"setHeader","name":"X-Forwarded-For","value":"127.0.0.1"}]}`),
+		ArgsExample:    json.RawMessage(`{"seq":1204,"edits":[{"op":"setHeader","name":"X-Forwarded-For","value":"127.0.0.1"}]}`),
 		MaxOutputBytes: 32 << 10,
 		Timeout:        70 * time.Second, // over the max per-request timeout, so the tool times out first
 		Target: capability.TypedTarget(func(args httptools.ResendArgs) (capability.Target, error) {
-			return resolveTarget(d, args.Ref, args.Scheme, args.Host, args.Edits)
+			return resolveTarget(d, args.Seq, args.Scheme, args.Host, args.Edits)
 		}),
 		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args httptools.ResendArgs) (any, error) {
 			if d.Store == nil {
@@ -255,7 +255,7 @@ func registerHTTP(r *capability.Registry, d Deps) {
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
-    "ref":      {"type":"integer","description":"Seq of the captured request to base every variant on."},
+    "seq":      {"type":"integer","description":"The captured request to base every variant on."},
     "variants": {
       "type":"array","minItems":1,"maxItems":50,
       "items":{
@@ -276,15 +276,15 @@ func registerHTTP(r *capability.Registry, d Deps) {
     "totalBudgetMs": {"type":"integer","minimum":1000,"maximum":120000,"description":"Wall-clock budget for the whole batch; default 60000."},
     "useContext":    {"type":"boolean","description":"Apply this token's session cookies to every variant; default true. Set-Cookie from a batch is never recorded, so all variants start from the same session."}
   },
-  "required":["ref","variants"],
+  "required":["seq","variants"],
   "additionalProperties":false
 }`),
-		ArgsExample: json.RawMessage(`{"ref":1204,"variants":[{"label":"baseline"},` +
+		ArgsExample: json.RawMessage(`{"seq":1204,"variants":[{"label":"baseline"},` +
 			`{"label":"xff-lo","edits":[{"op":"setHeader","name":"X-Forwarded-For","value":"127.0.0.1"}]}]}`),
 		MaxOutputBytes: 64 << 10,
 		Timeout:        130 * time.Second, // over the max total budget, so the tool times out first
 		Target: capability.TypedTarget(func(args httptools.BatchArgs) (capability.Target, error) {
-			return resolveTarget(d, args.Ref, args.Scheme, args.Host, nil)
+			return resolveTarget(d, args.Seq, args.Scheme, args.Host, nil)
 		}),
 		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args httptools.BatchArgs) (any, error) {
 			if d.Store == nil {
@@ -306,11 +306,11 @@ func registerHTTP(r *capability.Registry, d Deps) {
 // arguments. Path edits within a batch are not individually guarded, which is a
 // gap worth knowing about — it is bounded by the host check, which is the control
 // that matters for staying inside an engagement.
-func resolveTarget(d Deps, ref int, scheme, host string, edits []httptools.Edit) (capability.Target, error) {
+func resolveTarget(d Deps, seq int, scheme, host string, edits []httptools.Edit) (capability.Target, error) {
 	if d.Store == nil {
 		return capability.Target{}, fmt.Errorf("capture store is unavailable")
 	}
-	_, h, method, path, err := httptools.TargetOf(d.Store, ref, scheme, host, edits)
+	_, h, method, path, err := httptools.TargetOf(d.Store, seq, scheme, host, edits)
 	if err != nil {
 		return capability.Target{}, err
 	}

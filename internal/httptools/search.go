@@ -21,12 +21,12 @@ const (
 	MaxSearchMaxRequests = 200
 )
 
-// SearchArgs is the argument shape of http.search. The absence of Ref selects
+// SearchArgs is the argument shape of http.search. The absence of Seq selects
 // corpus mode; its presence selects single-response mode.
 type SearchArgs struct {
 	Pattern string `json:"pattern"`
 	Regex   bool   `json:"regex"`
-	Ref     int    `json:"ref"`
+	Seq     int    `json:"seq" alias:"ref"`
 	Part    string `json:"part"` // req | resp | both
 
 	// Corpus narrowing, mirroring history.list. These must stay in step with the
@@ -93,7 +93,7 @@ func SearchCorpus(d SearchDeps, args SearchArgs) (string, error) {
 		return "", err
 	}
 
-	if args.Ref > 0 {
+	if args.Seq > 0 {
 		return searchSingle(d, args, matcher, ctxBytes)
 	}
 
@@ -176,9 +176,9 @@ func SearchCorpus(d SearchDeps, args SearchArgs) (string, error) {
 }
 
 func searchSingle(d SearchDeps, args SearchArgs, m *matcher, ctxBytes int) (string, error) {
-	item := d.Store.GetBySeq(args.Ref)
+	item := d.Store.GetBySeq(args.Seq)
 	if item == nil {
-		return "", fmt.Errorf("no captured request with seq %d", args.Ref)
+		return "", fmt.Errorf("no captured request with seq %d", args.Seq)
 	}
 	limit := clampInt(args.MaxMatches, DefaultMatchesSingle, 1, DefaultTotalMatches)
 
@@ -201,7 +201,7 @@ func searchSingle(d SearchDeps, args SearchArgs, m *matcher, ctxBytes int) (stri
 			break
 		}
 	}
-	t.note(fmt.Sprintf("q=%q mode=single seq=%d hits=%d", args.Pattern, args.Ref, hits))
+	t.note(fmt.Sprintf("q=%q mode=single seq=%d hits=%d", args.Pattern, args.Seq, hits))
 	if note := RedactionNote(redacted); note != "" {
 		t.note(note)
 	}

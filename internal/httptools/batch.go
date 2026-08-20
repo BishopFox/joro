@@ -40,7 +40,7 @@ type BatchVariant struct {
 
 // BatchArgs is the argument shape of http.batch.
 type BatchArgs struct {
-	Ref           int            `json:"ref"`
+	Seq           int            `json:"seq" alias:"ref"`
 	Variants      []BatchVariant `json:"variants"`
 	Scheme        string         `json:"scheme"`
 	Host          string         `json:"host"`
@@ -69,9 +69,9 @@ type batchRow struct {
 // behavior change to the fuzzer. Duplicating the shape is the repo's existing
 // answer to this (h2_mitm.go mirrors replace.go the same way).
 func Batch(ctx context.Context, d ResendDeps, args BatchArgs) (string, error) {
-	item := d.Store.GetBySeq(args.Ref)
+	item := d.Store.GetBySeq(args.Seq)
 	if item == nil {
-		return "", fmt.Errorf("no captured request with seq %d", args.Ref)
+		return "", fmt.Errorf("no captured request with seq %d", args.Seq)
 	}
 	if len(args.Variants) == 0 {
 		return "", fmt.Errorf("variants is required")
@@ -103,7 +103,7 @@ func Batch(ctx context.Context, d ResendDeps, args BatchArgs) (string, error) {
 		limiter = tick.C
 	}
 
-	scheme, host, _, _, err := TargetOf(d.Store, args.Ref, args.Scheme, args.Host, nil)
+	scheme, host, _, _, err := TargetOf(d.Store, args.Seq, args.Scheme, args.Host, nil)
 	if err != nil {
 		return "", err
 	}
@@ -208,8 +208,8 @@ func renderBatch(args BatchArgs, rows []batchRow, elapsed time.Duration) string 
 
 	t := newTable("seq", "label", "status", "len", "ms", "shash", "words", "lines", "note")
 	t.empty = "(no results)"
-	t.note(fmt.Sprintf("batch ref=%d n=%d ok=%d err=%d elapsed=%.1fs  base: shash=%s",
-		args.Ref, len(rows), ok, errs, elapsed.Seconds(), dash(modal)))
+	t.note(fmt.Sprintf("batch seq=%d n=%d ok=%d err=%d elapsed=%.1fs  base: shash=%s",
+		args.Seq, len(rows), ok, errs, elapsed.Seconds(), dash(modal)))
 
 	var outliers []string
 	for _, r := range rows {

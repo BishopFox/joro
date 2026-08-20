@@ -227,7 +227,7 @@ func registerScript(r *capability.Registry, d Deps) {
   "required":["source"],
   "additionalProperties":false
 }`),
-		ArgsExample: json.RawMessage(`{"source":"async function run(ctx) {\n  const base = await joro.http.fingerprint({ ref: ctx.input.ref });\n  return { base: base };\n}","input":{"ref":1842}}`),
+		ArgsExample: json.RawMessage(`{"source":"async function run(ctx) {\n  const base = await joro.http.fingerprint({ seq: ctx.input.seq });\n  return { base: base };\n}","input":{"seq":1842}}`),
 
 		MaxOutputBytes: ScriptRunOutputCap,
 		Timeout:        scriptRunTimeout,
@@ -335,7 +335,7 @@ func registerScript(r *capability.Registry, d Deps) {
   "required":["id","source"],
   "additionalProperties":false
 }`),
-		ArgsExample: json.RawMessage(`{"id":"idor-sweep","name":"IDOR sweep","version":"0.1.0","description":"Resends a request with neighbouring object ids and reports which ones answer 200.","source":"async function run(ctx) {\n  return { checked: ctx.input.ref };\n}","triggers":["manual"]}`),
+		ArgsExample: json.RawMessage(`{"id":"idor-sweep","name":"IDOR sweep","version":"0.1.0","description":"Resends a request with neighbouring object ids and reports which ones answer 200.","source":"async function run(ctx) {\n  return { checked: ctx.input.seq };\n}","triggers":["manual"]}`),
 
 		MaxOutputBytes: 4 << 10,
 
@@ -405,7 +405,7 @@ func registerScript(r *capability.Registry, d Deps) {
   "required":["id","source","expectedHash"],
   "additionalProperties":false
 }`),
-		ArgsExample: json.RawMessage(`{"id":"idor-sweep","version":"0.2.0","expectedHash":"9f2b1c0d5e6a7b8c","source":"async function run(ctx) {\n  return { checked: ctx.input.ref };\n}"}`),
+		ArgsExample: json.RawMessage(`{"id":"idor-sweep","version":"0.2.0","expectedHash":"9f2b1c0d5e6a7b8c","source":"async function run(ctx) {\n  return { checked: ctx.input.seq };\n}"}`),
 
 		MaxOutputBytes: 4 << 10,
 
@@ -472,7 +472,7 @@ func registerScript(r *capability.Registry, d Deps) {
   "required":["id"],
   "additionalProperties":false
 }`),
-		ArgsExample: json.RawMessage(`{"id":"idor-check","input":{"ref":1842}}`),
+		ArgsExample: json.RawMessage(`{"id":"idor-check","input":{"seq":1842}}`),
 
 		MaxOutputBytes: ScriptRunOutputCap,
 		Timeout:        scriptRunTimeout,
