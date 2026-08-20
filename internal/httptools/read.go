@@ -43,7 +43,9 @@ type ReadResult struct {
 	Decoded     string `json:"decoded,omitempty"`
 	Text        string `json:"text"`
 
-	// Redacted names the headers whose values were masked, set by the caller.
+	// Redacted names the withheld header values that lie inside the returned
+	// window, and only those: naming one the caller did not receive implies a
+	// credential the returned bytes never carried.
 	Redacted []string `json:"redacted,omitempty"`
 }
 
@@ -52,7 +54,11 @@ type ReadResult struct {
 // Coordinates are bytes of the selected section after decoding. section "raw" is
 // the whole dump with decoding forced off, so it stays byte-exact and matches the
 // contract of the History Raw tab.
-func ReadRange(reqRaw, respRaw []byte, args ReadArgs) (*ReadResult, error) {
+//
+// maskCredentials withholds sensitive header values. It is applied to the half that
+// is actually returned, never to both, so the redaction notice cannot name a header
+// the other half carried.
+func ReadRange(reqRaw, respRaw []byte, args ReadArgs, maskCredentials bool) (*ReadResult, error) {
 	part := strings.ToLower(strings.TrimSpace(args.Part))
 	if part == "" {
 		part = "resp"
@@ -73,6 +79,11 @@ func ReadRange(reqRaw, respRaw []byte, args ReadArgs) (*ReadResult, error) {
 	}
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("no %s bytes were captured for request %d", part, args.Ref)
+	}
+
+	var spans []maskSpan
+	if maskCredentials {
+		raw, spans = maskHeaderSpans(raw)
 	}
 
 	// Raw stays byte-exact: decoding it would make offsets disagree with what the
@@ -125,6 +136,15 @@ func ReadRange(reqRaw, respRaw []byte, args ReadArgs) (*ReadResult, error) {
 		Decoded:     m.Decoded,
 	}
 	res.Encoding, res.Text = encodeWindow(window, args.Encoding, start)
+
+	switch section {
+	case "headers", "raw":
+		// Both share the raw message's coordinates — the header block is its
+		// prefix, and raw is decoded-off — so a span compares to the window directly.
+		res.Redacted = namesInRange(spans, start, end)
+	case "body":
+		// Only header values are ever withheld, so a body window holds none.
+	}
 	return res, nil
 }
 

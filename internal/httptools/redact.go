@@ -18,13 +18,29 @@ var sensitiveHeaders = map[string]bool{
 // maskByte replaces each byte of a withheld header value.
 const maskByte = '*'
 
+// maskSpan is one withheld header value's byte range within the raw message.
+// Coordinates are raw-message coordinates, so a span is directly comparable to a
+// window read from the header block or from section "raw".
+type maskSpan struct {
+	name       string
+	start, end int
+}
+
 // MaskHeaders overwrites the values of sensitive headers with '*', leaving header
 // names, framing and every byte offset unchanged, and returns the names it masked.
+func MaskHeaders(raw []byte) (masked []byte, names []string) {
+	out, spans := maskHeaderSpans(raw)
+	return out, spanNames(spans)
+}
+
+// maskHeaderSpans masks sensitive header values and reports where each withheld
+// value sits, so a caller returning only part of the message can announce the
+// values that part actually contains.
 //
 // Masking is length-preserving because http.read reports offsets and totalLength
 // against the same coordinates the History Raw tab uses; a shorter placeholder
 // would shift every subsequent offset and desynchronize http.read from http.search.
-func MaskHeaders(raw []byte) (masked []byte, names []string) {
+func maskHeaderSpans(raw []byte) (masked []byte, spans []maskSpan) {
 	if len(raw) == 0 {
 		return raw, nil
 	}
@@ -34,8 +50,7 @@ func MaskHeaders(raw []byte) (masked []byte, names []string) {
 	}
 
 	out := bytes.Clone(raw)
-	seen := map[string]bool{}
-	folding := false
+	folding := ""
 
 	for i := 0; i < len(hdr); {
 		end := bytes.IndexByte(hdr[i:], '\n')
@@ -45,40 +60,39 @@ func MaskHeaders(raw []byte) (masked []byte, names []string) {
 			end += i
 		}
 		line := out[i:end]
+		lineEnd := end
 		if n := len(line); n > 0 && line[n-1] == '\r' {
 			line = line[:n-1]
+			lineEnd--
 		}
 
 		switch {
 		case len(line) == 0:
-			folding = false
+			folding = ""
 		case line[0] == ' ' || line[0] == '\t':
 			// Obsolete line folding: the continuation belongs to the previous header.
-			if folding {
+			if folding != "" {
 				maskRange(line)
+				spans = append(spans, maskSpan{folding, i, lineEnd})
 			}
 		default:
-			folding = false
+			folding = ""
 			if c := bytes.IndexByte(line, ':'); c > 0 {
 				name := strings.ToLower(strings.TrimSpace(string(line[:c])))
 				if sensitiveHeaders[name] {
 					maskRange(line[c+1:])
-					folding = true
-					if !seen[name] {
-						seen[name] = true
-						names = append(names, name)
-					}
+					folding = name
+					spans = append(spans, maskSpan{name, i + c + 1, lineEnd})
 				}
 			}
 		}
 		i = end + 1
 	}
 
-	if len(names) == 0 {
+	if len(spans) == 0 {
 		return raw, nil
 	}
-	slices.Sort(names)
-	return out, names
+	return out, spans
 }
 
 // maskRange overwrites v in place, preserving leading whitespace so the header
@@ -103,12 +117,32 @@ func RedactionNote(names []string) string {
 		" (values withheld; this token does not have credential visibility)"
 }
 
-// MaskPair masks both halves of a captured exchange, returning the union of the
-// names masked in either.
-func MaskPair(reqRaw, respRaw []byte) (req, resp []byte, names []string) {
-	req, a := MaskHeaders(reqRaw)
-	resp, b := MaskHeaders(respRaw)
-	return req, resp, mergeNames(a, b)
+// spanNames collects the distinct names of every span, sorted.
+func spanNames(spans []maskSpan) []string {
+	if len(spans) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(spans))
+	for _, s := range spans {
+		names = append(names, s.name)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// namesInRange returns the masked header names whose withheld bytes fall inside
+// [start,end) of the raw message. Names outside the window are not announced: a
+// redaction notice for bytes the caller never received reads as a credential the
+// returned half actually carried, which is how a response with no Set-Cookie gets
+// reported as having set a session cookie.
+func namesInRange(spans []maskSpan, start, end int) []string {
+	var hit []maskSpan
+	for _, s := range spans {
+		if s.start < end && s.end > start {
+			hit = append(hit, s)
+		}
+	}
+	return spanNames(hit)
 }
 
 func mergeNames(a, b []string) []string {
