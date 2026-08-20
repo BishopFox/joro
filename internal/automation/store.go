@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/BishopFox/joro/internal/capability"
+	"github.com/BishopFox/joro/internal/jsruntime"
 )
 
 // fileVersion is the on-disk schema version. Bump it only alongside a migration in
@@ -52,7 +53,16 @@ const DefaultMCPPort = 9091
 type file struct {
 	Version int      `json:"version"`
 	MCP     MCPState `json:"mcp"`
-	Tokens  []*Token `json:"tokens"`
+	// ScriptBudget is the operator's policy for sandboxed runs: the default and the
+	// maximum per field, plus the host limits. It lives here for the same reasons the
+	// tokens do: a project config is published to teammates, and a user config
+	// round-trips through version-gated backfill, which is exactly the wrong semantics
+	// for a limit. An absent field means the runtime's own defaults and ceilings, so an
+	// older file needs no migration.
+	// omitzero, not omitempty: omitempty does nothing for a struct field, so an
+	// unconfigured policy would be written out as three empty objects.
+	ScriptBudget jsruntime.BudgetPolicy `json:"scriptBudget,omitzero"`
+	Tokens       []*Token               `json:"tokens"`
 }
 
 // Store holds automation tokens, persisted to a single 0600 JSON file.
@@ -70,6 +80,8 @@ type Store struct {
 	tokens map[string]*Token // by ID
 	byHash map[string]*Token
 	mcp    MCPState
+
+	scriptBudget jsruntime.BudgetPolicy
 
 	dirty atomic.Bool
 }
@@ -100,6 +112,7 @@ func NewStore(path string) (*Store, error) {
 		f.MCP.Port = DefaultMCPPort
 	}
 	s.mcp = f.MCP
+	s.scriptBudget = f.ScriptBudget
 	for _, t := range f.Tokens {
 		if t == nil || t.ID == "" || t.Hash == "" {
 			continue
@@ -420,6 +433,24 @@ func (s *Store) SetMCP(state MCPState) error {
 	return s.flush()
 }
 
+// ScriptBudget returns the operator's run policy. A zero field means the runtime's own
+// number for it.
+func (s *Store) ScriptBudget() jsruntime.BudgetPolicy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.scriptBudget
+}
+
+// SetScriptBudget persists the run policy synchronously. Values are not clamped here —
+// jsruntime holds every run to its own ceilings regardless, and the caller rejects an
+// over-ceiling value so the operator is told rather than silently corrected.
+func (s *Store) SetScriptBudget(b jsruntime.BudgetPolicy) error {
+	s.mu.Lock()
+	s.scriptBudget = b
+	s.mu.Unlock()
+	return s.flush()
+}
+
 // StartFlushLoop writes pending last-used telemetry every flushInterval, and once
 // more on shutdown. It mirrors APIServer.StartAutoSaveLoop, including the
 // dirty-check, so a store nobody uses costs one idle ticker.
@@ -453,7 +484,12 @@ func (s *Store) flushIfDirty() {
 // read as a mass revocation.
 func (s *Store) flush() error {
 	s.mu.RLock()
-	f := file{Version: fileVersion, MCP: s.mcp, Tokens: make([]*Token, 0, len(s.tokens))}
+	f := file{
+		Version:      fileVersion,
+		MCP:          s.mcp,
+		ScriptBudget: s.scriptBudget,
+		Tokens:       make([]*Token, 0, len(s.tokens)),
+	}
 	for _, t := range s.tokens {
 		cp := *t
 		f.Tokens = append(f.Tokens, &cp)

@@ -13,15 +13,16 @@ import (
 	"time"
 
 	"github.com/BishopFox/joro/internal/capability"
+	"github.com/BishopFox/joro/internal/capreg"
 	"github.com/BishopFox/joro/internal/jsautomation"
 	"github.com/BishopFox/joro/internal/jsruntime"
 )
 
 // maxAutomationBody bounds a request on the automation control plane. Sized for the
-// largest of them — one carrying automation source — comfortably over
-// jsruntime.MaxSourceBytes so the source limit is the one that reports, with room for a
-// manifest beside it.
-const maxAutomationBody = 2 << 20
+// largest of them — one carrying automation source — from the program-size ceiling the
+// budget offers, with room for a manifest beside it, so the program limit is the one that
+// reports rather than this.
+const maxAutomationBody = jsruntime.CapSourceBytes + (1 << 19)
 
 // decodeJSON reads a bounded JSON body, and requires the JSON content type.
 //
@@ -162,7 +163,15 @@ func (s *APIServer) handleGetScript(w http.ResponseWriter, r *http.Request) {
 	}
 	// With source: this is the operator reading their own automation, which is the
 	// point of keeping it as a real file in the first place.
-	writeJSON(w, http.StatusOK, a)
+	//
+	// effectiveLimits rides along for the same reason EffectiveLens does: the budget is
+	// the author's request narrowed by the operator's override and then held to the
+	// global, and resolving it here means no caller has to hold three halves and decide
+	// which wins.
+	writeJSON(w, http.StatusOK, struct {
+		*jsautomation.Automation
+		EffectiveLimits jsautomation.ManifestLimits `json:"effectiveLimits"`
+	}{a, a.EffectiveBudget(s.scriptManager.Budget())})
 }
 
 type scriptWriteBody struct {
@@ -466,6 +475,153 @@ func (s *APIServer) handleScriptSDK(w http.ResponseWriter, r *http.Request) {
 		"globals":  globalDocs,
 		"triggers": jsautomation.Triggers,
 	})
+}
+
+// ---- The run budget ----
+//
+// The operator's run policy, plus everything needed to explain it: the shipped default
+// and ceiling per field, the unit each is entered in, and the one-sentence rationale for
+// each. All of it is served rather than restated in the frontend, so what the UI explains
+// cannot drift from what the runtime enforces.
+
+type budgetResponse struct {
+	// Policy is what the operator set. A zero field means "Joro's own number".
+	Policy jsruntime.BudgetPolicy `json:"policy"`
+	// Effective is what a run that asks for nothing is held to, EffectiveMax the most
+	// one may ask for, and Host the resolved host limits. All three are what the policy
+	// actually comes to, so the UI shows no figure the runtime would not honor.
+	Effective    jsruntime.Budget     `json:"effective"`
+	EffectiveMax jsruntime.Budget     `json:"effectiveMax"`
+	Host         jsruntime.HostBudget `json:"host"`
+	// Specs describes the per-run fields, hostSpecs the ones that belong to this Joro.
+	Specs     []jsruntime.BudgetSpec `json:"specs"`
+	HostSpecs []jsruntime.BudgetSpec `json:"hostSpecs"`
+	// AgentOutputCap is the size the two agent figures share. Their own specs carry it
+	// as a cap; this is here so the panel can name the sum rule once.
+	AgentOutputCap int `json:"agentOutputCap"`
+}
+
+func (s *APIServer) scriptBudgetState() budgetResponse {
+	p := s.autoStore.ScriptBudget()
+	def, maxi := p.Bounds()
+	return budgetResponse{
+		Policy:         p,
+		Effective:      def,
+		EffectiveMax:   maxi,
+		Host:           p.Host.Resolved(),
+		Specs:          jsruntime.BudgetSpecs(),
+		HostSpecs:      jsruntime.HostSpecs(),
+		AgentOutputCap: jsruntime.AgentOutputCap,
+	}
+}
+
+func (s *APIServer) handleGetScriptBudget(w http.ResponseWriter, r *http.Request) {
+	if !s.requireScripting(w) {
+		return
+	}
+	writeJSON(w, http.StatusOK, s.scriptBudgetState())
+}
+
+// handleSetScriptBudget stores the operator's run policy.
+//
+// Over-ceiling values are rejected rather than clamped, which is the opposite of what a
+// run request gets: a run may be submitted by a language model, where an argument error
+// costs a turn, but this is the operator's own form and silently correcting what they
+// typed would leave them believing a limit they do not have.
+func (s *APIServer) handleSetScriptBudget(w http.ResponseWriter, r *http.Request) {
+	if !s.requireScripting(w) {
+		return
+	}
+	var body struct {
+		Policy jsruntime.BudgetPolicy `json:"policy"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateBudgetPolicy(body.Policy); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.autoStore.SetScriptBudget(body.Policy); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// No WS event: nothing listens for one, the operator's own request is the only way
+	// here, and it takes effect on the next run rather than on anything already open.
+	writeJSON(w, http.StatusOK, s.scriptBudgetState())
+}
+
+// validateBudgetPolicy checks every field the runtime declares, in the units the
+// operator entered them in, plus the one cross-field rule.
+//
+// Iterating the specs rather than the struct keeps this total: a field the runtime
+// declares but cannot read back is reported as a defect rather than waved through.
+func validateBudgetPolicy(p jsruntime.BudgetPolicy) error {
+	perRun := []struct {
+		what   string
+		budget jsruntime.Budget
+	}{
+		{"default", p.Defaults},
+		{"maximum", p.Maxima},
+	}
+	for _, sp := range jsruntime.BudgetSpecs() {
+		for _, half := range perRun {
+			v, ok := half.budget.Value(sp.Key)
+			if !ok {
+				return fmt.Errorf("budget field %q cannot be read back; this is a defect in Joro", sp.Key)
+			}
+			if err := checkBudgetField(sp, v, half.what+" "); err != nil {
+				return err
+			}
+		}
+		// A default above the maximum is contradictory rather than merely high. The
+		// runtime resolves it to the maximum, but saying so beats storing it.
+		def, _ := p.Defaults.Value(sp.Key)
+		maxi, _ := p.Maxima.Value(sp.Key)
+		if def > 0 && maxi > 0 && def > maxi {
+			return fmt.Errorf("%s: the default (%d) cannot be above the maximum (%d)",
+				sp.Label, def/sp.Factor, maxi/sp.Factor)
+		}
+	}
+
+	for _, sp := range jsruntime.HostSpecs() {
+		v, ok := p.Host.Value(sp.Key)
+		if !ok {
+			return fmt.Errorf("host limit %q cannot be read back; this is a defect in Joro", sp.Key)
+		}
+		if err := checkBudgetField(sp, v, ""); err != nil {
+			return err
+		}
+	}
+
+	// The pair an agent gets back has to fit inside script.run's output cap, which is
+	// registered before the registry is sealed and errors rather than truncating.
+	h := p.Host.Resolved()
+	if room := capreg.ScriptRunOutputCap - capreg.ScriptRunHeaderRoom; h.AgentLogBytes+h.AgentResultBytes > room {
+		return fmt.Errorf("agent log output (%d KB) and agent result size (%d KB) together must stay "+
+			"under %d KB, the tool result cap they share",
+			h.AgentLogBytes>>10, h.AgentResultBytes>>10, room>>10)
+	}
+	return nil
+}
+
+// checkBudgetField reports a value the runtime cannot honor, in the operator's own unit.
+//
+// Only two things can be wrong: a fraction of the unit, or a value above a structural cap.
+// A field with no cap has no upper bound here — the operator's number is the limit, which
+// is what stops this form presenting a figure as theirs to set and then refusing it.
+func checkBudgetField(sp jsruntime.BudgetSpec, v int, half string) error {
+	name := half + strings.ToLower(sp.Label)
+	switch {
+	case v < 0:
+		return fmt.Errorf("%s cannot be negative; 0 takes Joro's %d %s", name, sp.Default, sp.Unit)
+	case v%sp.Factor != 0:
+		return fmt.Errorf("%s must be a whole number of %s", name, sp.Unit)
+	case sp.Cap > 0 && v > sp.Cap*sp.Factor:
+		return fmt.Errorf("%s cannot be above %d %s: %s", name, sp.Cap, sp.Unit, sp.CapReason)
+	}
+	return nil
 }
 
 // globalDocs covers what the shim defines outside the joro namespace. The sandbox's

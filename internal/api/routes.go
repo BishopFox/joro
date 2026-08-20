@@ -285,6 +285,8 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 		mux.HandleFunc("PUT /api/v1/automation/scripts/{id}/enabled", s.handleSetScriptEnabled)
 		mux.HandleFunc("PUT /api/v1/automation/scripts/{id}/prefs", s.handleSetScriptPrefs)
 		mux.HandleFunc("GET /api/v1/automation/sdk", s.handleScriptSDK)
+		mux.HandleFunc("GET /api/v1/automation/limits", s.handleGetScriptBudget)
+		mux.HandleFunc("PUT /api/v1/automation/limits", s.handleSetScriptBudget)
 	}
 
 	// Plugin routes (dynamic, based on loaded plugins).

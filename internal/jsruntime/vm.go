@@ -66,8 +66,8 @@ func New() *VM { return &VM{} }
 // It compiles without executing, which is what makes it safe to run in the parent process
 // at install time. Catching a syntax error while whoever submitted the package is still
 // looking at it beats surfacing it hours later as a trigger that quietly does nothing.
-func Validate(source string) error {
-	prepared, err := Prepare(source)
+func Validate(source string, maxBytes int) error {
+	prepared, err := Prepare(source, maxBytes)
 	if err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func (s *logSink) add(level, text string) {
 // throw, a timeout, an exhausted budget — comes back as a Result with a reason, so a
 // caller has exactly one thing to report.
 func (v *VM) Run(ctx context.Context, req Request, bridge HostBridge) (res Result, err error) {
-	lim := req.Limits.Normalize()
+	lim := req.Limits.Fill()
 	start := time.Now()
 	sink := &logSink{maxBytes: lim.MaxLogBytes}
 
@@ -137,6 +137,7 @@ func (v *VM) Run(ctx context.Context, req Request, bridge HostBridge) (res Resul
 		r.LogsTruncated = sink.truncated
 		r.Calls, r.SendCalls, r.StorageOps = calls, sendCalls, storageOps
 		r.CallInputBytes, r.CallOutputBytes = callInBytes, callOutBytes
+		r.Budget = lim.Budget()
 		r.DurationMs = time.Since(start).Milliseconds()
 		return r, nil
 	}
@@ -154,7 +155,7 @@ func (v *VM) Run(ctx context.Context, req Request, bridge HostBridge) (res Resul
 		}
 	}()
 
-	prepared, perr := Prepare(req.Source)
+	prepared, perr := Prepare(req.Source, lim.MaxSourceBytes)
 	if perr != nil {
 		return finish(Result{Reason: ReasonRuntimeFailure, Err: perr.Error()})
 	}
@@ -279,11 +280,11 @@ func (v *VM) Run(ctx context.Context, req Request, bridge HostBridge) (res Resul
 		if h := readHalt(); h.reason != "" {
 			return errEnvelope("halted", "the run has been stopped")
 		}
-		if storageOps >= maxStorageOps {
+		if storageOps >= lim.MaxStorageOps {
 			setHalt(halt{reason: ReasonBudget, detail: fmt.Sprintf(
-				"this run reached its limit of %d storage operations", maxStorageOps)})
+				"this run reached its limit of %d storage operations", lim.MaxStorageOps)})
 			return errEnvelope("budget_exceeded", fmt.Sprintf(
-				"this run reached its limit of %d storage operations", maxStorageOps))
+				"this run reached its limit of %d storage operations", lim.MaxStorageOps))
 		}
 		storageOps++
 

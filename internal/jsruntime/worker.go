@@ -121,7 +121,7 @@ func (w *WorkerRuntime) Run(ctx context.Context, req Request, bridge HostBridge)
 	if w.exePath == "" {
 		return Result{}, errors.New("no worker executable path configured")
 	}
-	lim := req.Limits.Normalize()
+	lim := req.Limits.Fill()
 	req.Limits = lim
 	start := time.Now()
 
@@ -189,6 +189,7 @@ func (w *WorkerRuntime) Run(ctx context.Context, req Request, bridge HostBridge)
 			_ = wait()
 			res := Result{
 				Calls: forwarded, SendCalls: forwardedSends,
+				Budget:     lim.Budget(),
 				DurationMs: time.Since(start).Milliseconds(),
 			}
 			switch {
@@ -217,6 +218,7 @@ func (w *WorkerRuntime) Run(ctx context.Context, req Request, bridge HostBridge)
 			return Result{
 				Reason:     ReasonRuntimeFailure,
 				Err:        f.Fatal,
+				Budget:     lim.Budget(),
 				DurationMs: time.Since(start).Milliseconds(),
 			}, nil
 
@@ -361,7 +363,7 @@ func RunWorker(ctx context.Context, in io.Reader, out io.Writer) (err error) {
 		return errors.New("first frame was not a job")
 	}
 	job := *f.Job
-	job.Limits = job.Limits.Normalize()
+	job.Limits = job.Limits.Fill()
 
 	// Go's soft heap limit makes the collector work harder as the script approaches
 	// the ceiling, which slows a runaway allocation enough for the VM's own sampling

@@ -107,7 +107,9 @@ export default function ScriptRuns() {
                       <span className="shrink-0 w-24 truncate">{r.tokenName}</span>
                       <span className="shrink-0 w-32 truncate">{r.result.reason}</span>
                       <span className="shrink-0 w-20">
-                        {r.result.calls} call{r.result.calls === 1 ? '' : 's'}
+                        {r.result.calls}
+                        {r.result.budget?.maxCalls ? `/${r.result.budget.maxCalls}` : ''} call
+                        {r.result.calls === 1 ? '' : 's'}
                         {r.result.sendCalls > 0 ? ` (${r.result.sendCalls}s)` : ''}
                       </span>
                       <span className="shrink-0 w-14">{r.durationMs}ms</span>
@@ -139,8 +141,11 @@ function RunDetail({ run, onClose }: { run: ScriptRun; onClose: () => void }) {
             <h3 className="text-sm font-semibold text-content-primary font-mono truncate">{run.id}</h3>
             <p className="text-[11px] text-content-muted">
               {r.reason} &middot; {run.tokenName} &middot; {run.trigger} &middot; {run.bundle} &middot; {run.durationMs}ms
-              &middot; {r.calls} SDK call{r.calls === 1 ? '' : 's'}
-              {r.sendCalls > 0 ? ` (${r.sendCalls} sending)` : ''}
+              &middot; {r.calls}
+              {r.budget?.maxCalls ? `/${r.budget.maxCalls}` : ''} SDK call{r.calls === 1 ? '' : 's'}
+              {r.sendCalls > 0
+                ? ` (${r.sendCalls}${r.budget?.maxSendCalls ? `/${r.budget.maxSendCalls}` : ''} sending)`
+                : ''}
             </p>
           </div>
           <button onClick={onClose} className="ml-auto text-content-muted hover:text-content-primary" aria-label="Close">

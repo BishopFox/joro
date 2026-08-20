@@ -16,9 +16,14 @@ export default function RunOutput({ run, onClose }: { run: ScriptRun; onClose: (
         <span className={`text-[11px] font-semibold ${bad ? 'text-semantic-warning' : 'text-semantic-success'}`}>
           {r.reason}
         </span>
+        {/* Counts against the budget they were held to: a bare "12 calls" says nothing
+            about whether the run was cut short. */}
         <span className="text-[10px] text-content-muted font-mono">
-          {run.durationMs}ms · {r.calls} call{r.calls === 1 ? '' : 's'}
-          {r.sendCalls > 0 ? ` (${r.sendCalls} sending)` : ''}
+          {run.durationMs}ms · {r.calls}
+          {r.budget?.maxCalls ? `/${r.budget.maxCalls}` : ''} call{r.calls === 1 ? '' : 's'}
+          {r.sendCalls > 0
+            ? ` (${r.sendCalls}${r.budget?.maxSendCalls ? `/${r.budget.maxSendCalls}` : ''} sending)`
+            : ''}
           {r.storageOps ? ` · ${r.storageOps} storage` : ''}
         </span>
         <button onClick={onClose} className="ml-auto text-content-muted hover:text-content-primary" aria-label="Dismiss">

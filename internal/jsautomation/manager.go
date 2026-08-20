@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/BishopFox/joro/internal/capability"
@@ -26,14 +27,14 @@ import (
 	"github.com/BishopFox/joro/internal/jsruntime"
 )
 
-// maxConcurrentRuns bounds how many scripts execute at once.
+// How many scripts execute at once is the operator's to set — jsruntime.HostBudget
+// carries it, with the default and the ceiling declared beside the rest of the budget.
 //
-// Each active run occupies two of the registry's global concurrency slots: one for the
-// outer capability, held for the run's whole duration, and one for whichever SDK call is
-// in flight. Leaving this unbounded would let a handful of scripts consume every slot
+// Each active run occupies up to two of the registry's global concurrency slots: one for
+// the outer capability, held for the run's whole duration, and one for whichever SDK call
+// is in flight. Leaving this unbounded would let a handful of scripts consume every slot
 // and starve the operator's other automation calls, which is the failure the global
 // semaphore exists to prevent in the first place.
-const maxConcurrentRuns = 2
 
 // Invoker is the sealed capability registry, narrowed to what a script run needs.
 // *capability.Registry satisfies it.
@@ -69,27 +70,63 @@ type Deps struct {
 	// one-shot runs work, which is exactly phase B's behavior.
 	Store   *Store
 	Storage *Storage
+
+	// Budget is the operator's run policy: the default and the maximum per field, plus
+	// the host limits. A getter because it is edited at runtime and lives in the token
+	// store, which this package does not import; nil, or a zero policy, means the
+	// runtime's own defaults and ceilings apply.
+	Budget func() jsruntime.BudgetPolicy
 }
 
 // Manager runs scripts and remembers what they did.
 type Manager struct {
 	deps Deps
-	sem  chan struct{}
 	runs *RunLog
+
+	// A counter rather than a buffered channel, because the ceiling is the operator's
+	// and they can change it between runs. Resizing a channel is not a thing; comparing
+	// against the value read at admission is.
+	mu     sync.Mutex
+	active int
 }
 
 // New returns a manager. A nil Runtime or Registry getter is tolerated at construction
 // and reported at Run, matching capreg.Build's tolerance of a partially wired Deps.
 func New(d Deps) *Manager {
-	return &Manager{
-		deps: d,
-		sem:  make(chan struct{}, maxConcurrentRuns),
-		runs: NewRunLog(maxRuns),
+	return &Manager{deps: d, runs: NewRunLog(maxRuns)}
+}
+
+// admit takes a run slot if the operator's ceiling allows one.
+func (m *Manager) admit(max int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.active >= max {
+		return false
 	}
+	m.active++
+	return true
+}
+
+func (m *Manager) release() {
+	m.mu.Lock()
+	m.active--
+	m.mu.Unlock()
 }
 
 // Runs exposes the run log for the control plane.
 func (m *Manager) Runs() *RunLog { return m.runs }
+
+// Budget reports the operator's run policy, or a zero one when none is configured.
+// Exposed so the control plane and the script capability can read what a run would be
+// held to without reaching for the token store themselves.
+func (m *Manager) Budget() jsruntime.BudgetPolicy { return m.budget() }
+
+func (m *Manager) budget() jsruntime.BudgetPolicy {
+	if m.deps.Budget == nil {
+		return jsruntime.BudgetPolicy{}
+	}
+	return m.deps.Budget()
+}
 
 // Packages exposes the installed-automation store for the control plane. Nil when
 // scripting is configured without a data directory.
@@ -146,12 +183,11 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 		return nil, errors.New("the capability registry is unavailable")
 	}
 
-	select {
-	case m.sem <- struct{}{}:
-		defer func() { <-m.sem }()
-	default:
+	policy := m.budget()
+	if !m.admit(policy.Host.Resolved().ConcurrentRuns) {
 		return nil, ErrBusy
 	}
+	defer m.release()
 
 	runID := newRunID()
 	sendCaps := sendCapsFrom(reg)
@@ -172,7 +208,10 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 	rtReq := jsruntime.Request{
 		Source: req.Source,
 		Input:  req.Input,
-		Limits: req.Limits,
+		// The one place the operator's global budget is applied, so it holds every
+		// path equally: an agent's script.run, the operator's own inline run from the
+		// editor, script.invoke, a lens, and a trigger firing.
+		Limits: req.Limits.NormalizeWith(policy),
 		Meta: jsruntime.Meta{
 			RunID:             runID,
 			StartedAt:         started.UTC().Format(time.RFC3339),
@@ -281,7 +320,7 @@ func (m *Manager) Invoke(ctx context.Context, req InvokeRequest) (*Run, error) {
 		Caller:            caller,
 		Trigger:           orDefault(trigger, TriggerManual),
 		TriggerData:       req.TriggerData,
-		Limits:            a.Limits(),
+		Limits:            a.RequestedBudget().Limits(),
 		AutomationID:      a.Manifest.ID,
 		AutomationVersion: a.Manifest.Version,
 		NoSend:            req.NoSend,

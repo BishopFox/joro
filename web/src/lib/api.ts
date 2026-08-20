@@ -261,6 +261,9 @@ export interface ScriptResult {
   storageOps?: number
   callInputBytes: number
   callOutputBytes: number
+  /** The budget this run was actually held to, after the operator's global was applied.
+   *  Reported so a count has something to be read against. */
+  budget?: AutomationLimits
   durationMs: number
 }
 
@@ -360,6 +363,64 @@ export interface AutomationPackage {
   state: AutomationState
   source?: string
   sourceHash: string
+  /** What a run of this automation actually gets: the author's request, narrowed by the
+   *  operator's override, held to the global budget. Resolved server-side so no caller
+   *  has to hold three halves and decide which wins. */
+  effectiveLimits?: AutomationLimits
+}
+
+/** One configurable field of the run budget, with the reason it is set where it is.
+ *  Served rather than restated here, so the UI cannot drift from the runtime. */
+export interface BudgetSpec {
+  key: string
+  label: string
+  /** The unit the operator types in — seconds, KB, calls. */
+  unit: string
+  /** Stored value = entered value x factor. Wall clock is entered in seconds and
+   *  stored in milliseconds, because that is what an automation manifest declares. */
+  factor: number
+  /** Joro's own default, and the maximum that applies while the operator has set none.
+   *  Both in the operator's unit, unlike the stored field. defaultMax is absent only on a
+   *  host spec, which has no requestable side and so no maximum. */
+  default: number
+  defaultMax?: number
+  /** The one figure the operator cannot exceed, with what it is fixed against. Absent
+   *  for most fields, where their number is final. */
+  cap?: number
+  capReason?: string
+  description: string
+}
+
+/** Limits that belong to this Joro rather than to one run. */
+export interface AutomationHostLimits {
+  storageOps?: number
+  sourceBytes?: number
+  concurrentRuns?: number
+  agentLogBytes?: number
+  agentResultBytes?: number
+}
+
+/** What the operator has set: per field a default and a maximum, plus the host limits. */
+export interface AutomationPolicy {
+  defaults?: AutomationLimits
+  maxima?: AutomationLimits
+  host?: AutomationHostLimits
+}
+
+export interface AutomationBudget {
+  policy: AutomationPolicy
+  /** What a run that asks for nothing is held to. */
+  effective: AutomationLimits
+  /** The most a run may ask for. Not always the shipped figure: an operator default
+   *  above it raises it, because their setting has to take. */
+  effectiveMax: AutomationLimits
+  /** The host limits with every unset field resolved. */
+  host: AutomationHostLimits
+  specs: BudgetSpec[]
+  hostSpecs: BudgetSpec[]
+  /** The bytes the two agent-output limits share; the one ceiling here that is fixed at
+   *  startup, so the pair is checked against it on save. */
+  agentOutputCap: number
 }
 
 /** List projection. Source is withheld, not merely omitted. */
@@ -1145,8 +1206,10 @@ export const api = {
     }
   ) =>
     req<AutomationSummary>('PUT', `/automation/scripts/${id}/prefs`, prefs),
-  // No client timeout below the server's: a run may legitimately take a minute, and
-  // aborting it here would leave the operator with no result and the run still going.
+  // No client timeout below the server's: a run may legitimately last as long as the
+  // operator's wall-clock budget allows, and aborting here would leave them with no
+  // report while the run carried on. Keep this above jsruntime.CapTimeout (10 minutes),
+  // which is the longest wall clock the budget can be set to.
   runScript: (body: {
     scriptId?: string
     source?: string
@@ -1154,7 +1217,7 @@ export const api = {
     /** Labels the run in the log; 'lens' also strips the send capabilities. */
     trigger?: string
     timeoutMs?: number
-  }) => req<ScriptRun>('POST', '/automation/runs', body, 120000),
+  }) => req<ScriptRun>('POST', '/automation/runs', body, 630_000),
   getScriptSdk: () =>
     req<{
       bundle: string
@@ -1163,6 +1226,9 @@ export const api = {
       globals: { js: string; description: string }[]
       triggers: string[]
     }>('GET', '/automation/sdk'),
+  getAutomationLimits: () => req<AutomationBudget>('GET', '/automation/limits'),
+  setAutomationLimits: (policy: AutomationPolicy) =>
+    req<AutomationBudget>('PUT', '/automation/limits', { policy }),
   getMcpState: () => req<McpState>('GET', '/automation/mcp'),
   setMcpState: (body: { enabled?: boolean; port?: number }) =>
     req<McpState>('PUT', '/automation/mcp', body),

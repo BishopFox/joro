@@ -51,10 +51,22 @@ type Store struct {
 	// the trigger dispatcher — can reload only when something actually changed rather
 	// than re-reading every package on a 250ms tick.
 	rev atomic.Uint64
+
+	// MaxSourceBytes reports the operator's program-size limit at install time, where
+	// the run's own copy of it is not in reach. A getter because the limit is edited at
+	// runtime; nil takes the shipped default.
+	MaxSourceBytes func() int
 }
 
 // NewStore returns a store rooted at dir, which is created lazily on first write.
 func NewStore(dir string) *Store { return &Store{dir: dir} }
+
+func (s *Store) sourceLimit() int {
+	if s.MaxSourceBytes == nil {
+		return 0
+	}
+	return s.MaxSourceBytes()
+}
 
 // Revision reports the mutation counter.
 func (s *Store) Revision() uint64 { return s.rev.Load() }
@@ -174,7 +186,7 @@ func (s *Store) Install(m Manifest, source string) (*Automation, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
-	if err := ValidateSource(source); err != nil {
+	if err := ValidateSource(source, s.sourceLimit()); err != nil {
 		return nil, err
 	}
 
@@ -225,7 +237,7 @@ func (s *Store) Update(id string, m Manifest, source, expectedHash string) (*Aut
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
-	if err := ValidateSource(source); err != nil {
+	if err := ValidateSource(source, s.sourceLimit()); err != nil {
 		return nil, err
 	}
 
@@ -402,9 +414,9 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 // Compiling at install time rather than at first run means a syntax error is reported to
 // whoever submitted the package, while they are still looking at it, instead of surfacing
 // hours later as a trigger that quietly fails. Compilation parses and does not execute.
-func ValidateSource(source string) error {
+func ValidateSource(source string, maxBytes int) error {
 	if strings.TrimSpace(source) == "" {
 		return errors.New("source is required")
 	}
-	return jsruntime.Validate(source)
+	return jsruntime.Validate(source, maxBytes)
 }

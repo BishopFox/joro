@@ -27,6 +27,10 @@ type ScriptRunner interface {
 	// Invoke runs an installed automation. OperatorRun is never set from here: an
 	// agent may run only what the operator has armed.
 	Invoke(ctx context.Context, req jsautomation.InvokeRequest) (*jsautomation.Run, error)
+	// Budget is the operator's run policy. Read here for the two host figures that
+	// shape what an agent gets back — widening this interface rather than Deps, which
+	// is the field set whose growth would break the import rule in build.go.
+	Budget() jsruntime.BudgetPolicy
 }
 
 type scriptRunArgs struct {
@@ -48,18 +52,36 @@ type scriptInvokeArgs struct {
 // The logs and the returned value both have to fit inside this capability's output cap,
 // and the cap is enforced after marshalling by erroring rather than truncating — so a
 // script that logged generously would fail wholesale and the operator would lose the
-// result along with the logs. These ceilings are therefore set below the runtime's own
+// result along with the logs. The two figures are therefore set below the runtime's own
 // defaults and leave room for the header, and the renderer truncates again as a backstop.
+//
+// They are the operator's to raise (jsruntime.HostBudget.AgentLogBytes and
+// AgentResultBytes, read per call from the runner) but ScriptRunOutputCap is not: it is
+// registered as this capability's MaxOutputBytes before the registry is sealed. Which is
+// why the handler that stores the policy checks that the pair still fits inside it.
 const (
-	scriptRunOutputCap = 256 << 10
-	scriptLogBytes     = 64 << 10
-	scriptResultBytes  = 96 << 10
+	// ScriptRunHeaderRoom is what the run header, the truncation notes and the JSON
+	// envelope need beside the logs and the result.
+	ScriptRunHeaderRoom = 16 << 10
 
-	// scriptRunTimeout must exceed the longest run the arguments can ask for, so the
-	// tool reports a real termination reason instead of the registry's bare timeout.
-	// Same reasoning as http.resend's 70s over a 60s per-request maximum.
-	scriptRunTimeout = 70 * time.Second
+	// ScriptRunOutputCap is derived from the budget rather than chosen here, so the
+	// operator-facing ceiling on the two agent figures and this registered cap cannot
+	// drift apart. It is registered as MaxOutputBytes before the registry is sealed,
+	// which is why it is the one number in this area the operator cannot raise.
+	ScriptRunOutputCap = jsruntime.AgentOutputCap + ScriptRunHeaderRoom
+
+	// scriptRunTimeout must exceed the longest run the operator can permit, so the tool
+	// reports a real termination reason instead of the registry's bare timeout. Derived
+	// for the same reason as the cap above: jsruntime.CapTimeout is what the budget
+	// offers, and this has to stay above it.
+	scriptRunTimeout = jsruntime.CapTimeout + 10*time.Second
 )
+
+// agentCaps reports how much of a run the caller gets back, from the operator's policy.
+func agentCaps(r ScriptRunner) (logBytes, resultBytes int) {
+	h := r.Budget().Host.Resolved()
+	return h.AgentLogBytes, h.AgentResultBytes
+}
 
 func registerScript(r *capability.Registry, d Deps) {
 	r.MustRegister(capability.Capability{
@@ -89,7 +111,9 @@ func registerScript(r *capability.Registry, d Deps) {
 			"arguments as the tool of the same name and throws on failure, with err.code carrying the reason. " +
 			"There is no network, filesystem, process or module access — joro is the only way out, and " +
 			"credential headers are masked in everything it returns. Each run has its own request budget and " +
-			"wall-clock deadline; console.log output and the return value both come back to you.",
+			"wall-clock deadline, both set by the operator and possibly above or below the maxima here; ask " +
+			"for what you need, and read your result for what you were actually given. console.log output " +
+			"and the return value both come back to you.",
 
 		InputSchema: json.RawMessage(`{
   "type":"object",
@@ -103,16 +127,16 @@ func registerScript(r *capability.Registry, d Deps) {
       "description":"Arbitrary JSON handed to the script as ctx.input. Use it to parameterize a script instead of rewriting its source."
     },
     "timeoutMs": {
-      "type":"integer","minimum":1000,"maximum":60000,
-      "description":"Wall-clock limit for the run. Default 25000."
+      "type":"integer","minimum":1000,"maximum":600000,
+      "description":"Wall-clock limit for the run. The maximum here is jsruntime.CapTimeout, the longest run this Joro can permit; the operator sets the default and may hold you below it, and a higher request is clamped, not refused."
     },
     "maxCalls": {
       "type":"integer","minimum":1,"maximum":500,
-      "description":"Maximum SDK calls the run may make. Default 100."
+      "description":"Maximum SDK calls the run may make. The operator sets both the default and the most you may ask for; a higher request is clamped, not refused."
     },
     "maxSendCalls": {
       "type":"integer","minimum":1,"maximum":100,
-      "description":"Maximum SDK calls that put bytes on the wire. Default 25. Counted in addition to maxCalls, so a sending call spends one of each."
+      "description":"Maximum SDK calls that put bytes on the wire, set by the operator like maxCalls. Counted in addition to maxCalls, so a sending call spends one of each."
     }
   },
   "required":["source"],
@@ -120,7 +144,7 @@ func registerScript(r *capability.Registry, d Deps) {
 }`),
 		ArgsExample: json.RawMessage(`{"source":"async function run(ctx) {\n  const base = await joro.http.fingerprint({ ref: ctx.input.ref });\n  return { base: base };\n}","input":{"ref":1842}}`),
 
-		MaxOutputBytes: scriptRunOutputCap,
+		MaxOutputBytes: ScriptRunOutputCap,
 		Timeout:        scriptRunTimeout,
 
 		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args scriptRunArgs) (any, error) {
@@ -134,6 +158,7 @@ func registerScript(r *capability.Registry, d Deps) {
 				}
 			}
 
+			logCap, resultCap := agentCaps(d.Script)
 			run, err := d.Script.Run(ctx, jsautomation.RunRequest{
 				Source:  args.Source,
 				Input:   args.Input,
@@ -143,8 +168,8 @@ func registerScript(r *capability.Registry, d Deps) {
 					Timeout:        time.Duration(args.TimeoutMs) * time.Millisecond,
 					MaxCalls:       args.MaxCalls,
 					MaxSendCalls:   args.MaxSendCalls,
-					MaxLogBytes:    scriptLogBytes,
-					MaxResultBytes: scriptResultBytes,
+					MaxLogBytes:    logCap,
+					MaxResultBytes: resultCap,
 				},
 			})
 			if err != nil {
@@ -159,7 +184,7 @@ func registerScript(r *capability.Registry, d Deps) {
 			// do many things is the least useful thing it could say.
 			capability.RecordChange(ctx, "%s", run.Summary())
 
-			return renderRun(run), nil
+			return renderRun(run, logCap, resultCap), nil
 		}),
 	})
 
@@ -211,7 +236,7 @@ func registerScript(r *capability.Registry, d Deps) {
 }`),
 		ArgsExample: json.RawMessage(`{"id":"idor-check","input":{"ref":1842}}`),
 
-		MaxOutputBytes: scriptRunOutputCap,
+		MaxOutputBytes: ScriptRunOutputCap,
 		Timeout:        scriptRunTimeout,
 
 		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args scriptInvokeArgs) (any, error) {
@@ -222,6 +247,7 @@ func registerScript(r *capability.Registry, d Deps) {
 				return nil, &capability.Error{Code: capability.CodeInvalidArgs, Msg: "id is required"}
 			}
 
+			logCap, resultCap := agentCaps(d.Script)
 			run, err := d.Script.Invoke(ctx, jsautomation.InvokeRequest{
 				ID:      args.ID,
 				Input:   args.Input,
@@ -245,7 +271,7 @@ func registerScript(r *capability.Registry, d Deps) {
 			}
 
 			capability.RecordChange(ctx, "invoke %s: %s", args.ID, run.Summary())
-			return renderRun(run), nil
+			return renderRun(run, logCap, resultCap), nil
 		}),
 	})
 }
@@ -291,13 +317,18 @@ func renderAutomations(items []jsautomation.Summary) string {
 // A single heterogeneous object, so this is a compact block rather than a table — but
 // it still follows the encoding rule's spirit, in that the header names units once and
 // nothing is repeated per line.
-func renderRun(run *jsautomation.Run) string {
+func renderRun(run *jsautomation.Run, logCap, resultCap int) string {
 	res := run.Result
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "run %s  %s  %dms\n", run.ID, res.Reason, res.DurationMs)
-	fmt.Fprintf(&b, "sdk calls: %d (%d sending)   sdk bytes: %d in / %d out\n",
-		res.Calls, res.SendCalls, res.CallInputBytes, res.CallOutputBytes)
+	// Against the budget, not bare counts: the tool schema advertises the ceilings this
+	// capability accepts, but the operator's global budget can be lower and is editable
+	// while the registry is sealed — so this is where a caller learns what it actually
+	// got, and it is enough to correct the next call by.
+	fmt.Fprintf(&b, "sdk calls: %d/%d (%d/%d sending)   sdk bytes: %d in / %d out\n",
+		res.Calls, res.Budget.MaxCalls, res.SendCalls, res.Budget.MaxSendCalls,
+		res.CallInputBytes, res.CallOutputBytes)
 	fmt.Fprintf(&b, "bundle: %s   source: sha256:%s\n", run.Bundle, run.SourceHash[:16])
 
 	if res.Err != "" {
@@ -311,7 +342,7 @@ func renderRun(run *jsautomation.Run) string {
 		written := 0
 		for _, l := range res.Logs {
 			line := fmt.Sprintf("  %-5s %s\n", l.Level, oneLine(l.Text))
-			if written+len(line) > scriptLogBytes {
+			if written+len(line) > logCap {
 				b.WriteString("  … log output truncated\n")
 				break
 			}
@@ -325,8 +356,8 @@ func renderRun(run *jsautomation.Run) string {
 
 	if len(res.Value) > 0 {
 		b.WriteString("\nresult\n")
-		if len(res.Value) > scriptResultBytes {
-			b.WriteString(string(res.Value[:scriptResultBytes]))
+		if len(res.Value) > resultCap {
+			b.WriteString(string(res.Value[:resultCap]))
 			b.WriteString("\n… result truncated\n")
 		} else {
 			b.Write(res.Value)

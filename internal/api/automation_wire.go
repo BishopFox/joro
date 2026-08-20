@@ -132,8 +132,18 @@ func (s *APIServer) newScriptManager() *jsautomation.Manager {
 	// the project config, because that is engagement data rather than code.
 	s.automationStorage = jsautomation.NewStorage()
 
+	pkgs := jsautomation.NewStore(filepath.Join(s.cfg.DataDir, "automations"))
+	// Install-time program-size check, which happens where a run's own copy of the
+	// limit is not in reach.
+	pkgs.MaxSourceBytes = func() int {
+		if s.autoStore == nil {
+			return 0
+		}
+		return s.autoStore.ScriptBudget().Host.Resolved().SourceBytes
+	}
+
 	return jsautomation.New(jsautomation.Deps{
-		Store:   jsautomation.NewStore(filepath.Join(s.cfg.DataDir, "automations")),
+		Store:   pkgs,
 		Storage: s.automationStorage,
 		// A getter, for the same reason Deps.BgCtx is one: the capability that starts
 		// a run needs this manager, and this manager needs the sealed registry, so one
@@ -146,6 +156,14 @@ func (s *APIServer) newScriptManager() *jsautomation.Manager {
 		},
 		Runtime:  jsruntime.NewWorkerRuntime(exe, "--script-worker"),
 		Contexts: s.capContexts,
+		// The operator's run policy. A getter because it is edited at runtime, and
+		// because jsautomation must not import the token store.
+		Budget: func() jsruntime.BudgetPolicy {
+			if s.autoStore == nil {
+				return jsruntime.BudgetPolicy{}
+			}
+			return s.autoStore.ScriptBudget()
+		},
 	})
 }
 

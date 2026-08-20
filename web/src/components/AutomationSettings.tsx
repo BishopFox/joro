@@ -7,17 +7,18 @@ import AutomationTokenModal from './AutomationTokenModal'
 import AutomationSecretModal from './AutomationSecretModal'
 import AutomationActivity from './AutomationActivity'
 import ScriptRuns from './ScriptRuns'
+import BudgetPanel from './automation/BudgetPanel'
 import LensPanel from './automation/LensPanel'
 import ScriptsPanel from './automation/ScriptsPanel'
 import ConfirmModal from './ConfirmModal'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border'
 
-// Four surfaces that share a subject and nothing else: what a client may do, what code
-// is installed, which of it renders in the viewer, and what has happened. Sub-tabs rather
-// than one long panel, mirroring Settings -> Plugins — and the editor needs the full
-// panel height regardless.
-type SubTab = 'tokens' | 'scripts' | 'lenses' | 'activity'
+// Five surfaces that share a subject and nothing else: what a client may do, what code
+// is installed, which of it renders in the viewer, what every run is held to, and what
+// has happened. Sub-tabs rather than one long panel, mirroring Settings -> Plugins — and
+// the editor needs the full panel height regardless.
+type SubTab = 'tokens' | 'scripts' | 'lenses' | 'settings' | 'activity'
 
 export default function AutomationSettings() {
   const { tokens, capabilities, profiles, classes, mcp, available, refresh, create, update, rotate, setEnabled, review, revoke, setMcp } =
@@ -114,6 +115,7 @@ export default function AutomationSettings() {
         {tab('tokens', 'Tokens')}
         {tab('scripts', 'Automations')}
         {tab('lenses', 'Lenses')}
+        {tab('settings', 'Settings')}
         {tab('activity', 'Activity')}
       </div>
 
@@ -129,6 +131,8 @@ export default function AutomationSettings() {
           }}
         />
       )}
+
+      {subTab === 'settings' && <BudgetPanel />}
 
       {subTab === 'activity' && (
         <div className="flex-1 overflow-auto p-5 space-y-4">

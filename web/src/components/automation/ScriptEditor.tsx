@@ -13,6 +13,7 @@ import {
   type ScriptRun,
 } from '../../lib/api'
 import { downloadPackage } from '../../lib/automationPackage'
+import { useAutomationStore } from '../../stores/automationStore'
 import { useToastStore } from '../../stores/toastStore'
 import RunOutput from './RunOutput'
 import SdkReference from './SdkReference'
@@ -60,9 +61,18 @@ export default function ScriptEditor({
   onSaved: () => void
 }) {
   const addToast = useToastStore((s) => s.addToast)
+  // The global run budget, so the boxes below show what a run actually gets today rather
+  // than an empty field. Settings -> Automation -> Settings is where it is set.
+  const globalBudget = useAutomationStore((st) => st.budget)
+  const refreshBudget = useAutomationStore((st) => st.refreshBudget)
 
   const [manifest, setManifest] = useState<AutomationManifest>(draft?.manifest ?? blankManifest())
   const [source, setSource] = useState(draft?.source ?? STARTER)
+  // The operator's half of the budget, and what the two halves resolve to under the
+  // global. Kept apart from the manifest because they are saved through a different
+  // endpoint: updating the code must never revert a limit the operator lowered.
+  const [override, setOverride] = useState<AutomationLimits>({})
+  const [effective, setEffective] = useState<AutomationLimits | null>(null)
   // The hash the source was loaded at. Sent back on update so replacing the code of an
   // armed automation cannot silently clobber a concurrent edit.
   const [baseHash, setBaseHash] = useState('')
@@ -80,6 +90,8 @@ export default function ScriptEditor({
         setManifest(pkg.manifest)
         setSource(pkg.source ?? '')
         setBaseHash(pkg.sourceHash)
+        setOverride(pkg.state.limits ?? {})
+        setEffective(pkg.effectiveLimits ?? null)
       })
       .catch((e) => addToast(String(e instanceof Error ? e.message : e), 'error'))
     return () => {
@@ -87,11 +99,18 @@ export default function ScriptEditor({
     }
   }, [id, addToast])
 
+  useEffect(() => {
+    refreshBudget()
+  }, [refreshBudget])
+
   const extensions = useMemo(() => [javascript(), EditorView.lineWrapping], [])
 
   const patch = (p: Partial<AutomationManifest>) => setManifest((m) => ({ ...m, ...p }))
   const patchLimits = (p: Partial<AutomationLimits>) =>
     setManifest((m) => ({ ...m, limits: { ...m.limits, ...p } }))
+
+  /** What a run gets right now for one field, for use as a placeholder. */
+  const globalOf = (k: keyof AutomationLimits) => globalBudget?.effective[k]
 
   const guard = useCallback(
     async (fn: () => Promise<unknown>, ok?: string) => {
@@ -138,6 +157,19 @@ export default function ScriptEditor({
       // committing to it.
       setRun(await api.runScript({ source, input: parsed }))
     })
+  }
+
+  // Saved through the prefs endpoint, not with the manifest: author intent and operator
+  // intent live in different files precisely so one cannot overwrite the other.
+  const saveOverride = async () => {
+    if (!id) return
+    await guard(async () => {
+      await api.setScriptPrefs(id, { limits: override })
+      // Re-read only the resolved budget. Reloading the package wholesale would throw
+      // away whatever is in the editor.
+      const pkg = await api.getScript(id)
+      setEffective(pkg.effectiveLimits ?? null)
+    }, 'Operator limits saved')
   }
 
   const toggleTrigger = (t: string) => {
@@ -303,27 +335,57 @@ export default function ScriptEditor({
           </Field>
 
           <Field label="Minimum interval (ms)">
-            <input
-              type="number"
-              className={inputCls}
-              value={manifest.minIntervalMs ?? ''}
-              placeholder="1000"
-              onChange={(e) => patch({ minIntervalMs: Number(e.target.value) || undefined })}
+            {/* A LimitBox with no label of its own: same blank-means-inherit box, so it
+                gets the same stepper behaviour rather than a second copy of it. */}
+            <LimitBox
+              label=""
+              value={manifest.minIntervalMs}
+              hint={1000}
+              onChange={(v) => patch({ minIntervalMs: v })}
             />
           </Field>
 
-          <Field label="Limits">
+          <Field label="Limits (author)">
             <div className="grid grid-cols-2 gap-1.5">
-              <LimitBox label="timeout ms" value={manifest.limits?.timeoutMs} onChange={(v) => patchLimits({ timeoutMs: v })} />
-              <LimitBox label="memory MB" value={manifest.limits?.memoryMb} onChange={(v) => patchLimits({ memoryMb: v })} />
-              <LimitBox label="max calls" value={manifest.limits?.maxCalls} onChange={(v) => patchLimits({ maxCalls: v })} />
-              <LimitBox label="max sends" value={manifest.limits?.maxSendCalls} onChange={(v) => patchLimits({ maxSendCalls: v })} />
+              <LimitBox label="timeout ms" value={manifest.limits?.timeoutMs} hint={globalOf('timeoutMs')} onChange={(v) => patchLimits({ timeoutMs: v })} />
+              <LimitBox label="memory MB" value={manifest.limits?.memoryMb} hint={globalOf('memoryMb')} onChange={(v) => patchLimits({ memoryMb: v })} />
+              <LimitBox label="max calls" value={manifest.limits?.maxCalls} hint={globalOf('maxCalls')} onChange={(v) => patchLimits({ maxCalls: v })} />
+              <LimitBox label="max sends" value={manifest.limits?.maxSendCalls} hint={globalOf('maxSendCalls')} onChange={(v) => patchLimits({ maxSendCalls: v })} />
             </div>
             <p className="text-[10px] text-content-muted mt-0.5">
-              Blank takes the default. The operator can lower these further; nothing here can
-              raise a limit.
+              What this automation asks for. Blank takes the run budget, shown greyed. Nothing
+              here can raise a limit.
             </p>
           </Field>
+
+          {id && (
+            <Field label="Limits (operator)">
+              <div className="grid grid-cols-2 gap-1.5">
+                <LimitBox label="timeout ms" value={override.timeoutMs} hint={globalOf('timeoutMs')} onChange={(v) => setOverride({ ...override, timeoutMs: v })} />
+                <LimitBox label="memory MB" value={override.memoryMb} hint={globalOf('memoryMb')} onChange={(v) => setOverride({ ...override, memoryMb: v })} />
+                <LimitBox label="max calls" value={override.maxCalls} hint={globalOf('maxCalls')} onChange={(v) => setOverride({ ...override, maxCalls: v })} />
+                <LimitBox label="max sends" value={override.maxSendCalls} hint={globalOf('maxSendCalls')} onChange={(v) => setOverride({ ...override, maxSendCalls: v })} />
+              </div>
+              <button
+                onClick={saveOverride}
+                disabled={busy}
+                className="mt-1.5 w-full text-[11px] px-2 py-1 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary disabled:opacity-40"
+              >
+                Save operator limits
+              </button>
+              <p className="text-[10px] text-content-muted mt-1 leading-snug">
+                Your own ceiling for this automation, saved separately so updating the code cannot
+                revert it.
+                {effective && (
+                  <>
+                    {' '}
+                    Effective: {effective.timeoutMs} ms &middot; {effective.memoryMb} MB &middot;{' '}
+                    {effective.maxCalls} calls &middot; {effective.maxSendCalls} sending.
+                  </>
+                )}
+              </p>
+            </Field>
+          )}
 
           <Field label="Test input (JSON)">
             <textarea
@@ -353,23 +415,37 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
+/**
+ * One numeric limit. hint is what a run gets while the box is empty.
+ *
+ * A text box rather than type=number, for the reason BudgetPanel's cell gives: a stepper on
+ * a box that is empty by design steps from 1 rather than from the figure being inherited.
+ */
 function LimitBox({
   label,
   value,
+  hint,
   onChange,
 }: {
   label: string
   value?: number
+  hint?: number
   onChange: (v: number | undefined) => void
 }) {
   return (
     <label className="block">
-      <span className="block text-[10px] text-content-muted">{label}</span>
+      {label && <span className="block text-[10px] text-content-muted">{label}</span>}
       <input
-        type="number"
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
         className={inputCls}
         value={value ?? ''}
-        onChange={(e) => onChange(Number(e.target.value) || undefined)}
+        placeholder={hint !== undefined ? String(hint) : ''}
+        onChange={(e) => {
+          const digits = e.target.value.replace(/[^0-9]/g, '')
+          onChange(digits !== '' && Number(digits) > 0 ? Number(digits) : undefined)
+        }}
       />
     </label>
   )

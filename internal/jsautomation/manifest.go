@@ -85,16 +85,13 @@ const DefaultEntrypoint = "index.js"
 
 // ManifestLimits is the author's requested budget. Every field is optional; a zero
 // means "take the default". Values are requests, not guarantees: the operator may
-// lower any of them, and jsruntime.Limits.Normalize clamps the result to its ceilings.
-// Nothing here can raise a limit.
-type ManifestLimits struct {
-	TimeoutMs      int `json:"timeoutMs,omitempty"`
-	MemoryMB       int `json:"memoryMb,omitempty"`
-	MaxCalls       int `json:"maxCalls,omitempty"`
-	MaxSendCalls   int `json:"maxSendCalls,omitempty"`
-	MaxLogBytes    int `json:"maxLogBytes,omitempty"`
-	MaxResultBytes int `json:"maxResultBytes,omitempty"`
-}
+// lower any of them per automation or globally, and jsruntime resolves the result
+// against its own defaults and ceilings. Nothing here can raise a limit.
+//
+// An alias rather than a type of its own: the author's request, the operator's global
+// budget, the wire and ~/.joro/automation.json all carry the same six fields in the same
+// units, and a second declaration of them is a table someone has to keep in step.
+type ManifestLimits = jsruntime.Budget
 
 // Lens declares that this automation renders a tab in the request/response viewer.
 //
@@ -411,13 +408,23 @@ func (a *Automation) ArmedTriggers() []string {
 	return out
 }
 
-// Limits resolves the budget one run of this automation gets.
+// RequestedBudget is what this automation asks for: the author's manifest narrowed by
+// the operator's per-automation override.
 //
-// The author asks, the operator narrows, the runtime clamps. Taking the smaller of each
-// pair rather than letting either win outright is what makes "an automation can never
-// raise its own limits" true no matter which side was edited last.
-func (a *Automation) Limits() jsruntime.Limits {
-	return narrower(a.Manifest.Limits, a.State.Limits).toRuntime().Normalize()
+// Taking the smaller of each pair rather than letting either win outright is what makes
+// "an automation can never raise its own limits" true no matter which side was edited
+// last. Deliberately **not** normalized: a zero has to stay a zero here, or the shipped
+// default would be baked in as a hard value and the operator's global budget could never
+// reach an automation that declares nothing. Resolution happens once, in Manager.Run.
+func (a *Automation) RequestedBudget() ManifestLimits {
+	return narrower(a.Manifest.Limits, a.State.Limits)
+}
+
+// EffectiveBudget is what a run of this automation would actually get under the
+// operator's policy. For display: the editor shows the author's request, the operator's
+// per-automation override and this, so nobody has to work out which one wins.
+func (a *Automation) EffectiveBudget(p jsruntime.BudgetPolicy) ManifestLimits {
+	return a.RequestedBudget().Limits().NormalizeWith(p).Budget()
 }
 
 // narrower returns the field-wise minimum of two optional budgets, treating zero as
@@ -450,15 +457,4 @@ func narrower(a, b *ManifestLimits) ManifestLimits {
 	out.MaxLogBytes = pick(a.MaxLogBytes, b.MaxLogBytes)
 	out.MaxResultBytes = pick(a.MaxResultBytes, b.MaxResultBytes)
 	return out
-}
-
-func (l ManifestLimits) toRuntime() jsruntime.Limits {
-	return jsruntime.Limits{
-		Timeout:        time.Duration(l.TimeoutMs) * time.Millisecond,
-		MemoryBytes:    int64(l.MemoryMB) << 20,
-		MaxCalls:       l.MaxCalls,
-		MaxSendCalls:   l.MaxSendCalls,
-		MaxLogBytes:    l.MaxLogBytes,
-		MaxResultBytes: l.MaxResultBytes,
-	}
 }

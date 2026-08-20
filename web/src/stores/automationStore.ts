@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import {
   api,
+  type AutomationBudget,
+  type AutomationPolicy,
   type AutomationProfile,
   type AutomationSummary,
   type AutomationToken,
@@ -27,6 +29,11 @@ interface AutomationState {
   profiles: AutomationProfile[]
   fingerprint: string
   mcp: McpState | null
+  /** The run budget: what the operator set, what a run gets, and the shipped defaults,
+   *  ceilings and rationale the server serves alongside it. Held here rather than in the
+   *  panel that edits it because the automation editor shows the same numbers as its
+   *  placeholders. */
+  budget: AutomationBudget | null
   loading: boolean
   /** Null until the first fetch resolves; false means automation is compiled in
    *  but the endpoints 404 (--no-automation), which the UI renders as an
@@ -35,6 +42,8 @@ interface AutomationState {
 
   refresh: () => Promise<void>
   refreshMcp: () => Promise<void>
+  refreshBudget: () => Promise<void>
+  setBudget: (policy: AutomationPolicy) => Promise<void>
   refreshScripts: () => Promise<void>
   create: (body: AutomationTokenInput) => Promise<string>
   update: (id: string, body: Partial<AutomationTokenInput>) => Promise<void>
@@ -55,6 +64,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
   profiles: [],
   fingerprint: '',
   mcp: null,
+  budget: null,
   loading: false,
   available: null,
 
@@ -90,6 +100,23 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     } catch {
       /* covered by refresh */
     }
+  },
+
+  refreshBudget: async () => {
+    try {
+      set({ budget: await api.getAutomationLimits(), scriptsUnavailable: null })
+    } catch (e) {
+      // This endpoint 404s through the same guard as the automation list, with the same
+      // two messages naming --no-automation or --automation-scripting, so it feeds the
+      // one field rather than a second copy of the same state.
+      set({ budget: null, scriptsUnavailable: String(e instanceof Error ? e.message : e) })
+    }
+  },
+
+  /** Throws on a rejected value so the caller can surface which field was refused —
+   *  the server names the field and its ceiling rather than silently clamping. */
+  setBudget: async (policy) => {
+    set({ budget: await api.setAutomationLimits(policy) })
   },
 
   refreshScripts: async () => {

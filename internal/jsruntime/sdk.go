@@ -307,12 +307,17 @@ var (
 // `import y from "lodash"` would reject the whole program — either way the source an
 // operator reads back would not be the source that ran, which is the one property the run
 // log exists to provide.
-func Prepare(source string) (string, error) {
+// maxBytes is the operator's program-size limit; zero or less takes the shipped default,
+// so a caller with no policy in hand still gets a bound.
+func Prepare(source string, maxBytes int) (string, error) {
 	if strings.TrimSpace(source) == "" {
 		return "", fmt.Errorf("script is empty: define an entry point, for example `async function run(ctx) { ... }`")
 	}
-	if len(source) > MaxSourceBytes {
-		return "", fmt.Errorf("script is %d bytes, over the %d byte limit", len(source), MaxSourceBytes)
+	if maxBytes <= 0 {
+		maxBytes = DefaultSourceBytes
+	}
+	if len(source) > maxBytes {
+		return "", fmt.Errorf("script is %d bytes, over the %d byte limit", len(source), maxBytes)
 	}
 
 	out := source
