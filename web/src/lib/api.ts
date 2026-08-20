@@ -244,11 +244,29 @@ export interface ScriptLogLine {
   text: string
 }
 
+/** How a run ended, as a stable code. Mirrors jsruntime's Outcome consts. `unknown` is
+ *  what an unmapped reason resolves to, so a newer server never reports a run as having
+ *  succeeded just because this client has not heard of its outcome. */
+export type ScriptOutcome =
+  | 'success'
+  | 'exception'
+  | 'timeout'
+  | 'memory_limit'
+  | 'budget_exceeded'
+  | 'cancelled'
+  | 'denied'
+  | 'runtime_failure'
+  | 'worker_lost'
+  | 'unknown'
+
 /** The outcome of one sandboxed script run. */
 export interface ScriptResult {
-  /** success | script exception | timeout | memory limit | sdk budget exceeded |
-   *  cancelled | capability denied | runtime failure | worker lost */
+  /** Prose for display, and free to be reworded: success | script exception | timeout |
+   *  memory limit | sdk budget exceeded | cancelled | capability denied | runtime failure |
+   *  worker lost. Branch on `outcome` instead. */
   reason: string
+  /** The stable code for the same fact. Compare against this. */
+  outcome: ScriptOutcome
   err?: string
   /** The JSON value run() returned, still encoded. */
   value?: unknown
@@ -336,6 +354,9 @@ export interface AutomationLastRun {
   id: string
   at: string
   reason: string
+  /** Backfilled from `reason` by the server for a sidecar written before the field
+   *  existed, so it is always present in practice. */
+  outcome?: ScriptOutcome
 }
 
 /** The operator-owned half, in a separate file so an update never reverts a decision. */

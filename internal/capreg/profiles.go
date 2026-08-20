@@ -97,7 +97,7 @@ func Profiles() []Profile {
 			Grants: append(slices.Clone(reconGrants),
 				"http.resend", "http.batch", "context.get", "context.clear",
 				"fuzzer.start", "fuzzer.status", "fuzzer.results", "fuzzer.stop",
-				"findings.create", "notes.create",
+				"findings.create", "findings.delete", "notes.create", "notes.delete",
 				"config.intercept.get", "config.intercept.list"),
 			RequireScope:    true,
 			AllowsSends:     true,
@@ -108,9 +108,11 @@ func Profiles() []Profile {
 			ID:    "triage",
 			Title: "Triage analyst",
 			Description: "Recon, plus recording findings, marking false positives, re-grading and writing " +
-				"notes. Sends nothing. For working through a detection backlog without touching the target.",
+				"notes, and clearing away its own entries and dismissed noise. Sends nothing. For working " +
+				"through a detection backlog without touching the target.",
 			Grants: append(slices.Clone(reconGrants),
-				"findings.create", "findings.update", "notes.create",
+				"findings.create", "findings.update", "findings.delete",
+				"notes.create", "notes.delete",
 				"detect.rules.list", "detect.config.get"),
 			RequireScope:    true,
 			RateLimitPerMin: 120,

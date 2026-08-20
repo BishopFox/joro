@@ -261,6 +261,27 @@ type LastRun struct {
 	ID     string    `json:"id"`
 	At     time.Time `json:"at"`
 	Reason string    `json:"reason"`
+
+	// Outcome is Reason's stable code. Omitted when empty so a sidecar written before
+	// the field existed stays byte-identical until its next run; withOutcome fills it
+	// in on the way out, so no reader sees the gap.
+	Outcome string `json:"outcome,omitempty"`
+}
+
+// withOutcome derives a missing Outcome from Reason, for a sidecar written before the
+// field existed. Applied on read rather than by migrating every joro.state.json on
+// startup: the value is a pure function of one already stored there, so there is nothing
+// to migrate and nothing to lose by leaving the file alone.
+func (l *LastRun) withOutcome() *LastRun {
+	if l == nil {
+		return nil
+	}
+	if l.Outcome == "" {
+		out := *l
+		out.Outcome = jsruntime.OutcomeFor(out.Reason)
+		return &out
+	}
+	return l
 }
 
 // State is the operator-owned half of a package, kept in a separate file from the
@@ -399,7 +420,7 @@ func (a *Automation) Summarize() Summary {
 		InstalledAt:  a.State.InstalledAt,
 		UpdatedAt:    a.State.UpdatedAt,
 		Revisions:    len(a.State.Revisions),
-		LastRun:      a.State.LastRun,
+		LastRun:      a.State.LastRun.withOutcome(),
 	}
 }
 

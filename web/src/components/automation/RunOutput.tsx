@@ -9,7 +9,8 @@ import type { ScriptRun } from '../../lib/api'
  */
 export default function RunOutput({ run, onClose }: { run: ScriptRun; onClose: () => void }) {
   const r = run.result
-  const bad = r.reason !== 'success'
+  // The code, not the prose beside it: reason is display text and free to be reworded.
+  const bad = r.outcome !== 'success'
   return (
     <div className="shrink-0 border-t border-border max-h-56 overflow-y-auto">
       <div className="flex items-center gap-2 px-3 py-1.5 sticky top-0 bg-surface-card border-b border-border-subtle">

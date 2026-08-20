@@ -207,7 +207,8 @@ export default function ScriptsPanel({
                   <td className="py-1.5 pr-2 text-content-secondary">
                     {s.lastRun ? (
                       <>
-                        <span className={s.lastRun.reason === 'success' ? '' : 'text-semantic-warning'}>
+                        {/* Styled off the stable code, labelled with the prose. */}
+                        <span className={s.lastRun.outcome === 'success' ? '' : 'text-semantic-warning'}>
                           {s.lastRun.reason}
                         </span>
                         <div className="text-content-muted text-[10px]">

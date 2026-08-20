@@ -278,6 +278,11 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 			DurationMs: time.Since(started).Milliseconds(),
 		}
 	}
+	// The one place a run's fate is stamped with its machine-readable code, which is what
+	// makes it reliable: this is the only call into a runtime, and every run record is
+	// built below, so a reason synthesized deep in the worker protocol gets a code without
+	// that protocol having to know one exists.
+	res.Outcome = jsruntime.OutcomeFor(res.Reason)
 
 	run := &Run{
 		ID:           runID,
@@ -392,7 +397,12 @@ func (m *Manager) noteLastRun(id string, run *Run) {
 		return
 	}
 	if _, err := m.deps.Store.SetState(id, func(st *State) {
-		st.LastRun = &LastRun{ID: run.ID, At: run.StartedAt, Reason: run.Result.Reason}
+		st.LastRun = &LastRun{
+			ID:      run.ID,
+			At:      run.StartedAt,
+			Reason:  run.Result.Reason,
+			Outcome: run.Result.Outcome,
+		}
 	}); err != nil {
 		log.Printf("[automation] %s: recording last run: %v", id, err)
 	}

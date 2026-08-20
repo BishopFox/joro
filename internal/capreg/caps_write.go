@@ -2,7 +2,9 @@ package capreg
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,18 +17,39 @@ import (
 
 // Writes against the operator's own records: notes and finding triage.
 //
-// Both are additive or reversible by design. There is no notes.update, no
-// notes.delete and no findings.delete: an agent appending a note or marking a false
-// positive is contributing to the operator's record, while one editing or deleting it
-// is rewriting the operator's history, and the difference matters more than the
-// convenience. Notes carry an agent: author prefix for the same reason — the operator
-// must be able to tell at a glance which observations were theirs.
+// Every write here is additive, or retractable by whoever made it. An agent may delete
+// a note it filed and a finding it reported, so that superseding its own observation is
+// one call rather than work left on the operator's desk. It may not touch a note the
+// operator wrote or a finding the scanner produced: appending to the operator's record
+// is contributing to it, while editing or deleting it is rewriting their history, and
+// that difference matters more than the convenience. There is no notes.update — a note
+// is retracted and refiled, not silently reworded.
+//
+// The one exception is a finding already marked a false positive, which any agent may
+// delete regardless of who reported it. The mark is the operator's own judgment that the
+// finding is noise, so clearing it destroys nothing they still rely on, and an agent that
+// worked a triage backlog can tidy up behind itself.
+//
+// What makes that boundary checkable rather than advisory is that both artifacts record
+// their origin. Notes carry an agent: author prefix, which is also how the operator tells
+// at a glance which observations were theirs; agent findings carry the reserved
+// agentFindingRuleID. Neither is decoration — each is read back before a delete is
+// allowed.
 
 const maxNoteContent = 16 << 10
 
 type notesCreateArgs struct {
 	Host    string `json:"host"`
 	Content string `json:"content"`
+}
+
+type notesDeleteArgs struct {
+	ID string `json:"id"`
+}
+
+type findingsDeleteArgs struct {
+	ID             string `json:"id"`
+	FalsePositives bool   `json:"falsePositives"`
 }
 
 type findingsUpdateArgs struct {
@@ -59,6 +82,21 @@ const (
 	maxFindingTitle    = 200
 )
 
+// agentAuthor names the caller in the operator's records.
+//
+// It is what an agent's writes are attributed to and what its deletes are checked
+// against, so the two cannot disagree about who filed something. A principal with no
+// token name — the operator's own UI request, or a run nothing launched — is a bare
+// "agent", which consequently owns every other such artifact. That is the honest
+// reading: those callers are not distinguishable from each other, so authorship cannot
+// pretend they are.
+func agentAuthor(p capability.Principal) string {
+	if p.TokenName == "" {
+		return "agent"
+	}
+	return "agent:" + p.TokenName
+}
+
 func registerWrites(r *capability.Registry, d Deps) {
 	r.MustRegister(capability.Capability{
 		ID:       "notes.create",
@@ -67,8 +105,9 @@ func registerWrites(r *capability.Registry, d Deps) {
 		Mutating: true,
 		Description: "Add a note to the operator's engagement notes, optionally filed under a host. Use this to " +
 			"record a finding, a working payload, or context worth keeping — it is the durable channel between " +
-			"you and the operator, where a tool result is not. Notes are attributed to you automatically. " +
-			"Existing notes cannot be edited or deleted from here.",
+			"you and the operator, where a tool result is not. Notes are attributed to you automatically, and " +
+			"one you filed can be withdrawn with notes_delete. Notes cannot be edited: supersede one by " +
+			"deleting it and filing the replacement. The operator's own notes are not yours to change.",
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
@@ -98,12 +137,9 @@ func registerWrites(r *capability.Registry, d Deps) {
 			}
 
 			// The author prefix is not decoration: it is how the operator separates
-			// their own observations from an agent's when reading the notes back.
-			author := "agent"
-			if p.TokenName != "" {
-				author = "agent:" + p.TokenName
-			}
-			note, err := d.Notes.CreateNote(id, strings.TrimSpace(args.Host), content, author)
+			// their own observations from an agent's when reading the notes back, and
+			// what notes.delete reads to decide whether this caller filed it.
+			note, err := d.Notes.CreateNote(id, strings.TrimSpace(args.Host), content, agentAuthor(p))
 			if err != nil {
 				return nil, err
 			}
@@ -140,6 +176,59 @@ func registerWrites(r *capability.Registry, d Deps) {
 				}
 			}
 			return strings.Join(hosts, "\n"), nil
+		}),
+	})
+
+	r.MustRegister(capability.Capability{
+		ID:       "notes.delete",
+		Class:    capability.ClassNotes,
+		Title:    "Withdraw a note you filed",
+		Mutating: true,
+		Description: "Delete a note you filed, by ID. Use it when an observation you recorded turns out to be " +
+			"wrong or has been superseded — withdraw it and file the replacement, rather than leaving the " +
+			"operator to reconcile two. Only notes attributed to you can be deleted; the operator's own notes " +
+			"and those of other agents are refused. notes_list shows the author of each note.",
+		InputSchema: json.RawMessage(`{
+  "type":"object",
+  "properties":{
+    "id": {"type":"string","description":"Note ID, as returned by notes_create or notes_list."}
+  },
+  "required":["id"],
+  "additionalProperties":false
+}`),
+		ArgsExample:    json.RawMessage(`{"id":"5f2c1a90-6b3e-4c7d-9a11-8e0f2d4b6c83"}`),
+		MaxOutputBytes: 8 << 10,
+		Handler: capability.Typed(func(ctx context.Context, p capability.Principal, args notesDeleteArgs) (any, error) {
+			if d.Notes == nil {
+				return nil, fmt.Errorf("notes are unavailable")
+			}
+			id := strings.TrimSpace(args.ID)
+			if id == "" {
+				return nil, fmt.Errorf("id is required and must not be empty")
+			}
+			note, err := d.Notes.GetNote(id)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return nil, fmt.Errorf("no note with id %s", id)
+				}
+				return nil, err
+			}
+			// Read the author back rather than trusting the caller's claim: this is the
+			// whole boundary between an agent retracting its own record and an agent
+			// editing the operator's.
+			if author := agentAuthor(p); note.Author != author {
+				return nil, fmt.Errorf("note %s was filed by %q, not by you (%q); only its author can "+
+					"withdraw it", id, note.Author, author)
+			}
+			if err := d.Notes.DeleteNote(id); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return nil, fmt.Errorf("no note with id %s", id)
+				}
+				return nil, err
+			}
+			capability.RecordChange(ctx, "delete note host=%s (%d bytes)",
+				orDefault(note.Host, "General"), len(note.Content))
+			return fmt.Sprintf("deleted note id=%s host=%s", id, orDefault(note.Host, "General")), nil
 		}),
 	})
 
@@ -200,10 +289,7 @@ func registerWrites(r *capability.Registry, d Deps) {
 				return nil, fmt.Errorf("category %q is not one of secrets, pii, credentials, access, disclosure, headers, cookies", args.Category)
 			}
 
-			author := "agent"
-			if p.TokenName != "" {
-				author = "agent:" + p.TokenName
-			}
+			author := agentAuthor(p)
 			now := time.Now()
 			f := detect.Finding{
 				ID:         detect.FindingID(agentFindingRuleID, host, title),
@@ -246,7 +332,8 @@ func registerWrites(r *capability.Registry, d Deps) {
 		Description: "Mark a finding as a false positive, attach notes to it, or override its severity. This is " +
 			"the way to record triage conclusions where the operator will see them. Marking a false positive " +
 			"hides the finding from the default view but never deletes it, and the mark survives a rescan. " +
-			"Findings cannot be deleted from here.",
+			"Prefer marking over deleting: the mark is a triage record, where a deletion leaves nothing behind. " +
+			"Use findings_delete when a finding should be gone rather than dismissed.",
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
@@ -298,6 +385,79 @@ func registerWrites(r *capability.Registry, d Deps) {
 			broadcast(d, "detect.summary", d.Findings.Summary(ruleEnabledFunc(d)))
 			return fmt.Sprintf("updated finding %s: severity=%s falsePositive=%t notes=%d bytes",
 				updated.ID, updated.Severity, updated.FalsePositive, len(updated.Notes)), nil
+		}),
+	})
+
+	// Note the asymmetry with notes.delete, which is exact about authorship. A Finding's
+	// only trace of who reported it is the display text in Detail, and an authorization
+	// decision must not rest on a formatted string — so the check here is the reserved
+	// rule ID, which is a real identity space. The consequence is that one agent can
+	// delete another's reported findings. The boundary that matters holds either way:
+	// what the scanner produced, and what the operator has not dismissed, is refused.
+	r.MustRegister(capability.Capability{
+		ID:       "findings.delete",
+		Class:    capability.ClassFindings,
+		Title:    "Delete a finding you reported, or dismissed noise",
+		Mutating: true,
+		Description: "Delete a finding, by ID, or clear every finding already marked a false positive. Use it to " +
+			"retract something you reported and then disproved, or to tidy up a triage backlog you worked " +
+			"through. Two things can be deleted: a finding you reported with findings_create, and any finding " +
+			"marked a false positive — the mark is the operator's own judgment that it is noise. A live scanner " +
+			"finding is refused; mark it a false positive with findings_update first if it should go. Deletion " +
+			"leaves no record, so prefer the mark when the conclusion itself is worth keeping.",
+		InputSchema: json.RawMessage(`{
+  "type":"object",
+  "properties":{
+    "id":             {"type":"string","description":"Finding ID, as returned by findings_create or findings_list. Omit when using falsePositives."},
+    "falsePositives": {"type":"boolean","description":"Delete every finding currently marked a false positive, whoever reported it. Mutually exclusive with id."}
+  },
+  "additionalProperties":false
+}`),
+		ArgsExample:    json.RawMessage(`{"id":"a1b2c3d4e5f60718"}`),
+		MaxOutputBytes: 8 << 10,
+		Handler: capability.Typed(func(ctx context.Context, _ capability.Principal, args findingsDeleteArgs) (any, error) {
+			if d.Findings == nil {
+				return nil, fmt.Errorf("detection is unavailable")
+			}
+			id := strings.TrimSpace(args.ID)
+			switch {
+			case id == "" && !args.FalsePositives:
+				return nil, fmt.Errorf("nothing to do: set id to delete one finding, or falsePositives to " +
+					"clear every finding marked a false positive")
+			case id != "" && args.FalsePositives:
+				return nil, fmt.Errorf("set either id or falsePositives, not both")
+			}
+
+			if args.FalsePositives {
+				n := d.Findings.DeleteFalsePositives()
+				if n == 0 {
+					return "no findings are marked as false positives; nothing deleted", nil
+				}
+				capability.RecordChange(ctx, "delete %d false-positive findings", n)
+				broadcast(d, "detect.findings.cleared", map[string]any{"deleted": n})
+				broadcast(d, "detect.summary", d.Findings.Summary(ruleEnabledFunc(d)))
+				return fmt.Sprintf("deleted %d findings marked as false positives", n), nil
+			}
+
+			f, ok := d.Findings.Get(id)
+			if !ok {
+				return nil, fmt.Errorf("no finding with id %s", id)
+			}
+			if f.RuleID != agentFindingRuleID && !f.FalsePositive {
+				return nil, fmt.Errorf("finding %s was produced by rule %s and is not marked a false "+
+					"positive, so it is not yours to delete; mark it with findings_update "+
+					"{\"id\":%q,\"falsePositive\":true} if it should go", id, f.RuleID, id)
+			}
+			if !d.Findings.Delete(id) {
+				return nil, fmt.Errorf("no finding with id %s", id)
+			}
+			capability.RecordChange(ctx, "delete finding %s on %s (%s)", f.RuleName, f.Host, f.Severity)
+
+			// Same reason findings.update broadcasts: an operator watching the Detect tab
+			// should see the agent's deletion land rather than find it on reload.
+			broadcast(d, "detect.summary", d.Findings.Summary(ruleEnabledFunc(d)))
+			return fmt.Sprintf("deleted finding id=%s severity=%s host=%s rule=%s",
+				id, f.Severity, f.Host, f.RuleID), nil
 		}),
 	})
 }

@@ -65,6 +65,56 @@ const (
 	ReasonWorkerLost = "worker lost"
 )
 
+// Outcome codes pair one-to-one with the termination reasons above.
+//
+// Two fields for one fact, because the fact has two audiences. A reason is prose the
+// operator reads verbatim and is therefore free to be reworded; an outcome is an
+// identifier a program branches on and is therefore not. Collapsing them means any
+// improvement to the wording is a silent breaking change for every consumer that
+// compared against the old string.
+const (
+	OutcomeSuccess        = "success"
+	OutcomeException      = "exception"
+	OutcomeTimeout        = "timeout"
+	OutcomeMemoryLimit    = "memory_limit"
+	OutcomeBudget         = "budget_exceeded"
+	OutcomeCancelled      = "cancelled"
+	OutcomeDenied         = "denied"
+	OutcomeRuntimeFailure = "runtime_failure"
+	OutcomeWorkerLost     = "worker_lost"
+
+	// OutcomeUnknown is what an unmapped reason resolves to. It exists so the mapping
+	// can fail safe: a reason added without a code here reports a run whose fate is
+	// unrecognized, which a caller can handle, rather than a run that succeeded.
+	OutcomeUnknown = "unknown"
+)
+
+// OutcomeFor returns the stable code for a termination reason.
+func OutcomeFor(reason string) string {
+	switch reason {
+	case ReasonSuccess:
+		return OutcomeSuccess
+	case ReasonException:
+		return OutcomeException
+	case ReasonTimeout:
+		return OutcomeTimeout
+	case ReasonMemoryLimit:
+		return OutcomeMemoryLimit
+	case ReasonBudget:
+		return OutcomeBudget
+	case ReasonCancelled:
+		return OutcomeCancelled
+	case ReasonDenied:
+		return OutcomeDenied
+	case ReasonRuntimeFailure:
+		return OutcomeRuntimeFailure
+	case ReasonWorkerLost:
+		return OutcomeWorkerLost
+	default:
+		return OutcomeUnknown
+	}
+}
+
 // Limits bound one run. A zero field takes the operator's default, and a field over
 // their maximum is clamped down to it. Clamping rather than rejecting is deliberate:
 // these arrive from a caller that may be a language model, and the useful response to
@@ -592,6 +642,13 @@ type LogLine struct {
 // those are exactly what the operator needs in order to understand it.
 type Result struct {
 	Reason string `json:"reason"`
+
+	// Outcome is Reason as a stable identifier, for a caller that branches on how the
+	// run ended rather than displaying it. Derived from Reason by OutcomeFor and stamped
+	// once, by the host, where a Result is turned into a run record — a direct Runtime
+	// caller therefore sees it empty, which is why nothing inside this package reads it.
+	Outcome string `json:"outcome"`
+
 	// Err carries the script's own error message when Reason is an exception, a
 	// denial, or a runtime failure. Never a Go error string with a wrapped chain —
 	// the audience is a person reading Activity or a model correcting its own code.

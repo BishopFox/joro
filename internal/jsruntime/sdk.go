@@ -45,6 +45,16 @@ type Binding struct {
 //   - exec.* and c2.* — command execution and an operator's C2 are granted one at a
 //     time by hand, never bundled.
 //   - script.* — a script that can start scripts launders its own budget.
+//
+// Weigh an addition against how far it reaches, not against the grant that launched the
+// run: a run's grants come from this table and are never intersected with the launching
+// token's, so anything here is authority every triggered run and every armed lens holds,
+// including those no token launched. notes.delete and findings.delete are in on the
+// grounds that both are bounded to the run's own entries and to findings the operator has
+// already dismissed, which is no further than findings.update already reaches — it can
+// rewrite severity, notes and the false-positive flag on the same record. A write that
+// could reach what the operator has not dismissed belongs behind a new BundleVersion
+// instead.
 var Bindings = []Binding{
 	{JS: "instance.get", Cap: "instance.get"},
 
@@ -73,10 +83,12 @@ var Bindings = []Binding{
 	{JS: "findings.get", Cap: "findings.get"},
 	{JS: "findings.create", Cap: "findings.create"},
 	{JS: "findings.update", Cap: "findings.update"},
+	{JS: "findings.delete", Cap: "findings.delete"},
 
 	{JS: "notes.list", Cap: "notes.list"},
 	{JS: "notes.hosts", Cap: "notes.hosts"},
 	{JS: "notes.create", Cap: "notes.create"},
+	{JS: "notes.delete", Cap: "notes.delete"},
 
 	{JS: "context.get", Cap: "context.get"},
 	{JS: "context.clear", Cap: "context.clear"},

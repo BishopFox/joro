@@ -643,7 +643,7 @@ func renderAutomations(items []jsautomation.Summary) string {
 		armed := joinOr(a.Armed, "-")
 		last := "never"
 		if a.LastRun != nil {
-			last = a.LastRun.Reason
+			last = a.LastRun.Outcome
 		}
 		rows = append(rows, [3]string{a.ID, a.Version, fmt.Sprintf("%-8s armed=%s last=%s  %s",
 			state, armed, last, a.Name)})
@@ -668,7 +668,11 @@ func renderRun(run *jsautomation.Run, logCap, resultCap int) string {
 	res := run.Result
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "run %s  %s  %dms\n", run.ID, res.Reason, res.DurationMs)
+	// Both the prose and the code. The prose is what an operator reading the same block
+	// in Activity sees, and the code is what the caller should branch on — worth the few
+	// tokens, because a model comparing against reworded prose is the failure this pair
+	// exists to prevent.
+	fmt.Fprintf(&b, "run %s  outcome=%s (%s)  %dms\n", run.ID, res.Outcome, res.Reason, res.DurationMs)
 	// Against the budget, not bare counts: the tool schema advertises the ceilings this
 	// capability accepts, but the operator's global budget can be lower and is editable
 	// while the registry is sealed — so this is where a caller learns what it actually

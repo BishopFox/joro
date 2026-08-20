@@ -82,7 +82,8 @@ export default function LensOutput({
       })
       .then((run) => {
         if (cancelled) return
-        if (run.result.reason !== 'success') {
+        // Branch on the stable code; show the prose, which is what an operator reads.
+        if (run.result.outcome !== 'success') {
           setState({ kind: 'error', reason: run.result.reason, detail: run.result.err })
           return
         }

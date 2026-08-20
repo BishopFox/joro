@@ -98,7 +98,7 @@ export default function ScriptRuns() {
                       key={r.id}
                       onClick={() => openRun(r.id)}
                       className={`w-full text-left flex gap-2 py-0.5 border-b border-border-subtle last:border-0 hover:bg-surface-hover ${
-                        r.result.reason === 'success' ? '' : 'text-semantic-warning'
+                        r.result.outcome === 'success' ? '' : 'text-semantic-warning'
                       }`}
                     >
                       <span className="text-content-muted shrink-0">

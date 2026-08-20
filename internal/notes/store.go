@@ -65,6 +65,19 @@ func (s *Store) ListNotes(host string, offset, limit int) ([]Note, int, error) {
 	return items, total, rows.Err()
 }
 
+// GetNote returns one note by ID, or sql.ErrNoRows when there is none.
+func (s *Store) GetNote(id string) (*Note, error) {
+	var n Note
+	err := s.db.QueryRow(
+		"SELECT id, host, content, author, created_at, updated_at FROM notes WHERE id = ?",
+		id,
+	).Scan(&n.ID, &n.Host, &n.Content, &n.Author, &n.CreatedAt, &n.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
 // UpdateNote replaces a note's content and bumps updated_at.
 func (s *Store) UpdateNote(id, content string) (*Note, error) {
 	now := time.Now().UTC()
@@ -75,15 +88,7 @@ func (s *Store) UpdateNote(id, content string) (*Note, error) {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil, sql.ErrNoRows
 	}
-	var n Note
-	err = s.db.QueryRow(
-		"SELECT id, host, content, author, created_at, updated_at FROM notes WHERE id = ?",
-		id,
-	).Scan(&n.ID, &n.Host, &n.Content, &n.Author, &n.CreatedAt, &n.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &n, nil
+	return s.GetNote(id)
 }
 
 // DeleteNote deletes a note by ID.
