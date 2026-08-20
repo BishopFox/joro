@@ -29,8 +29,11 @@ type ReadArgs struct {
 	Encoding string `json:"encoding"` // auto | text | hex | base64
 }
 
-// ReadResult is the structured half of a read. It is small and fixed-shape, so it
-// is also emitted as MCP structuredContent; list-shaped results never are.
+// ReadResult is the structured half of a read, and the value the JavaScript SDK
+// returns: a script reads r.text and branches on r.truncated rather than parsing
+// anything. An MCP client receives Render's text instead, chosen at that boundary.
+// The two forms are never both sent — text may be 16 KB, and duplicating it as
+// structuredContent would double the cost of every read.
 type ReadResult struct {
 	Ref         int    `json:"ref"`
 	Part        string `json:"part"`
@@ -168,12 +171,21 @@ func encodeWindow(window []byte, want string, baseOffset int) (encoding, text st
 	}
 }
 
-// Render produces the text block an automation client receives: a single meta line
-// followed by the window.
+// Render produces the text form: exactly one meta line, then the window, then any
+// notes. The bytes begin immediately after the first '\n' and nothing is ever
+// inserted ahead of them.
+//
+// The fixed preamble is the point. A note above the window makes the offset of the
+// first payload byte depend on whether that note fired, and the framing changes from
+// '\n' to '\r\n' at the same boundary — so a reader taking the first line gets the
+// meta line, a note and the request line welded together, with nothing in the output
+// to say which shape arrived.
 //
 // The meta line always names decoded when an encoding was unwrapped, because a
 // decoded total disagrees with the Content-Length the client just read in the
-// headers, and an unexplained mismatch reads as a bug.
+// headers, and an unexplained mismatch reads as a bug. It names redacted for the same
+// reason a note does: a withheld value the reader has not been told about is a
+// credential it will report as absent.
 func (r *ReadResult) Render() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "ref=%d part=%s section=%s enc=%s total=%d off=%d ret=%d truncated=%t",
@@ -181,17 +193,22 @@ func (r *ReadResult) Render() string {
 	if r.Decoded != "" {
 		fmt.Fprintf(&b, " decoded=%s", r.Decoded)
 	}
-	b.WriteByte('\n')
-	if note := RedactionNote(r.Redacted); note != "" {
-		b.WriteString(note)
-		b.WriteByte('\n')
+	if len(r.Redacted) > 0 {
+		fmt.Fprintf(&b, " redacted=%s", strings.Join(r.Redacted, ","))
 	}
+	b.WriteByte('\n')
 	b.WriteString(r.Text)
 	if r.Truncated {
 		// Truncation must always name the way to get the rest, or the client
 		// simply retries the identical call.
 		fmt.Fprintf(&b, "\n[truncated: %d of %d bytes. Continue with offset=%d]",
 			r.Returned, r.TotalLength, r.Offset+r.Returned)
+	}
+	// Last, so the prose is the final thing read: what it warns against is a masked
+	// header being reported as one the target never sent.
+	if note := RedactionNote(r.Redacted); note != "" {
+		b.WriteByte('\n')
+		b.WriteString(note)
 	}
 	return b.String()
 }

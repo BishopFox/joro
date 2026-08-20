@@ -106,13 +106,22 @@ func toolError(err error) *callToolResult {
 // token-efficiency argument, so a string passes straight through. Anything else is
 // marshalled compactly.
 //
+// A result that can render itself is rendered here, at the transport, rather than by
+// the handler. That is what lets one capability serve both readers: the same value
+// reaches a JavaScript automation as a structure it reads fields off, and a model as
+// the text it was written for. Rendering in the handler collapses the two, and the
+// reader that has to parse is the one that breaks.
+//
 // structuredContent is emitted only for a single fixed-shape object, never for a
-// list. A client that renders both the text and the structured form would double
+// list, and never for a renderer — its whole reason for rendering is that the payload
+// is large. A client that renders both the text and the structured form would double
 // the cost of a forty-row table, which defeats the point of the tables existing.
 func resultContent(data any) *callToolResult {
 	switch v := data.(type) {
 	case string:
 		return textResult(v)
+	case interface{ Render() string }:
+		return textResult(v.Render())
 	case nil:
 		return textResult("(no result)")
 	}

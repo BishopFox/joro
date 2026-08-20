@@ -80,8 +80,13 @@ func registerHTTP(r *capability.Registry, d Deps) {
 			"are decompressed by default; section \"raw\" is always byte-exact. Binary data is returned as a " +
 			"hex dump when small, base64 when not. Unless this token has credential visibility, the values " +
 			"of Authorization, Cookie, Set-Cookie and similar headers are overwritten with '*' — the header " +
-			"is present, and offsets are unaffected, but the value is withheld and a redacted line names the " +
-			"withheld values inside the bytes returned, and only those.",
+			"is present, and offsets are unaffected, but the value is withheld, and what is withheld inside " +
+			"the bytes returned is named, and only that. " +
+			"As a tool this renders one metadata line, then the bytes, then any notes: the bytes begin after " +
+			"the first newline and nothing is ever inserted ahead of them. From the SDK it is an object — " +
+			"{ref, part, section, encoding, totalLength, offset, returned, truncated, text, redacted[], " +
+			"decoded} — where text is exactly the bytes, with no metadata and no notes, so a script reads " +
+			"fields instead of parsing.",
 		InputSchema: json.RawMessage(`{
   "type":"object",
   "properties":{
@@ -106,11 +111,7 @@ func registerHTTP(r *capability.Registry, d Deps) {
 			if item == nil {
 				return nil, fmt.Errorf("no captured request with seq %d", args.Ref)
 			}
-			res, err := httptools.ReadRange(item.ReqRaw, item.RespRaw, args, !p.AllowCredentials)
-			if err != nil {
-				return nil, err
-			}
-			return res.Render(), nil
+			return httptools.ReadRange(item.ReqRaw, item.RespRaw, args, !p.AllowCredentials)
 		}),
 	})
 
