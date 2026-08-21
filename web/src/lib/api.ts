@@ -248,6 +248,7 @@ export interface ScriptLogLine {
  *  what an unmapped reason resolves to, so a newer server never reports a run as having
  *  succeeded just because this client has not heard of its outcome. */
 export type ScriptOutcome =
+  // jsruntime: a sandboxed script run.
   | 'success'
   | 'exception'
   | 'timeout'
@@ -257,6 +258,11 @@ export type ScriptOutcome =
   | 'denied'
   | 'runtime_failure'
   | 'worker_lost'
+  // localcmd: a local command run. `success`, `timeout` and `cancelled` are shared.
+  | 'exit_status'
+  | 'output_limit'
+  | 'spawn_failed'
+  | 'not_permitted'
   | 'unknown'
 
 /** The outcome of one sandboxed script run. */
@@ -315,6 +321,100 @@ export interface AutomationLimits {
   maxResultBytes?: number
 }
 
+/** Which execution half an installed automation uses. */
+export type AutomationKind = 'js' | 'command'
+
+/** A file a command run left in its working directory. */
+export interface CommandArtifact {
+  name: string
+  bytes: number
+  /** Past the run's artifact budget and deleted. Still listed, so a scanner whose report
+   *  directory did not fit says so rather than appearing to have written nothing. */
+  dropped?: boolean
+}
+
+/** What a command run returned. One shape for two readers: a lens takes `text` and
+ *  `language` and ignores the rest, which is why a command lens needed no new rendering
+ *  path; the run output panel also shows the exit code and the artifacts. */
+export interface CommandValue {
+  text: string
+  language?: string
+  exitCode: number
+  truncated?: boolean
+  /** `text` is base64 rather than the bytes themselves, because stdout was not valid
+   *  UTF-8. Flagged so binary output is not mistaken for a tool printing rubbish. */
+  binary?: boolean
+  artifacts?: CommandArtifact[]
+}
+
+/** The body of a command automation: what to run, and what to feed it.
+ *
+ *  `args` is a list and there is no field taking a command line as one string. The editor
+ *  offers one box, but it splits that text in the browser before saving and stores the
+ *  result here — see `lib/cmdline.ts`. No shell is ever involved, so the shape of argv is
+ *  settled before any captured byte is known, which is the property that stops bytes from
+ *  steering the command. */
+export interface CommandSpec {
+  /** The executable. The server resolves this through PATH at install time and stores the
+   *  absolute result, so the binary reviewed is the binary that runs. */
+  path: string
+  /** Arguments, after {{PLACEHOLDER}} substitution. A value drawn from captured traffic is
+   *  held to a grammar, and refused if it would start an argument with a dash. */
+  args?: string[]
+  /** What the command reads on standard input. Unbounded and binary-safe. */
+  stdin?: string
+  /** Where `{{INPUT}}` gets its bytes when an argument names it, in the same vocabulary as
+   *  `stdin`. Empty means no argument may name it. Bounded by the run's inline input
+   *  budget, text only, and visible to other processes on the host — which is why `stdin`
+   *  stays the delivery to reach for when any of that matters. */
+  inline?: string
+  /** Parts of the transaction written into the run's working directory before it starts.
+   *  The key is the placeholder that resolves to the file's path. */
+  files?: Record<string, string>
+  /** Added to a minimal base environment; `envPass` names variables inherited from Joro's
+   *  own. A whitelist, so the operator's shell credentials do not reach every run. */
+  env?: Record<string, string>
+  envPass?: string[]
+  /** Route the command's HTTP traffic through Joro's proxy, so it lands in History under
+   *  the same scope and rewriting rules. A default rather than a control: a command can
+   *  ignore it, and Joro cannot bound a subprocess's own dialing. */
+  useProxy?: boolean
+  /** Mask credential header values in whatever reaches the command, by any delivery. Off by
+   *  default, because replaying an authenticated request with a masked cookie tests
+   *  nothing. */
+  redact?: boolean
+  output?: string
+}
+
+/** One `{{PLACEHOLDER}}` as the editor's reference table shows it. */
+export interface CommandPlaceholder {
+  name: string
+  token: string
+  description: string
+  /** What a valid value looks like, in the words the server enforces. */
+  grammar: string
+  /** Trust class: `joro` for what Joro computed, `captured` for a validated value off the
+   *  wire, `input` for the transaction's own bytes. */
+  source: 'joro' | 'captured' | 'input'
+}
+
+/** The command vocabulary, served by the server so the editor's selects cannot offer
+ *  something it would refuse, and so nothing here restates a rule Go enforces. */
+export interface CommandMeta {
+  enabled: boolean
+  stdinModes: string[]
+  outputModes: string[]
+  fileParts: string[]
+  placeholders: CommandPlaceholder[]
+  /** Placeholder names each trigger supplies a value for, keyed by trigger id. A name used
+   *  under a trigger absent from its list has no value at run time and fails the run, which
+   *  is what lets the editor warn before that happens. */
+  availability: Record<string, string[]>
+  /** The bare name of the input placeholder (`INPUT`), so the editor's own handling of it
+   *  is keyed off the server rather than a literal. */
+  inputToken: string
+}
+
 /** Which half of a transaction a lens renders. */
 export type LensPart = 'request' | 'response' | 'both'
 
@@ -333,8 +433,13 @@ export interface AutomationManifest {
   name: string
   version: string
   description?: string
-  sdkVersion: string
+  /** Absent normalizes to 'js'. A command manifest carries no sdkVersion or entrypoint:
+   *  it calls no SDK, and what it may do is decided by the operator enabling it. */
+  kind?: AutomationKind
+  sdkVersion?: string
   entrypoint?: string
+  /** The whole body of a command automation. Absent on a script. */
+  command?: CommandSpec
   triggers?: string[]
   limits?: AutomationLimits
   /** Set to add a viewer tab. The operator can retitle, repoint and reorder it. */
@@ -436,6 +541,40 @@ export interface AutomationPolicy {
   host?: AutomationHostLimits
 }
 
+/** Per-run limits for a command. A different set from a script's, because they bound
+ *  different things — there is no memory field, since a command is already its own process
+ *  and an allocation blowup costs it rather than Joro. */
+export interface CommandLimits {
+  timeoutMs?: number
+  maxStdoutBytes?: number
+  maxStderrBytes?: number
+  maxArtifactBytes?: number
+}
+
+export interface CommandHostLimits {
+  concurrentRuns?: number
+  scratchRuns?: number
+}
+
+export interface CommandPolicy {
+  defaults?: CommandLimits
+  maxima?: CommandLimits
+  host?: CommandHostLimits
+}
+
+/** The command budget, shaped like the script one so a single panel renders both. */
+export interface CommandBudget {
+  /** Whether --automation-commands was given. The section still renders when false — a
+   *  budget can be set before the flag is — but says so. */
+  enabled: boolean
+  policy: CommandPolicy
+  effective: CommandLimits
+  effectiveMax: CommandLimits
+  host: CommandHostLimits
+  specs: BudgetSpec[]
+  hostSpecs: BudgetSpec[]
+}
+
 export interface AutomationBudget {
   policy: AutomationPolicy
   /** What a run that asks for nothing is held to. */
@@ -450,6 +589,7 @@ export interface AutomationBudget {
   /** The bytes the two agent-output limits share; the one ceiling here that is fixed at
    *  startup, so the pair is checked against it on save. */
   agentOutputCap: number
+  command: CommandBudget
 }
 
 /** List projection. Source is withheld, not merely omitted. */
@@ -458,7 +598,11 @@ export interface AutomationSummary {
   name: string
   version: string
   description?: string
-  sdkVersion: string
+  kind: AutomationKind
+  sdkVersion?: string
+  /** A command package's argv on one line, for a list view. The full spec is withheld for
+   *  the same reason a script's source is: it names paths on the operator's machine. */
+  command?: string
   triggers: string[]
   /** The triggers currently live: declared, not switched off, and runnable. */
   armed: string[]
@@ -609,13 +753,20 @@ const BASE = '/api/v1'
 // polling reads — never to mutations or /manipulate/send, which can be legitimately slow.
 export const TEAM_POLL_TIMEOUT = 4000
 
+// UI_ORIGIN_HEADER is sent on every request this module makes. Required by the routes that
+// decode no JSON body — the multipart uploads and the body-less POSTs. Server side is
+// requireLocalOrigin in internal/api/originguard.go.
+const UI_ORIGIN_HEADER = { 'X-Joro-Origin': '1' } as const
+
 async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
   const ctrl = timeoutMs ? new AbortController() : undefined
   const timer = timeoutMs ? setTimeout(() => ctrl!.abort(), timeoutMs) : undefined
   try {
     const res = await fetch(`${BASE}${path}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers: body
+        ? { ...UI_ORIGIN_HEADER, 'Content-Type': 'application/json' }
+        : { ...UI_ORIGIN_HEADER },
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl?.signal,
     })
@@ -627,6 +778,21 @@ async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: 
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+// upload posts a multipart form. Never set Content-Type by hand here — the browser must
+// generate it to include the multipart boundary.
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { ...UI_ORIGIN_HEADER },
+    body: form,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error((err as { error: string }).error || res.statusText)
+  }
+  return res.json() as Promise<T>
 }
 
 export const api = {
@@ -723,15 +889,10 @@ export const api = {
     req<{ index: number; payload: string; payloads?: Record<string, string>; statusCode: number; size: number; words: number; lines: number; durationMs: number; url: string; error?: string; hasBody: boolean; reqRaw?: string; respRaw?: string }>(
       'GET', `/fuzzer/campaigns/${campaignId}/results/${index}`
     ),
-  fuzzUploadWordlist: async (file: File) => {
+  fuzzUploadWordlist: (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    const res = await fetch(`${BASE}/fuzzer/wordlist`, { method: 'POST', body: form })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
-    }
-    return res.json() as Promise<{ lines: string[]; count: number }>
+    return upload<{ lines: string[]; count: number }>('/fuzzer/wordlist', form)
   },
 
   // Generate
@@ -843,16 +1004,11 @@ export const api = {
     req<{ output: string; error: string }>('POST', '/sliver/execute', { sessionId, command, args }),
   sliverCommand: (input: string) =>
     req<{ output: string; error: string; downloadId?: string; filename?: string; sessionChanged?: boolean; sessionId?: string; sessionName?: string; disconnected?: boolean }>('POST', '/sliver/command', { input }),
-  sliverUpload: async (remotePath: string, file: File) => {
+  sliverUpload: (remotePath: string, file: File) => {
     const form = new FormData()
     form.append('file', file)
     form.append('remotePath', remotePath)
-    const res = await fetch(`${BASE}/sliver/upload`, { method: 'POST', body: form })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
-    }
-    return res.json() as Promise<{ path: string }>
+    return upload<{ path: string }>('/sliver/upload', form)
   },
 
   // Mythic C2
@@ -865,16 +1021,11 @@ export const api = {
     req<{ callbacks: { id: number; display_id: number; user: string; host: string; pid: number; ip: string; os: string; architecture: string; last_checkin: string; description: string; payload_type: string }[] }>('GET', '/mythic/callbacks'),
   mythicCommand: (input: string) =>
     req<{ output: string; error: string; downloadId?: string; filename?: string; callbackChanged?: boolean; callbackId?: number; callbackName?: string; disconnected?: boolean }>('POST', '/mythic/command', { input }),
-  mythicUpload: async (remotePath: string, file: File) => {
+  mythicUpload: (remotePath: string, file: File) => {
     const form = new FormData()
     form.append('file', file)
     form.append('remotePath', remotePath)
-    const res = await fetch(`${BASE}/mythic/upload`, { method: 'POST', body: form })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
-    }
-    return res.json() as Promise<{ path: string }>
+    return upload<{ path: string }>('/mythic/upload', form)
   },
 
   // Notes
@@ -1160,15 +1311,10 @@ export const api = {
 
   // Plugins
   listPlugins: () => req<PluginInfo[]>('GET', '/plugins'),
-  uploadPlugin: async (file: File): Promise<{ filename: string; message: string }> => {
+  uploadPlugin: (file: File): Promise<{ filename: string; message: string }> => {
     const form = new FormData()
     form.append('file', file)
-    const res = await fetch(`${BASE}/plugins/upload`, { method: 'POST', body: form })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
-    }
-    return res.json() as Promise<{ filename: string; message: string }>
+    return upload<{ filename: string; message: string }>('/plugins/upload', form)
   },
   deletePlugin: (filename: string, opts?: { purgeData?: boolean }) =>
     req<{ filename: string; restartRequired: boolean; dataPurged: boolean; message: string }>(
@@ -1221,10 +1367,15 @@ export const api = {
   clearScriptRuns: () => req<{ deleted: number }>('DELETE', '/automation/runs'),
 
   listScripts: () =>
-    req<{ scripts: AutomationSummary[]; triggers: string[]; bundle: string }>(
-      'GET',
-      '/automation/scripts'
-    ),
+    req<{
+      scripts: AutomationSummary[]
+      triggers: string[]
+      bundle: string
+      kinds: AutomationKind[]
+      /** Whether the JavaScript half is live. False with only --automation-commands. */
+      scripting: boolean
+      commands: CommandMeta
+    }>('GET', '/automation/scripts'),
   getScript: (id: string) => req<AutomationPackage>('GET', `/automation/scripts/${id}`),
   installScript: (manifest: AutomationManifest, source: string) =>
     req<AutomationPackage>('POST', '/automation/scripts', { manifest, source }),
@@ -1266,8 +1417,17 @@ export const api = {
       triggers: string[]
     }>('GET', '/automation/sdk'),
   getAutomationLimits: () => req<AutomationBudget>('GET', '/automation/limits'),
-  setAutomationLimits: (policy: AutomationPolicy) =>
-    req<AutomationBudget>('PUT', '/automation/limits', { policy }),
+  // Both policies travel together, because the panel edits them in one form and a partial
+  // save would leave the operator's two halves out of step with what they were looking at.
+  setAutomationLimits: (policy: AutomationPolicy, command?: CommandPolicy) =>
+    req<AutomationBudget>('PUT', '/automation/limits', { policy, command }),
+  /** A file a command run left behind. Served as an attachment, so this is an href rather
+   *  than a fetch — the browser saves it instead of the client holding it in memory. */
+  runArtifactUrl: (runId: string, name: string) =>
+    `${BASE}/automation/runs/${encodeURIComponent(runId)}/artifacts/${name
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/')}`,
   getMcpState: () => req<McpState>('GET', '/automation/mcp'),
   setMcpState: (body: { enabled?: boolean; port?: number }) =>
     req<McpState>('PUT', '/automation/mcp', body),

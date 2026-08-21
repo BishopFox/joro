@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -67,7 +66,7 @@ func (s *APIServer) makeInteractCreateInstanceHandler(name string) http.HandlerF
 			return
 		}
 		var config map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		if err := decodeJSON(r, &config); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
@@ -111,7 +110,7 @@ func (s *APIServer) makeInteractSetEnabledHandler(name string) http.HandlerFunc 
 		var body struct {
 			Enabled bool `json:"enabled"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}

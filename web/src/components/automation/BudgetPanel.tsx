@@ -5,6 +5,8 @@ import type {
   AutomationHostLimits,
   AutomationLimits,
   BudgetSpec,
+  CommandHostLimits,
+  CommandLimits,
 } from '../../lib/api'
 import { useAutomationStore } from '../../stores/automationStore'
 import { useToastStore } from '../../stores/toastStore'
@@ -47,6 +49,13 @@ function maxPlaceholder(budget: AutomationBudget, sp: BudgetSpec): number {
   return resolved !== undefined ? resolved / sp.factor : (sp.defaultMax ?? 0)
 }
 
+/** The same, from the command policy. Two functions rather than one taking the resolved
+ *  maxima, because the caller reads better naming the budget it means. */
+function cmdMaxPlaceholder(budget: AutomationBudget, sp: BudgetSpec): number {
+  const resolved = (budget.command.effectiveMax as Record<string, number | undefined>)[sp.key]
+  return resolved !== undefined ? resolved / sp.factor : (sp.defaultMax ?? 0)
+}
+
 function shown(stored: number | undefined, sp: BudgetSpec): string {
   if (!stored) return ''
   return String(stored / sp.factor)
@@ -70,6 +79,13 @@ export default function BudgetPanel() {
   const [defaults, setDefaults] = useState<Fields>({})
   const [maxima, setMaxima] = useState<Fields>({})
   const [host, setHost] = useState<Fields>({})
+  // The command budget is a separate policy with its own fields, so it gets its own three
+  // drafts rather than sharing keys with the script one. Both save together, because they
+  // are edited in one form and a partial save would leave the two halves out of step with
+  // what the operator was looking at.
+  const [cmdDefaults, setCmdDefaults] = useState<Fields>({})
+  const [cmdMaxima, setCmdMaxima] = useState<Fields>({})
+  const [cmdHost, setCmdHost] = useState<Fields>({})
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -82,22 +98,20 @@ export default function BudgetPanel() {
     setDefaults({ ...budget.policy.defaults })
     setMaxima({ ...budget.policy.maxima })
     setHost({ ...budget.policy.host })
+    setCmdDefaults({ ...budget.command.policy.defaults })
+    setCmdMaxima({ ...budget.command.policy.maxima })
+    setCmdHost({ ...budget.command.policy.host })
   }, [budget])
 
   if (!budget) {
     return (
       <div className="flex-1 overflow-auto p-5">
         <h3 className="text-sm font-semibold text-content-primary mb-2">Run budget</h3>
+        {/* The server's message names whichever switch is missing, and there are now two
+            that can be — so it is shown verbatim rather than paraphrased here, where a
+            paraphrase would have to guess which one it meant. */}
         <p className="text-[11px] text-content-secondary leading-relaxed max-w-xl">
-          {scriptsUnavailable?.includes('--automation-scripting') ? (
-            <>
-              Script automation is off, so there is no run budget to set. Start Joro with{' '}
-              <code className="font-mono text-content-primary">--automation-scripting</code> to install
-              JavaScript automations.
-            </>
-          ) : (
-            <>{scriptsUnavailable ?? 'Loading…'}</>
-          )}
+          {scriptsUnavailable ?? 'Loading…'}
         </p>
       </div>
     )
@@ -108,25 +122,41 @@ export default function BudgetPanel() {
     keys.every((k) => (a[k] ?? 0) === (b[k] ?? 0))
   const runKeys = budget.specs.map((sp) => sp.key)
   const hostKeys = budget.hostSpecs.map((sp) => sp.key)
+  const cmdStored = budget.command.policy
+  const cmdRunKeys = budget.command.specs.map((sp) => sp.key)
+  const cmdHostKeys = budget.command.hostSpecs.map((sp) => sp.key)
   const dirty =
     !same(defaults, { ...stored.defaults }, runKeys) ||
     !same(maxima, { ...stored.maxima }, runKeys) ||
-    !same(host, { ...stored.host }, hostKeys)
+    !same(host, { ...stored.host }, hostKeys) ||
+    !same(cmdDefaults, { ...cmdStored.defaults }, cmdRunKeys) ||
+    !same(cmdMaxima, { ...cmdStored.maxima }, cmdRunKeys) ||
+    !same(cmdHost, { ...cmdStored.host }, cmdHostKeys)
 
   const clear = () => {
     setDefaults({})
     setMaxima({})
     setHost({})
+    setCmdDefaults({})
+    setCmdMaxima({})
+    setCmdHost({})
   }
 
   const save = async () => {
     setBusy(true)
     try {
-      await setBudget({
-        defaults: defaults as AutomationLimits,
-        maxima: maxima as AutomationLimits,
-        host: host as AutomationHostLimits,
-      })
+      await setBudget(
+        {
+          defaults: defaults as AutomationLimits,
+          maxima: maxima as AutomationLimits,
+          host: host as AutomationHostLimits,
+        },
+        {
+          defaults: cmdDefaults as CommandLimits,
+          maxima: cmdMaxima as CommandLimits,
+          host: cmdHost as CommandHostLimits,
+        }
+      )
       addToast('Run budget saved', 'info')
     } catch (e) {
       // The server names the field it refused and the limit it broke rather than
@@ -175,6 +205,63 @@ export default function BudgetPanel() {
     />
   )
 
+  /**
+   * One section of rows. Four of these render — the script budget's per-run and host
+   * halves, and the command budget's — so the markup lives here once rather than being
+   * copied per section. `maxOf` is absent on a host section, which has no requestable side
+   * and therefore one column instead of two.
+   */
+  const section = (
+    title: string,
+    specs: BudgetSpec[],
+    draft: Fields,
+    setDraft: (f: Fields) => void,
+    maxDraft: Fields | null,
+    setMaxDraft: ((f: Fields) => void) | null,
+    maxPlaceholderOf: ((sp: BudgetSpec) => number) | null,
+    footer: React.ReactNode,
+    note?: React.ReactNode
+  ) => (
+    <div>
+      <div className="flex items-end gap-3 mb-1.5">
+        <h4 className="text-xs font-semibold text-content-muted uppercase tracking-wide">{title}</h4>
+        {note}
+        <div className="ml-auto flex gap-3 text-[10px] text-content-muted uppercase tracking-wide">
+          <span className="w-24 text-right">{maxDraft ? 'Default' : 'Limit'}</span>
+          {maxDraft && <span className="w-24 text-right">Max</span>}
+        </div>
+      </div>
+      <div className="bg-surface-card border border-border rounded divide-y divide-border-subtle">
+        {specs.map((sp) => (
+          <div key={sp.key} className="p-3 flex items-start gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-content-primary">
+                {sp.label} <span className="text-content-muted font-normal">({sp.unit})</span>
+              </div>
+              <p className="text-[10px] text-content-muted leading-snug mt-0.5 max-w-xl">
+                {sp.description}
+              </p>
+              <CapReason spec={sp} />
+            </div>
+            <div className="ml-auto shrink-0">
+              <div className="flex gap-3">
+                {cell(sp, draft[sp.key], sp.default, (v) => setDraft({ ...draft, [sp.key]: v }))}
+                {maxDraft &&
+                  setMaxDraft &&
+                  maxPlaceholderOf &&
+                  cell(sp, maxDraft[sp.key], maxPlaceholderOf(sp), (v) =>
+                    setMaxDraft({ ...maxDraft, [sp.key]: v })
+                  )}
+              </div>
+              <CapLine spec={sp} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-content-muted leading-relaxed mt-1.5 max-w-2xl">{footer}</p>
+    </div>
+  )
+
   return (
     <div className="flex-1 overflow-auto p-5 space-y-5">
       <div className="flex items-start gap-2">
@@ -216,42 +303,15 @@ export default function BudgetPanel() {
         </div>
       </div>
 
-      {/* Per run: a default and a maximum. */}
-      <div>
-        <div className="flex items-end gap-3 mb-1.5">
-          <h4 className="text-xs font-semibold text-content-muted uppercase tracking-wide">Per run</h4>
-          <div className="ml-auto flex gap-3 text-[10px] text-content-muted uppercase tracking-wide">
-            <span className="w-24 text-right">Default</span>
-            <span className="w-24 text-right">Max</span>
-          </div>
-        </div>
-        <div className="bg-surface-card border border-border rounded divide-y divide-border-subtle">
-          {budget.specs.map((sp) => (
-            <div key={sp.key} className="p-3 flex items-start gap-3">
-              <div className="min-w-0">
-                <div className="text-xs font-semibold text-content-primary">
-                  {sp.label} <span className="text-content-muted font-normal">({sp.unit})</span>
-                </div>
-                <p className="text-[10px] text-content-muted leading-snug mt-0.5 max-w-xl">
-                  {sp.description}
-                </p>
-                <CapReason spec={sp} />
-              </div>
-              <div className="ml-auto shrink-0">
-                <div className="flex gap-3">
-                  {cell(sp, defaults[sp.key], sp.default, (v) =>
-                    setDefaults({ ...defaults, [sp.key]: v })
-                  )}
-                  {cell(sp, maxima[sp.key], maxPlaceholder(budget, sp), (v) =>
-                    setMaxima({ ...maxima, [sp.key]: v })
-                  )}
-                </div>
-                <CapLine spec={sp} />
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="text-[10px] text-content-muted leading-relaxed mt-1.5 max-w-2xl">
+      {section(
+        'Per run',
+        budget.specs,
+        defaults,
+        setDefaults,
+        maxima,
+        setMaxima,
+        (sp) => maxPlaceholder(budget, sp),
+        <>
           The <strong>default</strong> is what a run that asks for nothing gets. The{' '}
           <strong>max</strong> is the most a run may ask for — an agent calling{' '}
           <code className="font-mono">script_run</code> names its own figure, and anything above
@@ -260,47 +320,64 @@ export default function BudgetPanel() {
           higher. A row showing <span className="font-mono">&le;</span> under its numbers has a
           ceiling neither figure may pass, and says what that ceiling is tied to; a row without
           one has no further limit.
-        </p>
-      </div>
+        </>
+      )}
 
-      {/* Host limits: one number each. */}
-      <div>
-        <div className="flex items-end gap-3 mb-1.5">
-          <h4 className="text-xs font-semibold text-content-muted uppercase tracking-wide">
-            This Joro
-          </h4>
-          <div className="ml-auto flex gap-3 text-[10px] text-content-muted uppercase tracking-wide">
-            <span className="w-24 text-right">Limit</span>
-          </div>
-        </div>
-        <div className="bg-surface-card border border-border rounded divide-y divide-border-subtle">
-          {budget.hostSpecs.map((sp) => (
-            <div key={sp.key} className="p-3 flex items-start gap-3">
-              <div className="min-w-0">
-                <div className="text-xs font-semibold text-content-primary">
-                  {sp.label} <span className="text-content-muted font-normal">({sp.unit})</span>
-                </div>
-                <p className="text-[10px] text-content-muted leading-snug mt-0.5 max-w-xl">
-                  {sp.description}
-                </p>
-                <CapReason spec={sp} />
-              </div>
-              <div className="ml-auto shrink-0">
-                {cell(sp, host[sp.key], sp.default, (v) =>
-                  setHost({ ...host, [sp.key]: v })
-                )}
-                <CapLine spec={sp} />
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="text-[10px] text-content-muted leading-relaxed mt-1.5 max-w-2xl">
+      {section(
+        'This Joro',
+        budget.hostSpecs,
+        host,
+        setHost,
+        null,
+        null,
+        null,
+        <>
           These belong to this Joro rather than to one run, so there is nothing for an automation
           or an agent to ask for: your number is the limit. The two agent figures are the
           exception — they share {Math.round(budget.agentOutputCap / 1024)} KB of tool result
           between them, so their sum is checked as well as each one.
-        </p>
-      </div>
+        </>
+      )}
+
+      {/* The command budget. A separate policy, because it bounds different things: there
+          is no memory field, since a command is already its own process, and no SDK call
+          count, since it makes none. */}
+      {section(
+        'Per command run',
+        budget.command.specs,
+        cmdDefaults,
+        setCmdDefaults,
+        cmdMaxima,
+        setCmdMaxima,
+        (sp) => cmdMaxPlaceholder(budget, sp),
+        <>
+          What a local command automation is held to. A command is not sandboxed — it is a program
+          on this machine with your filesystem and your network — so these are the bounds that do
+          apply: how long it may run, and how much of what it produced Joro keeps. There is no
+          memory figure, and that is not an omission: a command is its own process, so an
+          allocation without bound costs the command rather than Joro.
+        </>,
+        !budget.command.enabled ? (
+          <span className="text-[10px] text-semantic-warning normal-case">
+            not enabled — start Joro with{' '}
+            <code className="font-mono">--automation-commands</code>
+          </span>
+        ) : undefined
+      )}
+
+      {section(
+        'This Joro (commands)',
+        budget.command.hostSpecs,
+        cmdHost,
+        setCmdHost,
+        null,
+        null,
+        null,
+        <>
+          How many commands may overlap, and how much of what they wrote is kept on disk. Both
+          belong to this machine rather than to one automation.
+        </>
+      )}
 
       {/* What it applies to. */}
       <div className="max-w-2xl">
@@ -317,6 +394,11 @@ export default function BudgetPanel() {
             An automation can ask for less than this, never more. Joro takes the smallest of three
             numbers: what the author asked for in the manifest, the override you set on that
             automation, and the budget here.
+          </li>
+          <li>
+            A command automation is held to the command budget instead, which has its own fields
+            because it bounds a program rather than a sandbox. The wall clock is the one figure an
+            automation can narrow for itself in either case.
           </li>
           <li>Changes take effect on the next run. Anything already running keeps its budget.</li>
         </ul>

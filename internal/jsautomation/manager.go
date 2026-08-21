@@ -1,15 +1,30 @@
-// Package jsautomation runs sandboxed JavaScript against Joro's capability registry.
+// Package jsautomation runs installed automations: sandboxed JavaScript against Joro's
+// capability registry, and local commands.
 //
-// It owns three things the runtime deliberately does not: the principal a run acts as,
-// the budget the run is held to, and the record of what it did. The runtime knows how to
-// execute JavaScript and nothing about Joro; this package knows about Joro and nothing
-// about JavaScript.
+// It owns three things the execution tiers deliberately do not: the principal a run acts
+// as, the budget the run is held to, and the record of what it did. jsruntime knows how to
+// execute JavaScript and nothing about Joro; localcmd knows how to supervise a process and
+// nothing about Joro; this package knows about Joro and nothing about either.
 //
 // The dependency shape is the interesting part. This package is handed an Invoker — the
 // sealed capability registry behind a three-method interface — and never a service
 // object. A script's reach is therefore exactly the registry's, evaluated call by call
 // with the registry's own guard, limits and audit trail. There is no second
 // authorization path to keep in step, and no host function that could grow one.
+//
+// # Two kinds, one lifecycle
+//
+// The package name says JavaScript and the package no longer only runs it, which is worth
+// a sentence rather than leaving a reader to notice. Manifest.Kind selects the execution
+// half; everything around it is shared, deliberately and completely — the same store, the
+// same trigger dispatcher, the same lens declaration, the same operator overrides, the
+// same bounded run log. A second package for commands would have meant a second copy of
+// each of those, and the copies would have drifted.
+//
+// The two halves differ in exactly one way that matters, and command.go states it at
+// length: a script's authority is a grant bundle the registry evaluates call by call,
+// while a command's authority is the operator having armed it. There is no capability for
+// running a local command and no way to grant one — see Store.InstallAs and Invoke.
 package jsautomation
 
 import (
@@ -25,6 +40,7 @@ import (
 	"github.com/BishopFox/joro/internal/capability"
 	"github.com/BishopFox/joro/internal/httptools"
 	"github.com/BishopFox/joro/internal/jsruntime"
+	"github.com/BishopFox/joro/internal/localcmd"
 )
 
 // How many scripts execute at once is the operator's to set — jsruntime.HostBudget
@@ -89,6 +105,41 @@ type Deps struct {
 	// getter is a programming error, and refusing every send is the loud failure where
 	// allowing them all is the silent one.
 	ScopeConfigured func() bool
+
+	// Commands reports whether local command automations may run at all, from
+	// --automation-commands. Nil or false means a command package still loads and lists
+	// — so the operator can see it and be told which flag it wants — but never runs.
+	//
+	// A getter rather than a bool so the shape matches every other policy field here,
+	// and so a future runtime toggle needs no signature change.
+	Commands func() bool
+
+	// CommandBudget is the operator's policy for command runs, a separate one from
+	// Budget: see the header of internal/localcmd/budget.go for why the two are not one
+	// struct. Nil, or a zero policy, means localcmd's own defaults and ceilings.
+	CommandBudget func() localcmd.Policy
+
+	// Scratch is the directory holding per-run working directories for command runs.
+	// Empty disables them, reported at the run rather than at construction.
+	Scratch string
+
+	// Captures resolves one captured transaction's raw bytes by sequence number, for a
+	// command run's stdin and input files.
+	//
+	// A narrow getter rather than the capture store itself, and that is the point: this
+	// package holding a *proxy.Store would put List, Clear and Sitemap within reach of
+	// everything here, when what a command run needs is two byte slices for one
+	// sequence number. Same reasoning as capreg.Deps.SetHighlight being a func.
+	//
+	// Nil means a command run gets no transaction bytes, which a spec that asked for
+	// them reports as an empty stdin rather than as a failure.
+	Captures func(seq int) (reqRaw, respRaw []byte, ok bool)
+
+	// ProxyURL and CAFile are exported into a command's environment when its spec sets
+	// useProxy, so its traffic can be captured and its TLS verified. Empty means the
+	// variables are not set and the command connects directly.
+	ProxyURL string
+	CAFile   string
 }
 
 // Manager runs scripts and remembers what they did.
@@ -99,8 +150,15 @@ type Manager struct {
 	// A counter rather than a buffered channel, because the ceiling is the operator's
 	// and they can change it between runs. Resizing a channel is not a thing; comparing
 	// against the value read at admission is.
-	mu     sync.Mutex
-	active int
+	//
+	// Two counters, not one. A script run holds up to two of the capability registry's
+	// eight global slots, which is what its ceiling is set against; a command run holds
+	// none of them and instead costs a process with its own memory and its own network
+	// activity. Sharing one counter would mean raising the ceiling for either kind
+	// raised it for both, against two limits that are not measuring the same thing.
+	mu        sync.Mutex
+	active    int
+	activeCmd int
 }
 
 // New returns a manager. A nil Runtime or Registry getter is tolerated at construction
@@ -124,6 +182,44 @@ func (m *Manager) release() {
 	m.mu.Lock()
 	m.active--
 	m.mu.Unlock()
+}
+
+// admitCmd takes a command run slot if the operator's ceiling allows one.
+func (m *Manager) admitCmd(max int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeCmd >= max {
+		return false
+	}
+	m.activeCmd++
+	return true
+}
+
+func (m *Manager) releaseCmd() {
+	m.mu.Lock()
+	m.activeCmd--
+	m.mu.Unlock()
+}
+
+// commandsEnabled reports whether --automation-commands was given. Nil getter reads as
+// disabled: a wiring mistake must not be what enables local execution.
+func (m *Manager) commandsEnabled() bool {
+	return m.deps.Commands != nil && m.deps.Commands()
+}
+
+// CommandsEnabled reports the same to the control plane, so a handler can explain a
+// refusal before attempting a run.
+func (m *Manager) CommandsEnabled() bool { return m.commandsEnabled() }
+
+// CommandBudget reports the operator's command-run policy, or a zero one when none is
+// configured.
+func (m *Manager) CommandBudget() localcmd.Policy { return m.commandPolicy() }
+
+func (m *Manager) commandPolicy() localcmd.Policy {
+	if m.deps.CommandBudget == nil {
+		return localcmd.Policy{}
+	}
+	return m.deps.CommandBudget()
 }
 
 // Runs exposes the run log for the control plane.
@@ -192,6 +288,15 @@ type RunRequest struct {
 	Trigger string
 	Limits  jsruntime.Limits
 
+	// Command, when set, makes this a command run: Source is then the spec's rendering
+	// rather than a program, and nothing in jsruntime is involved.
+	//
+	// A field rather than a kind enum, so the branch in Run is a nil check on the thing
+	// it needs rather than a string comparison followed by a lookup that could disagree
+	// with it.
+	Command       *localcmd.Spec
+	CommandLimits localcmd.Limits
+
 	// AutomationID names the installed automation this run belongs to, which is what
 	// gives it a storage namespace. Empty for a one-shot: there is nowhere durable for
 	// such a run to write, and saying so is better than a scratchpad that vanishes.
@@ -210,31 +315,116 @@ type RunRequest struct {
 // ErrBusy means the concurrent-run limit is reached.
 var ErrBusy = errors.New("Joro is already running the maximum number of scripts; retry shortly")
 
-// Run executes a script and records the outcome.
+// ErrCommandBusy is ErrBusy for a command run. A separate sentinel because the two
+// ceilings are separate and an operator told "the maximum number of scripts" while looking
+// at a command would go and edit the wrong field.
+var ErrCommandBusy = errors.New("Joro is already running the maximum number of commands; retry shortly")
+
+// Run executes an automation and records the outcome.
 //
-// The returned error means the run could not be attempted — no runtime, no registry,
-// or no free slot. Everything else, including a script that threw, timed out, blew its
-// budget or was killed for memory, comes back as a *Run whose Result carries the
-// reason. A caller therefore has one thing to report and one place to look.
+// The returned error means the run could not be attempted — no runtime, no registry, or no
+// free slot. Everything else, including a script that threw, a command that exited
+// non-zero, and either kind timing out or being killed, comes back as a *Run whose Result
+// carries the reason. A caller therefore has one thing to report and one place to look.
+//
+// Both kinds end here, which is the property worth keeping: the run log, the outcome code,
+// the last-run pointer and the operator's view of what happened all have exactly one
+// producer.
 func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
+	runID := newRunID()
+	started := time.Now()
+
+	res, principal, bundle, err := m.execute(ctx, runID, req)
+	if err != nil {
+		return nil, err
+	}
+	// The one place a run's fate is stamped with its machine-readable code. Both tiers
+	// synthesize reasons deep inside themselves — a worker protocol failure, a process
+	// that vanished — and neither has to know a code exists.
+	res.Outcome = outcomeFor(req, res.Reason)
+
+	run := &Run{
+		ID:           runID,
+		StartedAt:    started.UTC(),
+		DurationMs:   res.DurationMs,
+		TokenID:      req.Caller.TokenID,
+		TokenName:    req.Caller.TokenName,
+		AutomationID: req.AutomationID,
+		Trigger:      orDefault(req.Trigger, TriggerManual),
+		Bundle:       bundle,
+		Source:       req.Source,
+		SourceHash:   HashSource(req.Source),
+		Result:       res,
+
+		// The policy the run was actually held to, not the policy anyone asked for. It
+		// varies with the launching token, or with the operator's scope configuration, so
+		// a run that reported only its budget would leave the operator inferring the half
+		// most likely to have refused its sends.
+		//
+		// Both false for a command, and that is accurate rather than a default: a command
+		// makes no guarded call, so no scope decision and no credential decision was
+		// taken about it. The UI reads Bundle to tell the two cases apart.
+		RequireScope: principal.RequireScope,
+		Credentials:  principal.AllowCredentials,
+	}
+	m.runs.Add(run)
+	return run, nil
+}
+
+// outcomeFor stamps the code for a reason, from the vocabulary of whichever tier produced
+// it. The two vocabularies overlap in wording ("timeout", "cancelled") and each maps its
+// own, so neither has to know about the other's additions.
+func outcomeFor(req RunRequest, reason string) string {
+	if req.Command != nil {
+		return localcmd.OutcomeFor(reason)
+	}
+	return jsruntime.OutcomeFor(reason)
+}
+
+// execute runs the body and reports what it was held to.
+//
+// Split from Run so the record above is built once for both kinds. It returns the
+// principal because a script's is synthesized here and is what the record's policy fields
+// report; a command has none, and the zero value says so.
+func (m *Manager) execute(ctx context.Context, runID string,
+	req RunRequest) (jsruntime.Result, capability.Principal, string, error) {
+	if req.Command != nil {
+		if !m.admitCmd(m.commandPolicy().Host.Resolved().ConcurrentRuns) {
+			return jsruntime.Result{}, capability.Principal{}, "", ErrCommandBusy
+		}
+		defer m.releaseCmd()
+
+		// No principal, no registry, no bundle. There is nothing to authorize call by
+		// call, which is exactly why running one at all takes a launch flag and an
+		// operator arming it.
+		res, err := m.runCommand(ctx, runID, req)
+		return res, capability.Principal{}, "", err
+	}
+	return m.executeScript(ctx, runID, req)
+}
+
+// executeScript is the JavaScript half: the body of Run as it was before commands existed.
+func (m *Manager) executeScript(ctx context.Context, runID string,
+	req RunRequest) (jsruntime.Result, capability.Principal, string, error) {
+	var none capability.Principal
+
 	if m.deps.Runtime == nil {
-		return nil, errors.New("the script runtime is unavailable")
+		return jsruntime.Result{}, none, "", errors.New("the script runtime is unavailable")
 	}
 	if m.deps.Registry == nil {
-		return nil, errors.New("the capability registry is unavailable")
+		return jsruntime.Result{}, none, "", errors.New("the capability registry is unavailable")
 	}
 	reg := m.deps.Registry()
 	if reg == nil {
-		return nil, errors.New("the capability registry is unavailable")
+		return jsruntime.Result{}, none, "", errors.New("the capability registry is unavailable")
 	}
 
 	policy := m.budget()
 	if !m.admit(policy.Host.Resolved().ConcurrentRuns) {
-		return nil, ErrBusy
+		return jsruntime.Result{}, none, "", ErrBusy
 	}
 	defer m.release()
 
-	runID := newRunID()
 	sendCaps := sendCapsFrom(reg)
 	principal := runPrincipal(req.Caller, runID, sendCaps, req.NoSend, m.scopeConfigured())
 
@@ -265,7 +455,7 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 			AutomationID:      req.AutomationID,
 			AutomationVersion: req.AutomationVersion,
 		},
-		SendCaps: sendCapsFrom(reg),
+		SendCaps: sendCaps,
 	}
 
 	res, err := m.deps.Runtime.Run(ctx, rtReq, m.bridgeFor(reg, principal, req.AutomationID))
@@ -278,38 +468,15 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) (*Run, error) {
 			DurationMs: time.Since(started).Milliseconds(),
 		}
 	}
-	// The one place a run's fate is stamped with its machine-readable code, which is what
-	// makes it reliable: this is the only call into a runtime, and every run record is
-	// built below, so a reason synthesized deep in the worker protocol gets a code without
-	// that protocol having to know one exists.
-	res.Outcome = jsruntime.OutcomeFor(res.Reason)
-
-	run := &Run{
-		ID:           runID,
-		StartedAt:    started.UTC(),
-		DurationMs:   res.DurationMs,
-		TokenID:      req.Caller.TokenID,
-		TokenName:    req.Caller.TokenName,
-		AutomationID: req.AutomationID,
-		Trigger:      rtReq.Meta.TriggerType,
-		Bundle:       BundleVersion,
-		Source:       req.Source,
-		SourceHash:   HashSource(req.Source),
-		Result:       res,
-
-		// The policy the run was actually held to, not the policy anyone asked for. It
-		// varies with the launching token, or with the operator's scope configuration, so
-		// a run that reported only its budget would leave the operator inferring the half
-		// most likely to have refused its sends.
-		RequireScope: principal.RequireScope,
-		Credentials:  principal.AllowCredentials,
-	}
-	m.runs.Add(run)
-	return run, nil
+	return res, principal, BundleVersion, nil
 }
 
 // ErrNotRunnable means an installed automation exists but is not armed.
 var ErrNotRunnable = errors.New("this automation is not enabled")
+
+// ErrCommandNotInvokable means a token tried to start a command automation. See Invoke.
+var ErrCommandNotInvokable = errors.New("this automation runs a local command, which only " +
+	"the operator can start")
 
 // List returns every installed automation, without source. Used by the script.list
 // capability and by the control plane.
@@ -363,6 +530,22 @@ func (m *Manager) Invoke(ctx context.Context, req InvokeRequest) (*Run, error) {
 		return nil, ErrNotRunnable
 	}
 
+	// A token may not start a command automation, and this is the gate that holds it.
+	//
+	// script.invoke exists, is registered whenever --automation-scripting is on, and is
+	// grantable by hand — so without this a token holding it could run any command
+	// package the operator had armed. That is a different thing from what the operator
+	// agreed to when they armed it: arming says "run this on the trigger I chose", not
+	// "let anything holding a grant run it on demand".
+	//
+	// Derived from the caller's TokenID rather than carried as a flag, reusing
+	// tokenLaunched, because every token path receives its principal from
+	// Registry.Invoke, which always sets it. A token path added later gets this for
+	// free, where a bool would have to be remembered.
+	if a.Manifest.IsCommand() && tokenLaunched(caller) {
+		return nil, ErrCommandNotInvokable
+	}
+
 	// A trigger-fired run has no launching token, so nothing carries a host whitelist
 	// into it and scope is its only bound. Where the operator has set one on the
 	// automation, apply it. Only when the caller has none of its own: a token's leash is
@@ -371,7 +554,7 @@ func (m *Manager) Invoke(ctx context.Context, req InvokeRequest) (*Run, error) {
 		caller.HostAllow = slices.Clone(a.State.HostAllow)
 	}
 
-	run, err := m.Run(ctx, RunRequest{
+	rr := RunRequest{
 		Source:            a.Source,
 		Input:             input,
 		Caller:            caller,
@@ -381,7 +564,20 @@ func (m *Manager) Invoke(ctx context.Context, req InvokeRequest) (*Run, error) {
 		AutomationID:      a.Manifest.ID,
 		AutomationVersion: a.Manifest.Version,
 		NoSend:            req.NoSend,
-	})
+	}
+	if a.Manifest.IsCommand() {
+		rr.Command = a.Manifest.Command
+		// The command budget's only per-automation input is the wall clock, which the
+		// manifest and the operator's override already narrow through RequestedBudget.
+		// Resolved against the operator's command policy here, so the same "narrowed by
+		// whoever asked for less, then held to the operator's global" rule applies to
+		// both kinds.
+		rr.CommandLimits = localcmd.Limits{
+			Timeout: a.RequestedBudget().Limits().Timeout,
+		}.NormalizeWith(m.commandPolicy())
+	}
+
+	run, err := m.Run(ctx, rr)
 	if err != nil {
 		return nil, err
 	}

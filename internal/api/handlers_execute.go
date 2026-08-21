@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/BishopFox/joro/internal/proxy"
@@ -15,7 +14,7 @@ func (s *APIServer) handleExecute(w http.ResponseWriter, r *http.Request) {
 		AuthKey  string `json:"authKey"`
 		Command  string `json:"command"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

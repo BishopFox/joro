@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -38,7 +37,8 @@ type fuzzerStartRequest struct {
 
 func (s *APIServer) handleFuzzerStart(w http.ResponseWriter, r *http.Request) {
 	var req fuzzerStartRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Bulk: Wordlist/Wordlists arrive inline, sourced from an upload capped at 50 MB.
+	if err := decodeJSONLimit(r, &req, maxBulkJSONBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -302,6 +302,11 @@ func (s *APIServer) handleFuzzerDeleteCampaign(w http.ResponseWriter, r *http.Re
 }
 
 func (s *APIServer) handleFuzzerUploadWordlist(w http.ResponseWriter, r *http.Request) {
+	// Multipart body; see requireLocalOrigin.
+	if !requireLocalOrigin(w, r) {
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, 50<<20) // 50MB limit
 
 	file, _, err := r.FormFile("file")

@@ -512,11 +512,22 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
               alt="XSS fire screenshot"
               className="w-full rounded border border-border cursor-pointer"
               onClick={() => {
+                // Built through the DOM rather than written as markup, deliberately.
+                //
+                // window.open() with no URL yields an about:blank that inherits this
+                // origin, so anything parsed as HTML there runs with Joro's own
+                // authority — and the value is a screenshot an attacker supplied to an
+                // unauthenticated callback endpoint. Assigning it to .src hands it to
+                // the URL parser instead of the HTML parser, so there is no attribute
+                // to break out of, and a javascript: URL in an img src is inert.
                 const w = window.open()
-                if (w) {
-                  w.document.write(`<img src="${fire.screenshot}" style="max-width:100%">`)
-                  w.document.title = 'XSS Screenshot'
-                }
+                if (!w) return
+                const img = w.document.createElement('img')
+                img.src = fire.screenshot!
+                img.alt = 'XSS fire screenshot'
+                img.style.maxWidth = '100%'
+                w.document.body.appendChild(img)
+                w.document.title = 'XSS Screenshot'
               }}
             />
           </div>

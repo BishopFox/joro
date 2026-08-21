@@ -247,6 +247,48 @@ func (h *HTTPServer) handleXSSProbeJS(w http.ResponseWriter, r *http.Request, pr
 	fmt.Fprint(w, js)
 }
 
+// screenshotPrefixes are the forms a probe's screenshot may take.
+//
+// The shipped probe produces exactly one of them: it initialises screenshot to "" and sets
+// it in a single place, from a canvas toDataURL("image/png"), so every success is
+// data:image/png and every failure path — the render rejecting, the helper script failing
+// to load, the surrounding try throwing — leaves it empty. jpeg and webp are accepted as
+// headroom for a probe that captures differently.
+var screenshotPrefixes = []string{
+	"data:image/png;base64,",
+	"data:image/jpeg;base64,",
+	"data:image/webp;base64,",
+}
+
+// safeScreenshot returns a screenshot value fit to store, or "" for one that is not.
+//
+// This is the ingestion point of an unauthenticated public endpoint, so the value is
+// whatever the page that received the probe chose to send. Holding it to the data: URL shape
+// means it cannot carry a quote or an angle bracket into the UI, and cannot name a remote
+// host that would be fetched — a beacon telling an attacker exactly when the operator opened
+// their fire — however it is later rendered.
+//
+// Deliberately not a rejection of the whole callback, and deliberately no size limit of its
+// own. The fire is the finding; the screenshot is a convenience beside it. Dropping one
+// field and keeping the hit is the only failure mode that cannot lose evidence, and the 5 MB
+// body limit above is already the size bound — a second, tighter one here could only discard
+// a legitimate large capture. With the viewer building the image through the DOM and the
+// UI's own policy refusing off-origin image loads, this is the third layer rather than the
+// only one, which is what lets it be this forgiving.
+func safeScreenshot(v, probeID string) string {
+	if v == "" {
+		return ""
+	}
+	for _, p := range screenshotPrefixes {
+		if strings.HasPrefix(v, p) {
+			return v
+		}
+	}
+	log.Printf("xss callback: probe %s sent a screenshot that is not a data:image URL (%d bytes); "+
+		"dropping the screenshot and keeping the fire", probeID, len(v))
+	return ""
+}
+
 func (h *HTTPServer) handleXSSCallback(w http.ResponseWriter, r *http.Request) {
 	if h.xssStore == nil {
 		http.Error(w, "not configured", http.StatusServiceUnavailable)
@@ -299,7 +341,7 @@ func (h *HTTPServer) handleXSSCallback(w http.ResponseWriter, r *http.Request) {
 		Cookies:      payload.Cookies,
 		PageTitle:    payload.PageTitle,
 		DOM:          payload.DOM,
-		Screenshot:   payload.Screenshot,
+		Screenshot:   safeScreenshot(payload.Screenshot, payload.ProbeID),
 		PageText:     payload.PageText,
 		SourceIP:     sourceIP,
 		InIframe:     payload.InIframe,

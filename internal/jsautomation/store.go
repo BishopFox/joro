@@ -31,6 +31,20 @@ import (
 // a pentester will open it in their own editor, and a JSON-escaped source string is
 // hostile to that. And operator state is separate from author state so installing an
 // update never silently reverts a lowered limit or a trigger someone switched off.
+//
+// # A command package has two files, not three
+//
+// KindCommand has no source file. Its body is the manifest's command block, and its
+// Source is that block rendered — see sourceOf. The argument for a real .js file does
+// not carry over: a spec is structured data a form edits, not text an author writes, so
+// there is nothing for an editor to open and a second copy on disk beside the manifest
+// would be a thing to drift.
+//
+// Everything downstream still works, because Source is what the record machinery is
+// written against: the hash identifies the exact command, the revision list tracks
+// changes to it, and the run log retains verbatim what ran. Which means editing an
+// argument cuts a revision while editing a description does not — the description is not
+// part of what runs, so it is not part of what is rendered.
 
 var (
 	ErrNotFound     = errors.New("no such automation")
@@ -46,6 +60,17 @@ var (
 	// ErrTooManyPackages means MaxAgentPackages is reached.
 	ErrTooManyPackages = errors.New("this Joro already holds the maximum number of " +
 		"token-stored automations; the operator has to remove one first")
+
+	// ErrCommandNotSubmittable means a capability tried to store a command package.
+	// Only the operator installs those, from the UI. See InstallAs.
+	ErrCommandNotSubmittable = errors.New("a command automation cannot be stored by an " +
+		"automation token: it runs a local program, so only the operator installs one")
+
+	// ErrKindChange means a write tried to turn a script into a command or back.
+	// Refused for the same reason changing an id is: the body is not being edited, it
+	// is being replaced by a different sort of thing, and the revision history would
+	// read as one continuous artifact when it is two.
+	ErrKindChange = errors.New("an automation's kind cannot be changed; install a new one instead")
 )
 
 const (
@@ -168,9 +193,17 @@ func (s *Store) loadLocked(id string) (*Automation, error) {
 		return nil, fmt.Errorf("%s declares id %q but lives in %q", manifestFile, m.ID, id)
 	}
 
-	src, err := os.ReadFile(filepath.Join(dir, m.Entrypoint))
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", m.Entrypoint, err)
+	var src string
+	if m.IsCommand() {
+		// Derived, not read: there is no source file, and the manifest already holds
+		// everything that decides what runs.
+		src = sourceOf(m, "")
+	} else {
+		b, rerr := os.ReadFile(filepath.Join(dir, m.Entrypoint))
+		if rerr != nil {
+			return nil, fmt.Errorf("reading %s: %w", m.Entrypoint, rerr)
+		}
+		src = string(b)
 	}
 
 	st := State{}
@@ -186,9 +219,25 @@ func (s *Store) loadLocked(id string) (*Automation, error) {
 	return &Automation{
 		Manifest:   m,
 		State:      st,
-		Source:     string(src),
-		SourceHash: HashSource(string(src)),
+		Source:     src,
+		SourceHash: HashSource(src),
 	}, nil
+}
+
+// sourceOf returns the text that *is* this package's body.
+//
+// For a script that is what the caller supplied. For a command it is the rendered spec,
+// and the caller's argument is ignored outright rather than merged or preferred: a
+// command's body is decided by its manifest, so accepting a source alongside one would
+// let a write store a hash of text that has nothing to do with what would run.
+//
+// Every write path routes through this before hashing, so the invariant holds at one
+// place instead of at four.
+func sourceOf(m Manifest, source string) string {
+	if !m.IsCommand() || m.Command == nil {
+		return source
+	}
+	return m.Command.Render()
 }
 
 // Install writes a new package. It refuses an id that already exists rather than
@@ -206,12 +255,23 @@ func (s *Store) Install(m Manifest, source string) (*Automation, error) {
 // enabling one does not make room, because the point of the limit is a reviewable list,
 // not a quota on disk.
 func (s *Store) InstallAs(m Manifest, source, author string) (*Automation, error) {
-	m.Normalize()
-	if err := m.Validate(); err != nil {
+	source, err := s.validateWrite(&m, source)
+	if err != nil {
 		return nil, err
 	}
-	if err := ValidateSource(source, s.sourceLimit()); err != nil {
-		return nil, err
+	// A capability may not store a command package, and this is the third of the three
+	// places that holds. The other two are structural — Manifest.Normalize reads an
+	// absent kind as a script, and the install capability's argument struct has no kind
+	// field at all — so an agent has no way to ask for one. This catches the case where
+	// a later argument or a hand-built Manifest gives it one anyway.
+	//
+	// The reason is that a command package's authority is not a grant. A script is
+	// bounded by the SDK bundle whatever it contains; a command is bounded by nothing
+	// Joro evaluates, so the only thing standing between submitted code and local
+	// execution is a person having read it. An operator can be that person for code
+	// they wrote. They cannot be for a directory an agent fills.
+	if author != "" && m.IsCommand() {
+		return nil, ErrCommandNotSubmittable
 	}
 
 	s.mu.Lock()
@@ -268,7 +328,8 @@ func (s *Store) Update(id string, m Manifest, source, expectedHash string) (*Aut
 // which clears the field — the right reading: they have read the code and rewritten it as
 // their own.
 func (s *Store) UpdateAs(id string, m Manifest, source, expectedHash, author string) (*Automation, error) {
-	if err := s.validateWrite(&m, source); err != nil {
+	source, err := s.validateWrite(&m, source)
+	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
@@ -288,8 +349,17 @@ func (s *Store) UpdateAs(id string, m Manifest, source, expectedHash, author str
 // reports every package's hash, so a caller can always obtain one — but it does mean a
 // blind overwrite costs a prior read.
 func (s *Store) ReplaceDisabled(id string, m Manifest, source, expectedHash, author string) (*Automation, error) {
-	if err := s.validateWrite(&m, source); err != nil {
+	source, err := s.validateWrite(&m, source)
+	if err != nil {
 		return nil, err
+	}
+	if m.IsCommand() {
+		// The same rule InstallAs states: only the operator installs a command
+		// package, so only the operator replaces one. Checked here as well as there
+		// because this is a separate grant — storing something new and rewriting
+		// something that is already there are different acts, and a token can hold
+		// script.replace without script.install.
+		return nil, ErrCommandNotSubmittable
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -297,13 +367,31 @@ func (s *Store) ReplaceDisabled(id string, m Manifest, source, expectedHash, aut
 }
 
 // validateWrite normalizes and checks what every write path checks, outside the lock —
-// manifest shape and a source that compiles.
-func (s *Store) validateWrite(m *Manifest, source string) error {
+// manifest shape, and a body that is valid for its kind — and returns the body to store.
+//
+// It returns the source rather than taking a pointer to it because a command's body is
+// derived from the manifest: a caller cannot know it before Normalize has run, so having
+// this hand back the answer is what stops each write path deriving it again slightly
+// differently.
+func (s *Store) validateWrite(m *Manifest, source string) (string, error) {
 	m.Normalize()
 	if err := m.Validate(); err != nil {
-		return err
+		return "", err
 	}
-	return ValidateSource(source, s.sourceLimit())
+	body := sourceOf(*m, source)
+
+	if m.IsCommand() {
+		// Manifest.Validate already ran Spec.Validate, which is the command's
+		// equivalent of compiling: it resolves the executable and refuses a
+		// placeholder nothing supplies. Only the size check is left, and it applies
+		// for the same reason it does to a script — the API request that carries a
+		// package is bounded, so what is stored has to fit in one.
+		if limit := s.sourceLimit(); limit > 0 && len(body) > limit {
+			return "", fmt.Errorf("the rendered command is %d bytes, over the %d limit", len(body), limit)
+		}
+		return body, nil
+	}
+	return body, ValidateSource(body, s.sourceLimit())
 }
 
 // countAuthoredLocked counts packages a capability stored. See MaxAgentPackages.
@@ -329,6 +417,9 @@ func (s *Store) updateLocked(id string, m Manifest, source, expectedHash, author
 	if m.ID != cur.Manifest.ID {
 		return nil, fmt.Errorf("cannot change an automation's id (%q -> %q); install a new one instead",
 			cur.Manifest.ID, m.ID)
+	}
+	if m.Kind != cur.Manifest.Kind {
+		return nil, fmt.Errorf("%w (%q -> %q)", ErrKindChange, cur.Manifest.Kind, m.Kind)
 	}
 	switch {
 	case requireDisabled:
@@ -446,8 +537,13 @@ func (s *Store) writeAllLocked(dir string, m Manifest, source string, st State) 
 	if err := writeFileAtomic(filepath.Join(dir, manifestFile), append(mjson, '\n'), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(dir, m.Entrypoint), []byte(source), 0o600); err != nil {
-		return err
+	// A command has no source file: source is a rendering of the manifest that was just
+	// written, so a second copy on disk would be the same fact twice with nothing
+	// keeping them in step.
+	if !m.IsCommand() {
+		if err := writeFileAtomic(filepath.Join(dir, m.Entrypoint), []byte(source), 0o600); err != nil {
+			return err
+		}
 	}
 	return s.writeStateLocked(dir, st)
 }

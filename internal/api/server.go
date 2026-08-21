@@ -119,14 +119,23 @@ type APIServer struct {
 	autoStore   *automation.Store
 	capContexts *httptools.Contexts
 	mcpListener *mcp.Listener
-	// scriptManager runs sandboxed JavaScript against the registry. Nil unless
-	// --automation-scripting was given, which is what keeps script.run unregistered.
+	// scriptManager runs installed automations: sandboxed JavaScript against the
+	// registry, and local commands. Nil unless at least one of --automation-scripting
+	// and --automation-commands was given.
+	//
+	// Non-nil is therefore no longer the same question as "is scripting on", which it
+	// was when this held one kind. Use scriptingEnabled and commandsEnabled — the two
+	// flags are separate axes and each gates a different half.
 	scriptManager *jsautomation.Manager
+	// scriptRuntimeReady records that a worker runtime could be built, which needs
+	// os.Executable to work. False disables scripting outright rather than leaving
+	// script.run registered and failing on every call.
+	scriptRuntimeReady bool
 	// automationStorage is joro.storage: per-automation key/value state that rides in
 	// the project config like plugin state, because it describes one engagement.
 	automationStorage *jsautomation.Storage
-	// scriptTriggers watches Joro's events and runs armed automations. Nil unless
-	// scripting is on; handlers ring its doorbell after a change so an enable takes
+	// scriptTriggers watches Joro's events and runs armed automations. Nil unless the
+	// manager exists; handlers ring its doorbell after a change so an enable takes
 	// effect immediately rather than on the next 250ms tick.
 	scriptTriggers *jsautomation.Dispatcher
 	automationMu   sync.Mutex // serializes MCP start/stop from HTTP handlers
@@ -379,6 +388,10 @@ func (s *APIServer) Start(ctx context.Context) error {
 		// Proxy mode: restrict the API to same-origin browser requests.
 		handler = originGuard(uiBind, s.cfg.AllowedHosts, handler)
 	}
+	// Outermost, and in both modes: this origin can reach the whole API, so a single
+	// injection on it is not a cosmetic bug. Applied outside the auth middleware so a
+	// rejected request carries the policy too — a 403 body is still a document.
+	handler = securityHeaders(s.cfg.Dev, handler)
 
 	s.srv = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", uiBind, s.cfg.UIPort),

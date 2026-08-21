@@ -275,6 +275,10 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 		mux.HandleFunc("PUT /api/v1/automation/mcp", s.handleSetMCPState)
 		mux.HandleFunc("GET /api/v1/automation/runs", s.handleListScriptRuns)
 		mux.HandleFunc("GET /api/v1/automation/runs/{id}", s.handleGetScriptRun)
+		// {name...} rather than {name}: a command's artifacts can sit in a directory it
+		// created, so the remainder of the path is the file name. jsautomation.ArtifactPath
+		// is what refuses one that would escape the run's own directory.
+		mux.HandleFunc("GET /api/v1/automation/runs/{id}/artifacts/{name...}", s.handleGetRunArtifact)
 		mux.HandleFunc("POST /api/v1/automation/runs", s.handleRunScript)
 		mux.HandleFunc("DELETE /api/v1/automation/runs", s.handleClearScriptRuns)
 		mux.HandleFunc("GET /api/v1/automation/scripts", s.handleListScripts)

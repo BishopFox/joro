@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -19,7 +18,7 @@ func (s *APIServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		BinaryName string `json:"binaryName"` // required when mode=dropper && !inMemory
 		InMemory   bool   `json:"inMemory"`   // execute in memory without writing to disk
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

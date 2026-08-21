@@ -2,12 +2,15 @@ import { create } from 'zustand'
 import {
   api,
   type AutomationBudget,
+  type AutomationKind,
   type AutomationPolicy,
   type AutomationProfile,
   type AutomationSummary,
   type AutomationToken,
   type AutomationTokenInput,
   type Capability,
+  type CommandMeta,
+  type CommandPolicy,
   type McpState,
 } from '../lib/api'
 
@@ -20,6 +23,15 @@ interface AutomationState {
   scripts: AutomationSummary[]
   /** Trigger names the server accepts, for the editor's checkboxes. */
   scriptTriggers: string[]
+  /** The execution kinds the server knows. Served rather than hardcoded, for the reason
+   *  the trigger list is. */
+  scriptKinds: AutomationKind[]
+  /** Whether the JavaScript half is live. False when Joro was started with only
+   *  --automation-commands, in which case the editor offers no script kind. */
+  scriptingEnabled: boolean
+  /** The command vocabulary — stdin modes, placeholders, and whether commands may run at
+   *  all. Null until the list loads. */
+  commandMeta: CommandMeta | null
   /** Why the automation list is empty: null when it loaded, otherwise the server's
    *  explanation, which names --no-automation or --automation-scripting. */
   scriptsUnavailable: string | null
@@ -43,7 +55,7 @@ interface AutomationState {
   refresh: () => Promise<void>
   refreshMcp: () => Promise<void>
   refreshBudget: () => Promise<void>
-  setBudget: (policy: AutomationPolicy) => Promise<void>
+  setBudget: (policy: AutomationPolicy, command?: CommandPolicy) => Promise<void>
   refreshScripts: () => Promise<void>
   create: (body: AutomationTokenInput) => Promise<string>
   update: (id: string, body: Partial<AutomationTokenInput>) => Promise<void>
@@ -59,6 +71,9 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
   capabilities: [],
   scripts: [],
   scriptTriggers: [],
+  scriptKinds: ['js'],
+  scriptingEnabled: false,
+  commandMeta: null,
   scriptsUnavailable: null,
   classes: [],
   profiles: [],
@@ -115,8 +130,8 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
 
   /** Throws on a rejected value so the caller can surface which field was refused —
    *  the server names the field and its ceiling rather than silently clamping. */
-  setBudget: async (policy) => {
-    set({ budget: await api.setAutomationLimits(policy) })
+  setBudget: async (policy, command) => {
+    set({ budget: await api.setAutomationLimits(policy, command) })
   },
 
   refreshScripts: async () => {
@@ -125,6 +140,9 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       set({
         scripts: d.scripts ?? [],
         scriptTriggers: d.triggers ?? [],
+        scriptKinds: d.kinds ?? ['js'],
+        scriptingEnabled: d.scripting ?? false,
+        commandMeta: d.commands ?? null,
         scriptsUnavailable: null,
       })
     } catch (e) {

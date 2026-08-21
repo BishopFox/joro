@@ -33,7 +33,7 @@ func (s *APIServer) handleCreateProbe(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -183,7 +183,7 @@ func (s *APIServer) handleUpdateProbe(w http.ResponseWriter, r *http.Request) {
 		CollectPages []string `json:"collectPages"`
 		ChainloadURI string   `json:"chainloadUri"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -272,7 +272,7 @@ func (s *APIServer) handleUpdateXSSConfig(w http.ResponseWriter, r *http.Request
 		CollectPages []string `json:"collectPages"`
 		ChainloadURI string   `json:"chainloadUri"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -26,8 +25,12 @@ func (s *APIServer) handleBrowserLaunch(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		URL string `json:"url"`
 	}
-	if r.Body != nil {
-		json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+	// Optional: launching with no start URL is the common case. A body that was sent and
+	// could not be read is reported rather than ignored — silently launching at the
+	// default page would look like the requested URL was simply refused.
+	if err := decodeJSONOptional(r, &body, maxJSONBody); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
 	}
 
 	path, name, ok := browser.Find()

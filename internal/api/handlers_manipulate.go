@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -20,7 +19,8 @@ type manipulateRequest struct {
 
 func (s *APIServer) handleManipulateSend(w http.ResponseWriter, r *http.Request) {
 	var req manipulateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Bulk: Raw is a base64'd whole HTTP request, which can carry a file upload.
+	if err := decodeJSONLimit(r, &req, maxBulkJSONBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

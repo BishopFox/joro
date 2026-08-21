@@ -57,7 +57,7 @@ func (s *APIServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request)
 		MaxRequests         *int    `json:"maxRequests"`
 		DisableUpdateChecks *bool   `json:"disableUpdateChecks"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

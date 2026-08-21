@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"mime"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,29 +16,18 @@ import (
 	"github.com/BishopFox/joro/internal/capreg"
 	"github.com/BishopFox/joro/internal/jsautomation"
 	"github.com/BishopFox/joro/internal/jsruntime"
+	"github.com/BishopFox/joro/internal/localcmd"
 )
 
 // maxAutomationBody bounds a request on the automation control plane. Sized for the
 // largest of them — one carrying automation source — from the program-size ceiling the
 // budget offers, with room for a manifest beside it, so the program limit is the one that
-// reports rather than this.
+// reports rather than this. Passed to decodeJSONLimit; see the tiers in decode.go.
 const maxAutomationBody = jsruntime.CapSourceBytes + (1 << 19)
 
-// decodeJSON reads a bounded JSON body, and requires the JSON content type.
-//
-// Requiring it is deliberate rather than pedantic. `application/json` is not a
-// CORS-safelisted content type, so a browser cannot send one cross-origin without a
-// preflight, and a preflight against this API fails — it sets no CORS headers. That holds
-// independently of originGuard, which is the primary control here but reasons from
-// headers the browser volunteers: a client that sends none at all is treated as local
-// tooling and allowed through. This check still applies to it, at the cost of one
-// `-H 'Content-Type: application/json'`.
-func decodeJSON(r *http.Request, dst any) error {
-	ct, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || ct != "application/json" {
-		return errors.New("expected Content-Type: application/json")
-	}
-	return json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxAutomationBody)).Decode(dst)
+// decodeAutomationJSON is decodeJSON at the automation plane's own body cap.
+func decodeAutomationJSON(r *http.Request, dst any) error {
+	return decodeJSONLimit(r, dst, maxAutomationBody)
 }
 
 // The script run log, over REST.
@@ -54,14 +43,44 @@ func decodeJSON(r *http.Request, dst any) error {
 // question the log answers — which exact code did an agent run against a client's
 // systems — is the one an operator most needs after the fact.
 
-// requireScripting reports whether the script runner is available, writing the JSON 404
-// if not. Separate from requireAutomation: automation can be on while scripting is off,
-// and "automation is not enabled" would send an operator looking in the wrong place.
-func (s *APIServer) requireScripting(w http.ResponseWriter) bool {
+// requireAutomations reports whether installed automations exist at all — either kind —
+// writing the JSON 404 if not.
+//
+// Three gates rather than one, because there are three ways to be switched off and each
+// has a different remedy. An operator sent to the wrong flag has been told something
+// worse than nothing, so every message names the switch that would change the answer:
+//
+//	requireAutomation   --no-automation, nothing about automation is registered
+//	requireAutomations  neither --automation-scripting nor --automation-commands
+//	requireScripting    the JavaScript half specifically
+//
+// The frontend distinguishes them by looking for "--automation-scripting" in the text,
+// which both of the latter two carry — so the message can gain detail without the client
+// having to learn a new one.
+func (s *APIServer) requireAutomations(w http.ResponseWriter) bool {
 	if !s.requireAutomation(w) {
 		return false
 	}
 	if s.scriptManager == nil {
+		writeError(w, http.StatusNotFound,
+			"installed automations are not enabled on this instance; start Joro with "+
+				"--automation-scripting for sandboxed scripts, or --automation-commands to run "+
+				"local commands")
+		return false
+	}
+	return true
+}
+
+// requireScripting reports whether the JavaScript half is available.
+//
+// Distinct from requireAutomations because the manager also exists for commands alone: an
+// operator running with only --automation-commands has installed automations but no script
+// runtime, and "installed automations are not enabled" would be false.
+func (s *APIServer) requireScripting(w http.ResponseWriter) bool {
+	if !s.requireAutomations(w) {
+		return false
+	}
+	if !s.scriptingEnabled() {
 		writeError(w, http.StatusNotFound,
 			"script automation is not enabled on this instance; start Joro with --automation-scripting")
 		return false
@@ -70,7 +89,7 @@ func (s *APIServer) requireScripting(w http.ResponseWriter) bool {
 }
 
 func (s *APIServer) handleListScriptRuns(w http.ResponseWriter, r *http.Request) {
-	if !s.requireScripting(w) {
+	if !s.requireAutomations(w) {
 		return
 	}
 	q := r.URL.Query()
@@ -91,7 +110,7 @@ func (s *APIServer) handleListScriptRuns(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *APIServer) handleGetScriptRun(w http.ResponseWriter, r *http.Request) {
-	if !s.requireScripting(w) {
+	if !s.requireAutomations(w) {
 		return
 	}
 	run, ok := s.scriptManager.Runs().Get(r.PathValue("id"))
@@ -104,17 +123,51 @@ func (s *APIServer) handleGetScriptRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleClearScriptRuns(w http.ResponseWriter, r *http.Request) {
-	if !s.requireScripting(w) {
+	if !s.requireAutomations(w) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"deleted": s.scriptManager.Runs().Clear()})
+}
+
+// handleGetRunArtifact serves one file from a command run's working directory.
+//
+// It exists because without it the headline use is only half a feature: a scanner's whole
+// output is the report directory it writes, and a run that lists file names nobody can open
+// has told the operator what they are missing rather than giving it to them.
+//
+// What it serves is anything inside that one run's directory, which is a slightly wider
+// contract than the artifact list the run reported — the input files Joro itself wrote are
+// reachable too, since they are also in there. That is deliberate rather than overlooked:
+// the directory holds only what Joro put there and what the command produced, so "inside
+// this run's directory" is the whole containment, and it is a property of the path rather
+// than of a list someone has to keep in step with it.
+//
+// The path is resolved by jsautomation.ArtifactPath, which owns the scratch layout and
+// validates the path — this handler deliberately does not join anything itself. Served as an
+// attachment with a generic content type and nosniff, so a file a third-party tool wrote is
+// downloaded rather than rendered.
+func (s *APIServer) handleGetRunArtifact(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAutomations(w) {
+		return
+	}
+	path, err := s.scriptManager.ArtifactPath(r.PathValue("id"), r.PathValue("name"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no such artifact")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=%q", filepath.Base(path)))
+	http.ServeFile(w, r, path)
 }
 
 // ---- Installed automations ----
 
 // packages returns the installed-automation store, writing the 404 if unavailable.
 func (s *APIServer) packages(w http.ResponseWriter) *jsautomation.Store {
-	if !s.requireScripting(w) {
+	if !s.requireAutomations(w) {
 		return nil
 	}
 	st := s.scriptManager.Packages()
@@ -148,6 +201,28 @@ func (s *APIServer) handleListScripts(w http.ResponseWriter, r *http.Request) {
 		"scripts":  s.scriptManager.List(),
 		"triggers": jsautomation.Triggers,
 		"bundle":   jsautomation.BundleVersion,
+		"kinds":    jsautomation.Kinds,
+
+		// The command vocabulary, served rather than restated in the frontend — the same
+		// reason the budget serves its specs. A stdin mode or a placeholder added in Go
+		// then appears in the editor's selects with no client change, and a client can
+		// never offer one the server would refuse.
+		"scripting": s.scriptingEnabled(),
+		"commands": map[string]any{
+			"enabled":     s.commandsEnabled(),
+			"stdinModes":  localcmd.StdinModes,
+			"outputModes": localcmd.OutputModes,
+			"fileParts":   localcmd.FileParts,
+
+			// What each placeholder is, and which triggers supply one. Two sources
+			// because they are two packages' knowledge: localcmd owns the grammar it
+			// enforces, jsautomation owns which trigger populates what. The editor
+			// renders both and hardcodes neither, which is what stopped the old
+			// hand-written paragraph from drifting away from checkCaptured.
+			"placeholders": localcmd.PlaceholderDocs(),
+			"availability": jsautomation.CommandPlaceholderAvailability(),
+			"inputToken":   localcmd.PlaceholderInput,
+		},
 	})
 }
 
@@ -187,7 +262,7 @@ func (s *APIServer) handleInstallScript(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var body scriptWriteBody
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -206,7 +281,7 @@ func (s *APIServer) handleUpdateScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body scriptWriteBody
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -250,7 +325,7 @@ func (s *APIServer) handleSetScriptEnabled(w http.ResponseWriter, r *http.Reques
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -288,7 +363,7 @@ func (s *APIServer) handleSetScriptPrefs(w http.ResponseWriter, r *http.Request)
 		LensPart         *string                      `json:"lensPart"`
 		LensOrder        *int                         `json:"lensOrder"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -348,7 +423,7 @@ func (s *APIServer) handleSetScriptPrefs(w http.ResponseWriter, r *http.Request)
 // draft before it is saved is not an authoring surface. It is also why a disabled
 // automation may be run from here: reviewing something means being able to run it first.
 func (s *APIServer) handleRunScript(w http.ResponseWriter, r *http.Request) {
-	if !s.requireScripting(w) {
+	if !s.requireAutomations(w) {
 		return
 	}
 	var body struct {
@@ -361,7 +436,7 @@ func (s *APIServer) handleRunScript(w http.ResponseWriter, r *http.Request) {
 		MaxCalls     int    `json:"maxCalls"`
 		MaxSendCalls int    `json:"maxSendCalls"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -390,9 +465,16 @@ func (s *APIServer) handleRunScript(w http.ResponseWriter, r *http.Request) {
 			OperatorRun: true,
 		})
 	case strings.TrimSpace(body.Source) != "":
+		// Inline source is JavaScript, so this branch needs the script half specifically.
+		// An operator running with only --automation-commands has no runtime to hand it
+		// to, and should be told which flag rather than getting a run that reports the
+		// runtime missing.
+		if !s.requireScripting(w) {
+			return
+		}
 		run, err = s.scriptManager.Run(r.Context(), jsautomation.RunRequest{
-			Source:  body.Source,
-			Input:   body.Input,
+			Source: body.Source,
+			Input:  body.Input,
 			// A name for the audit trail and no policy, exactly like
 			// AutomationPrincipal: no token launched this, so runPrincipal resolves
 			// policy from the operator's own configuration rather than from a flag on a
@@ -412,7 +494,7 @@ func (s *APIServer) handleRunScript(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
-	case errors.Is(err, jsautomation.ErrBusy):
+	case errors.Is(err, jsautomation.ErrBusy), errors.Is(err, jsautomation.ErrCommandBusy):
 		writeError(w, http.StatusTooManyRequests, err.Error())
 	case errors.Is(err, jsautomation.ErrNotFound):
 		writeError(w, http.StatusNotFound, "no such automation")
@@ -503,11 +585,38 @@ type budgetResponse struct {
 	// AgentOutputCap is the size the two agent figures share. Their own specs carry it
 	// as a cap; this is here so the panel can name the sum rule once.
 	AgentOutputCap int `json:"agentOutputCap"`
+
+	// Command is the same thing for local command runs, on a separate policy with its own
+	// fields; see internal/localcmd/budget.go for why the two are not one struct.
+	//
+	// Nested rather than flattened so the panel renders two sections from one response
+	// without having to know which key belongs to which. Its specs have the same shape as
+	// the ones above, which is what lets one component render both.
+	Command commandBudgetResponse `json:"command"`
+}
+
+type commandBudgetResponse struct {
+	// Enabled is whether --automation-commands was given. The panel still shows the
+	// section when it is false — an operator can set a budget for something they have
+	// not switched on yet — but says so rather than implying commands will run.
+	Enabled bool `json:"enabled"`
+
+	Policy       localcmd.Policy     `json:"policy"`
+	Effective    localcmd.Budget     `json:"effective"`
+	EffectiveMax localcmd.Budget     `json:"effectiveMax"`
+	Host         localcmd.HostBudget `json:"host"`
+
+	Specs     []localcmd.BudgetSpec `json:"specs"`
+	HostSpecs []localcmd.BudgetSpec `json:"hostSpecs"`
 }
 
 func (s *APIServer) scriptBudgetState() budgetResponse {
 	p := s.autoStore.ScriptBudget()
 	def, maxi := p.Bounds()
+
+	cp := s.autoStore.CommandBudget()
+	cdef, cmaxi := cp.Bounds()
+
 	return budgetResponse{
 		Policy:         p,
 		Effective:      def,
@@ -516,11 +625,20 @@ func (s *APIServer) scriptBudgetState() budgetResponse {
 		Specs:          jsruntime.BudgetSpecs(),
 		HostSpecs:      jsruntime.HostSpecs(),
 		AgentOutputCap: jsruntime.AgentOutputCap,
+		Command: commandBudgetResponse{
+			Enabled:      s.commandsEnabled(),
+			Policy:       cp,
+			Effective:    cdef,
+			EffectiveMax: cmaxi,
+			Host:         cp.Host.Resolved(),
+			Specs:        localcmd.BudgetSpecs(),
+			HostSpecs:    localcmd.HostSpecs(),
+		},
 	}
 }
 
 func (s *APIServer) handleGetScriptBudget(w http.ResponseWriter, r *http.Request) {
-	if !s.requireScripting(w) {
+	if !s.requireAutomations(w) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.scriptBudgetState())
@@ -533,13 +651,18 @@ func (s *APIServer) handleGetScriptBudget(w http.ResponseWriter, r *http.Request
 // costs a turn, but this is the operator's own form and silently correcting what they
 // typed would leave them believing a limit they do not have.
 func (s *APIServer) handleSetScriptBudget(w http.ResponseWriter, r *http.Request) {
-	if !s.requireScripting(w) {
+	if !s.requireAutomations(w) {
 		return
 	}
+	// Both policies arrive on one request and are stored together, because the panel edits
+	// them in one form and a partial save would leave the operator's two halves out of
+	// step with what they were looking at. Absent means unchanged, so a client that
+	// predates the command budget cannot clear one by omission.
 	var body struct {
-		Policy jsruntime.BudgetPolicy `json:"policy"`
+		Policy  jsruntime.BudgetPolicy `json:"policy"`
+		Command *localcmd.Policy       `json:"command,omitempty"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -547,9 +670,21 @@ func (s *APIServer) handleSetScriptBudget(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if body.Command != nil {
+		if err := validateCommandPolicy(*body.Command); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if err := s.autoStore.SetScriptBudget(body.Policy); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if body.Command != nil {
+		if err := s.autoStore.SetCommandBudget(*body.Command); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	// No WS event: nothing listens for one, the operator's own request is the only way
 	// here, and it takes effect on the next run rather than on anything already open.
@@ -575,7 +710,7 @@ func validateBudgetPolicy(p jsruntime.BudgetPolicy) error {
 			if !ok {
 				return fmt.Errorf("budget field %q cannot be read back; this is a defect in Joro", sp.Key)
 			}
-			if err := checkBudgetField(sp, v, half.what+" "); err != nil {
+			if err := checkBudgetField(scriptField(sp), v, half.what+" "); err != nil {
 				return err
 			}
 		}
@@ -594,7 +729,7 @@ func validateBudgetPolicy(p jsruntime.BudgetPolicy) error {
 		if !ok {
 			return fmt.Errorf("host limit %q cannot be read back; this is a defect in Joro", sp.Key)
 		}
-		if err := checkBudgetField(sp, v, ""); err != nil {
+		if err := checkBudgetField(scriptField(sp), v, ""); err != nil {
 			return err
 		}
 	}
@@ -610,12 +745,83 @@ func validateBudgetPolicy(p jsruntime.BudgetPolicy) error {
 	return nil
 }
 
+// validateCommandPolicy is validateBudgetPolicy for the command budget.
+//
+// The same shape and the same rules, over localcmd's specs. Two functions rather than one
+// generic over both because the two policies have different types for their halves and
+// different cross-field rules — this one has none, where the script budget has the agent
+// output sum. What they do share is checkBudgetField, through budgetField.
+func validateCommandPolicy(p localcmd.Policy) error {
+	perRun := []struct {
+		what   string
+		budget localcmd.Budget
+	}{
+		{"default", p.Defaults},
+		{"maximum", p.Maxima},
+	}
+	for _, sp := range localcmd.BudgetSpecs() {
+		f := commandField(sp)
+		for _, half := range perRun {
+			v, ok := half.budget.Value(sp.Key)
+			if !ok {
+				return fmt.Errorf("command budget field %q cannot be read back; this is a defect in Joro",
+					sp.Key)
+			}
+			if err := checkBudgetField(f, v, half.what+" "); err != nil {
+				return err
+			}
+		}
+		def, _ := p.Defaults.Value(sp.Key)
+		maxi, _ := p.Maxima.Value(sp.Key)
+		if def > 0 && maxi > 0 && def > maxi {
+			return fmt.Errorf("%s: the default (%d) cannot be above the maximum (%d)",
+				sp.Label, def/sp.Factor, maxi/sp.Factor)
+		}
+	}
+
+	for _, sp := range localcmd.HostSpecs() {
+		v, ok := p.Host.Value(sp.Key)
+		if !ok {
+			return fmt.Errorf("command host limit %q cannot be read back; this is a defect in Joro", sp.Key)
+		}
+		if err := checkBudgetField(commandField(sp), v, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// budgetField is the subset of a budget spec the validator reads.
+//
+// jsruntime and localcmd each declare their own spec type with these fields in it, because
+// neither imports the other and neither should. This is the one place that has to treat
+// them alike, so the conversion lives here rather than either of them growing a dependency
+// for a validator's convenience.
+type budgetField struct {
+	Label, Unit, CapReason string
+	Factor, Default, Cap   int
+}
+
+func scriptField(sp jsruntime.BudgetSpec) budgetField {
+	return budgetField{
+		Label: sp.Label, Unit: sp.Unit, CapReason: sp.CapReason,
+		Factor: sp.Factor, Default: sp.Default, Cap: sp.Cap,
+	}
+}
+
+func commandField(sp localcmd.BudgetSpec) budgetField {
+	return budgetField{
+		Label: sp.Label, Unit: sp.Unit, CapReason: sp.CapReason,
+		Factor: sp.Factor, Default: sp.Default, Cap: sp.Cap,
+	}
+}
+
 // checkBudgetField reports a value the runtime cannot honor, in the operator's own unit.
 //
 // Only two things can be wrong: a fraction of the unit, or a value above a structural cap.
 // A field with no cap has no upper bound here — the operator's number is the limit, which
 // is what stops this form presenting a figure as theirs to set and then refusing it.
-func checkBudgetField(sp jsruntime.BudgetSpec, v int, half string) error {
+func checkBudgetField(sp budgetField, v int, half string) error {
 	name := half + strings.ToLower(sp.Label)
 	switch {
 	case v < 0:

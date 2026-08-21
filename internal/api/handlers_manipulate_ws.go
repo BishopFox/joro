@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -31,7 +30,7 @@ func (s *APIServer) handleManipulateWSConnect(w http.ResponseWriter, r *http.Req
 	}
 
 	var req manipulateWSConnectRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -98,7 +97,8 @@ func (s *APIServer) handleManipulateWSSend(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req manipulateWSSendRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Bulk: Payload is a base64'd frame, which has no small upper bound.
+	if err := decodeJSONLimit(r, &req, maxBulkJSONBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 
@@ -25,7 +24,7 @@ func (s *APIServer) handleSliverStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleSliverConnect(w http.ResponseWriter, r *http.Request) {
 	var cfg sliver.OperatorConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+	if err := decodeJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -90,7 +89,7 @@ func (s *APIServer) handleSliverExecute(w http.ResponseWriter, r *http.Request) 
 		Command   string   `json:"command"`
 		Args      []string `json:"args"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -122,7 +121,7 @@ func (s *APIServer) handleSliverCommand(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		Input string `json:"input"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -157,6 +156,12 @@ func (s *APIServer) handleSliverDownload(w http.ResponseWriter, r *http.Request)
 
 // handleSliverUpload handles file upload to a remote target.
 func (s *APIServer) handleSliverUpload(w http.ResponseWriter, r *http.Request) {
+	// Multipart body; see requireLocalOrigin. Checked before the connection preconditions
+	// so the outcome does not depend on whether a session is live.
+	if !requireLocalOrigin(w, r) {
+		return
+	}
+
 	if !s.sliverClient.IsConnected() {
 		writeError(w, http.StatusBadRequest, "not connected to Sliver teamserver")
 		return

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/BishopFox/joro/internal/jsruntime"
+	"github.com/BishopFox/joro/internal/localcmd"
 )
 
 // SDKVersion1 binds to the automation-v1 bundle. A manifest declares which SDK
@@ -15,6 +16,25 @@ import (
 // SDK follows ordinary compatibility rules, but a materially more dangerous class of
 // authority takes a new version rather than appearing inside this one.
 const SDKVersion1 = "1"
+
+// The two kinds of installed automation.
+//
+// A package is either a sandboxed script or a local command, and the kind decides which
+// half of this package's machinery runs it. Everything around that — the store, the
+// dispatcher, the trigger set, the lens, the operator's overrides, the run log — is
+// shared, which is the whole reason this is a field rather than a second package.
+//
+// KindJS is the zero value after Normalize, and that is load-bearing rather than
+// convenient: the capability that lets an agent install a package has no kind argument,
+// so an agent-authored manifest is a script by construction and cannot become a command
+// by omitting a field. See Store.InstallAs, which refuses the pair outright.
+const (
+	KindJS      = "js"
+	KindCommand = "command"
+)
+
+// Kinds lists the valid Manifest.Kind values, script first.
+var Kinds = []string{KindJS, KindCommand}
 
 // Trigger names. These are Joro's own event type strings, not a parallel vocabulary —
 // an automation subscribes to the thing that already happens.
@@ -117,8 +137,27 @@ type Manifest struct {
 	Version     string `json:"version"`
 	Description string `json:"description,omitempty"`
 
-	SDKVersion string `json:"sdkVersion"`
+	// Kind selects the execution half. Empty normalizes to KindJS.
+	Kind string `json:"kind,omitempty"`
+
+	// SDKVersion and Entrypoint belong to a script and are empty on a command.
+	//
+	// SDKVersion names the authority contract a run is bound to, and a command has
+	// none: its authority is not a bundle Joro grants but the operator's decision to
+	// arm it. Carrying a version that selects nothing would suggest a contract exists
+	// where the honest answer is that the operator is the contract.
+	SDKVersion string `json:"sdkVersion,omitempty"`
 	Entrypoint string `json:"entrypoint,omitempty"`
+
+	// Command is the whole body of a KindCommand package: what to run, what to feed
+	// it, and what environment it gets. Nil on a script.
+	//
+	// It lives in the manifest rather than in a file beside it because a spec is
+	// structured data a form edits, where a script is text an author writes — and
+	// jsautomation.Store keeps the script in a real .js file precisely because a
+	// JSON-escaped source string is hostile to reading. A spec has the opposite
+	// shape, so it belongs here and Render() is what makes it readable.
+	Command *localcmd.Spec `json:"command,omitempty"`
 
 	Triggers []string        `json:"triggers,omitempty"`
 	Limits   *ManifestLimits `json:"limits,omitempty"`
@@ -142,12 +181,28 @@ func (m *Manifest) Normalize() {
 	m.Description = strings.TrimSpace(m.Description)
 	m.SDKVersion = strings.TrimSpace(m.SDKVersion)
 	m.Entrypoint = strings.TrimSpace(m.Entrypoint)
+	m.Kind = strings.ToLower(strings.TrimSpace(m.Kind))
 
-	if m.SDKVersion == "" {
-		m.SDKVersion = SDKVersion1
+	if m.Kind == "" {
+		m.Kind = KindJS
 	}
-	if m.Entrypoint == "" {
-		m.Entrypoint = DefaultEntrypoint
+	if m.Kind == KindCommand {
+		// Neither field means anything for a command, and clearing them here rather
+		// than rejecting them in Validate keeps an already-installed package loadable
+		// after a hand edit — the same choice the lens/trigger drop below makes.
+		m.SDKVersion = ""
+		m.Entrypoint = ""
+		if m.Command != nil {
+			m.Command.Normalize()
+		}
+	} else {
+		m.Command = nil
+		if m.SDKVersion == "" {
+			m.SDKVersion = SDKVersion1
+		}
+		if m.Entrypoint == "" {
+			m.Entrypoint = DefaultEntrypoint
+		}
 	}
 	if m.Name == "" {
 		m.Name = m.ID
@@ -212,16 +267,12 @@ func (m *Manifest) Validate() error {
 	case len(m.Description) > MaxDescriptionLen:
 		return fmt.Errorf("description is %d characters, over the %d limit",
 			len(m.Description), MaxDescriptionLen)
-	case m.SDKVersion != SDKVersion1:
-		return fmt.Errorf("sdkVersion %q is not supported by this build of Joro (supported: %q)",
-			m.SDKVersion, SDKVersion1)
-	case len(m.Entrypoint) > MaxEntrypointLen:
-		return fmt.Errorf("entrypoint is %d characters, over the %d limit",
-			len(m.Entrypoint), MaxEntrypointLen)
-	case !entrypointPattern.MatchString(m.Entrypoint):
-		return fmt.Errorf("entrypoint %q must be a single .js filename with no directory "+
-			"separator: there is no module loader, so a package is one bundled script",
-			m.Entrypoint)
+	case !slices.Contains(Kinds, m.Kind):
+		return fmt.Errorf("unknown kind %q (known: %s)", m.Kind, strings.Join(Kinds, ", "))
+	}
+
+	if err := m.validateKind(); err != nil {
+		return err
 	}
 
 	for _, t := range m.Triggers {
@@ -243,6 +294,49 @@ func (m *Manifest) Validate() error {
 	}
 	return nil
 }
+
+// validateKind checks the fields that belong to one kind and must be absent on the
+// other.
+//
+// Split out of Validate because the two halves read as two rules and reviewing them
+// together is what catches a field drifting into the wrong kind. Note that Normalize has
+// already cleared the mismatched fields, so on the ordinary path these cases only fire
+// for a caller that validates a manifest it built by hand.
+func (m *Manifest) validateKind() error {
+	if m.Kind == KindCommand {
+		switch {
+		case m.Command == nil:
+			return fmt.Errorf("kind %q requires a command block naming what to run", KindCommand)
+		case m.Entrypoint != "":
+			return fmt.Errorf("a %s automation has no entrypoint: its body is the command block", KindCommand)
+		case m.SDKVersion != "":
+			return fmt.Errorf("a %s automation has no sdkVersion: it calls no SDK, and what it may do "+
+				"is decided by your enabling it rather than by a grant bundle", KindCommand)
+		}
+		return m.Command.Validate()
+	}
+
+	switch {
+	case m.Command != nil:
+		return fmt.Errorf("a %s automation has no command block: its body is the script", KindJS)
+	case m.SDKVersion != SDKVersion1:
+		return fmt.Errorf("sdkVersion %q is not supported by this build of Joro (supported: %q)",
+			m.SDKVersion, SDKVersion1)
+	case len(m.Entrypoint) > MaxEntrypointLen:
+		return fmt.Errorf("entrypoint is %d characters, over the %d limit",
+			len(m.Entrypoint), MaxEntrypointLen)
+	case !entrypointPattern.MatchString(m.Entrypoint):
+		return fmt.Errorf("entrypoint %q must be a single .js filename with no directory "+
+			"separator: there is no module loader, so a package is one bundled script",
+			m.Entrypoint)
+	}
+	return nil
+}
+
+// IsCommand reports whether this package's body is a local command rather than a script.
+// A predicate rather than a comparison at each site, so the several places that branch on
+// it cannot disagree about what the zero value means.
+func (m *Manifest) IsCommand() bool { return m.Kind == KindCommand }
 
 // Revision records one version of the source.
 //
@@ -376,11 +470,22 @@ func (a *Automation) EffectiveLens() *Lens {
 // than merely omitted: a capability that could read other automations' code would be a
 // lateral channel between tokens, which is the same reason the run log stays UI-only.
 type Summary struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Version      string    `json:"version"`
-	Description  string    `json:"description,omitempty"`
-	SDKVersion   string    `json:"sdkVersion"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
+	Kind        string `json:"kind"`
+	SDKVersion  string `json:"sdkVersion,omitempty"`
+
+	// Command is the one-line rendering of a command package's argv, so a list view can
+	// show what would run without holding the whole spec. Empty for a script.
+	//
+	// The full spec is deliberately not here. Summary withholds a script's Source
+	// because a capability able to read another automation's code would be a lateral
+	// channel between tokens, and a command's argv is the same kind of thing — it names
+	// paths on the operator's machine.
+	Command string `json:"command,omitempty"`
+
 	Triggers     []string  `json:"triggers"`
 	Armed        []string  `json:"armed"`
 	Lens         *Lens     `json:"lens,omitempty"`
@@ -399,12 +504,18 @@ type Summary struct {
 
 // Summarize projects an Automation for a list view.
 func (a *Automation) Summarize() Summary {
+	var command string
+	if a.Manifest.Command != nil {
+		command = a.Manifest.Command.Summary()
+	}
 	return Summary{
 		ID:          a.Manifest.ID,
 		Name:        a.Manifest.Name,
 		Version:     a.Manifest.Version,
 		Description: a.Manifest.Description,
+		Kind:        a.Manifest.Kind,
 		SDKVersion:  a.Manifest.SDKVersion,
+		Command:     command,
 		Triggers:    slices.Clone(a.Manifest.Triggers),
 		// Never nil: the field is a JSON array in the client's type, and a lens or a
 		// manual-only automation arms nothing.

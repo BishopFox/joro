@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/BishopFox/joro/internal/proxy"
@@ -22,7 +21,7 @@ func (s *APIServer) handleSetReplaceEnabled(w http.ResponseWriter, r *http.Reque
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -37,7 +36,7 @@ func (s *APIServer) handleAddReplaceRule(w http.ResponseWriter, r *http.Request)
 		Match     string `json:"match"`
 		Replace   string `json:"replace"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

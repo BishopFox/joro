@@ -47,6 +47,17 @@ type Config struct {
 	// or the reverse. Same posture otherwise — off by default, no profile grants it,
 	// and a restart is required to change it.
 	AutomationScripting bool
+	// AutomationCommands allows installed command automations to run: packages whose
+	// body is a local operating-system command rather than a sandboxed script. Off by
+	// default, and a launch flag for a stronger reason than the two above — this is the
+	// one automation surface with no capability behind it, so there is no grant to
+	// withhold and no registry guard to evaluate. The flag and the operator's decision
+	// to arm a package are its whole control.
+	//
+	// When off, command packages still load and list, and the UI names this flag. An
+	// operator who installed one should be told why it will not run rather than left
+	// wondering whether it is broken.
+	AutomationCommands bool
 }
 
 // Default returns a Config populated with sensible defaults.

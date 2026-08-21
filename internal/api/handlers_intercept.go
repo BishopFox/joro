@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -55,7 +54,7 @@ func (s *APIServer) handleToggleIntercept(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -77,7 +76,7 @@ func (s *APIServer) handleToggleInterceptResponses(w http.ResponseWriter, r *htt
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -110,7 +109,13 @@ func (s *APIServer) handleReleaseIntercepts(w http.ResponseWriter, r *http.Reque
 	var body struct {
 		Kind string `json:"kind"` // "request" | "response"; empty means both
 	}
-	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+	// Optional: an absent body means both phases. A body that was sent and could not be
+	// read is reported rather than ignored — silently treating it as absent would release
+	// both phases when the caller asked for one.
+	if err := decodeJSONOptional(r, &body, maxJSONBody); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 
 	switch proxy.InterceptKind(body.Kind) {
 	case proxy.KindRequest, proxy.KindResponse, "":
@@ -130,7 +135,13 @@ func (s *APIServer) handleForwardRequest(w http.ResponseWriter, r *http.Request)
 		ReqRaw  string `json:"reqRaw"`  // base64-encoded modified raw request; optional
 		RespRaw string `json:"respRaw"` // base64-encoded modified raw response; optional
 	}
-	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+	// Bulk, and the whole body is optional: forwarding unmodified sends no fields. A body
+	// that was sent and could not be read is reported rather than ignored — silently
+	// treating it as absent would forward the original request the operator had edited.
+	if err := decodeJSONOptional(r, &body, maxBulkJSONBody); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 
 	var modifiedReq, modifiedResp []byte
 	if body.ReqRaw != "" {

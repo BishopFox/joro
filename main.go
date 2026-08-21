@@ -64,6 +64,7 @@ func main() {
 	flag.BoolVar(&cfg.NoAutomation, "no-automation", false, "Disable the automation API and MCP listener entirely (no routes, no token file, no second port)")
 	flag.BoolVar(&cfg.AutomationPrivileged, "automation-privileged", false, "Expose web shell execution and Sliver/Mythic C2 as automation capabilities (off by default; still requires an explicit per-capability grant)")
 	flag.BoolVar(&cfg.AutomationScripting, "automation-scripting", false, "Expose script.run, which executes submitted JavaScript in a sandboxed worker process against Joro's automation SDK (off by default; still requires an explicit grant)")
+	flag.BoolVar(&cfg.AutomationCommands, "automation-commands", false, "Allow installed command automations to run local operating-system commands, on a trigger or as a lens (off by default; operator-installed only, never reachable from an automation token)")
 
 	// scriptWorker is how a script sandbox re-execs this binary. Not an operator
 	// switch: it reads a job from stdin and speaks a private protocol on stdout.
@@ -410,6 +411,7 @@ func runProxyMode(ctx context.Context, cfg config.Config) {
 	if len(pluginMgr.ProxyHooks()) > 0 {
 		proxyHandler.SetHookRunner(pluginMgr)
 	}
+	proxyHandler.SetSelfAddr(cfg.BindAddr, cfg.ProxyPort)
 	proxySrv := proxy.NewServer(cfg.BindAddr, cfg.ProxyPort, proxyHandler)
 	apiSrv := api.New(cfg, store, interceptQ, scope, noise, replace, customData, transportCfg, wsStore, ca, hub, noteStore, pluginMgr, api.BuildInfo{
 		Version:         version,

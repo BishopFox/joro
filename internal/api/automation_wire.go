@@ -16,6 +16,7 @@ import (
 	"github.com/BishopFox/joro/internal/httptools"
 	"github.com/BishopFox/joro/internal/jsautomation"
 	"github.com/BishopFox/joro/internal/jsruntime"
+	"github.com/BishopFox/joro/internal/localcmd"
 	"github.com/BishopFox/joro/internal/mcp"
 )
 
@@ -85,17 +86,25 @@ func (s *APIServer) SetAutomation(store *automation.Store) {
 		Sliver:     s.sliverClient,
 		Mythic:     s.mythicClient,
 
-		// Scripting is registered only if the manager was actually built: without a
-		// worker executable there is nothing to run, and advertising a tool that
-		// always fails is worse than not having it.
-		Scripting: s.scriptManager != nil,
+		// Scripting is registered only if the script half is actually live: the manager
+		// exists for commands alone as well, and without a worker executable there is
+		// nothing to run. Advertising a tool that always fails is worse than not having
+		// it.
+		//
+		// There is no Commands counterpart here on purpose. Local command execution is
+		// not a capability and never becomes one: capreg.validateBundle panics on a
+		// privileged capability in the SDK bundle, validateProfiles panics on one in a
+		// profile, and jsruntime.Bindings already states the rule that command execution
+		// is granted by hand and never bundled. A command automation's authority is the
+		// operator having armed it, which is why nothing about it reaches this struct.
+		Scripting: s.scriptingEnabled(),
 		Script:    s.scriptRunnerDep(),
 
 		Broadcast: s.hub.Broadcast(),
 	}, s.capAudit)
 	s.mcpListener = mcp.NewListener()
 
-	if s.cfg.AutomationPrivileged || s.scriptManager != nil {
+	if s.cfg.AutomationPrivileged || s.scriptingEnabled() {
 		var ids []string
 		for _, c := range s.capRegistry.All() {
 			if c.Privileged {
@@ -107,25 +116,38 @@ func (s *APIServer) SetAutomation(store *automation.Store) {
 	}
 }
 
-// newScriptManager builds the sandboxed script runner, or returns nil if scripting is
-// off or cannot work on this host.
+// newScriptManager builds the automation runner, or returns nil when neither
+// --automation-scripting nor --automation-commands was given.
 //
-// The runtime is a worker-process runtime: each run is a fresh re-exec of this binary
-// in --script-worker mode, so terminating a run is killing a process and a runaway
-// allocation costs the worker rather than the proxy. os.Executable is the only thing
-// that can fail here, and a host where it does cannot spawn a worker at all — so
-// scripting is disabled rather than degraded to an in-process VM, which would quietly
-// weaken the containment the feature is described by.
+// The two flags are separate axes and either alone is enough to want a manager: the
+// package's store, dispatcher, run log and lens machinery are shared, and only the
+// execution half differs. Which half is live is decided by scriptingEnabled and
+// commandsEnabled, not by this returning non-nil.
+//
+// The script runtime is a worker-process runtime: each run is a fresh re-exec of this
+// binary in --script-worker mode, so terminating a run is killing a process and a runaway
+// allocation costs the worker rather than the proxy. os.Executable is the only thing that
+// can fail here, and a host where it does cannot spawn a worker at all — so scripting is
+// disabled rather than degraded to an in-process VM, which would quietly weaken the
+// containment the feature is described by. Commands are unaffected: they are their own
+// process by construction and need no worker.
 func (s *APIServer) newScriptManager() *jsautomation.Manager {
-	if !s.cfg.AutomationScripting {
+	if !s.cfg.AutomationScripting && !s.cfg.AutomationCommands {
 		return nil
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		log.Printf("[automation] --automation-scripting: cannot locate this executable (%v); "+
-			"script.run is disabled this run", err)
-		return nil
+
+	var runtime jsruntime.Runtime
+	if s.cfg.AutomationScripting {
+		exe, err := os.Executable()
+		if err != nil {
+			log.Printf("[automation] --automation-scripting: cannot locate this executable (%v); "+
+				"script.run is disabled this run", err)
+		} else {
+			runtime = jsruntime.NewWorkerRuntime(exe, "--script-worker")
+			s.scriptRuntimeReady = true
+		}
 	}
+
 	// Installed automations live beside the plugins, not under ~/.joro/configs/: a
 	// project config is published to teammates, and executable code that runs against
 	// the full SDK bundle must not travel with it. Their key/value state does ride in
@@ -154,7 +176,7 @@ func (s *APIServer) newScriptManager() *jsautomation.Manager {
 			}
 			return s.capRegistry
 		},
-		Runtime:  jsruntime.NewWorkerRuntime(exe, "--script-worker"),
+		Runtime:  runtime,
 		Contexts: s.capContexts,
 		// The operator's run policy. A getter because it is edited at runtime, and
 		// because jsautomation must not import the token store.
@@ -170,7 +192,55 @@ func (s *APIServer) newScriptManager() *jsautomation.Manager {
 		ScopeConfigured: func() bool {
 			return s.scope != nil && s.scope.IsEnabled() && s.scope.RuleCount() > 0
 		},
+
+		// The command half. Commands reads the flag live through a getter for symmetry
+		// with the rest of this struct, not because it can change — it cannot without a
+		// restart, which is the point of it being a launch flag.
+		Commands: func() bool { return s.cfg.AutomationCommands },
+		CommandBudget: func() localcmd.Policy {
+			if s.autoStore == nil {
+				return localcmd.Policy{}
+			}
+			return s.autoStore.CommandBudget()
+		},
+		Scratch: filepath.Join(s.cfg.DataDir, jsautomation.ScratchDirName()),
+
+		// Two byte slices for one sequence number, and nothing else. Handing over
+		// *proxy.Store would put List, Clear and Sitemap in reach of a package whose
+		// whole authorization story is that it reaches the registry and nothing else.
+		Captures: func(seq int) ([]byte, []byte, bool) {
+			if s.store == nil {
+				return nil, nil, false
+			}
+			item := s.store.GetBySeq(seq)
+			if item == nil {
+				return nil, nil, false
+			}
+			return item.ReqRaw, item.RespRaw, true
+		},
+
+		// What a command's environment gets when its spec asks to be proxied. The same
+		// address the managed testing browser is pointed at, and for the same reason: a
+		// tool that honours these has its traffic captured and filtered by the
+		// operator's own scope, noise and Match & Replace rules.
+		ProxyURL: fmt.Sprintf("http://%s:%d", s.cfg.BindAddr, s.cfg.ProxyPort),
+		CAFile:   filepath.Join(s.cfg.DataDir, "ca.crt"),
 	})
+}
+
+// scriptingEnabled reports whether the JavaScript half is live: the flag was given and a
+// worker runtime could actually be built.
+//
+// Both halves of that matter. The flag alone would leave script.run registered on a host
+// where os.Executable failed, and advertising a tool that fails on every call is worse
+// than not having it.
+func (s *APIServer) scriptingEnabled() bool {
+	return s.scriptManager != nil && s.cfg.AutomationScripting && s.scriptRuntimeReady
+}
+
+// commandsEnabled reports whether the command half is live.
+func (s *APIServer) commandsEnabled() bool {
+	return s.scriptManager != nil && s.cfg.AutomationCommands
 }
 
 // startScriptTriggers brings up the trigger dispatcher.
@@ -184,6 +254,13 @@ func (s *APIServer) startScriptTriggers(ctx context.Context) {
 	if s.scriptManager == nil || s.scriptManager.Packages() == nil {
 		return
 	}
+	// Reclaim scratch left by previous processes before anything can add to it. Done
+	// here rather than left to the first run, because a Joro restarted more often than
+	// it runs a command would otherwise keep every directory it ever made.
+	if s.commandsEnabled() {
+		s.scriptManager.SweepScratch()
+	}
+
 	s.scriptTriggers = jsautomation.NewDispatcher(s.scriptManager, s.store, s.hub.Broadcast())
 	go s.scriptTriggers.Run(ctx, s.hub.Subscribe(0))
 }
@@ -193,7 +270,7 @@ func (s *APIServer) startScriptTriggers(ctx context.Context) {
 // capreg a non-nil interface holding nil, and the handler's own nil check would not
 // catch it — the same trap capreg.Build avoids with its Scope assignment.
 func (s *APIServer) scriptRunnerDep() capreg.ScriptRunner {
-	if s.scriptManager == nil {
+	if !s.scriptingEnabled() {
 		return nil
 	}
 	return s.scriptManager

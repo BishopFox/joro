@@ -75,6 +75,11 @@ type armed struct {
 	triggers []string
 	interval time.Duration
 
+	// isCommand changes two things about how this automation is dispatched: it is handed
+	// one event rather than a batch, and its cursor always jumps to the store head. Both
+	// are explained where they are applied — nextBatchLocked and finish.
+	isCommand bool
+
 	cursor int64
 
 	pending map[string][]json.RawMessage
@@ -219,6 +224,11 @@ func (d *Dispatcher) dispatch(ctx context.Context) {
 //
 // Manifest order decides precedence, so an author who cares can put the trigger that
 // matters first. Called with d.mu held.
+//
+// A command automation is handed the *newest* event rather than the batch. Its body has
+// one stdin and one argv, so fifty references have nowhere to go — a command on a traffic
+// trigger samples traffic rather than processing all of it. The skipped count still
+// travels in the payload, and the cursor rule in finish already behaves this way for it.
 func (d *Dispatcher) nextBatchLocked(a *armed) (string, json.RawMessage, int) {
 	for _, t := range a.triggers {
 		switch t {
@@ -230,7 +240,17 @@ func (d *Dispatcher) nextBatchLocked(a *armed) (string, json.RawMessage, int) {
 			if len(items) == 0 {
 				continue
 			}
-			return t, requestBatch(items, a.takeDropped(t)), items[len(items)-1].Seq
+			// batchMax stays the highest sequence actually read, not the one handed
+			// over: a command's cursor jumps to head regardless, and reporting less
+			// than was read would make a script's own accounting wrong if this line
+			// were ever shared.
+			batchMax := items[len(items)-1].Seq
+			dropped := a.takeDropped(t)
+			if a.isCommand {
+				dropped += len(items) - 1
+				items = items[len(items)-1:]
+			}
+			return t, requestBatch(items, dropped), batchMax
 
 		default:
 			refs := a.pending[t]
@@ -240,7 +260,12 @@ func (d *Dispatcher) nextBatchLocked(a *armed) (string, json.RawMessage, int) {
 			n := min(len(refs), maxTriggerBatch)
 			batch := refs[:n]
 			a.pending[t] = refs[n:]
-			return t, discreteBatch(t, batch, a.takeDropped(t)), 0
+			dropped := a.takeDropped(t)
+			if a.isCommand && len(batch) > 1 {
+				dropped += len(batch) - 1
+				batch = batch[len(batch)-1:]
+			}
+			return t, discreteBatch(t, batch, dropped), 0
 		}
 	}
 	return "", nil, 0
@@ -290,7 +315,7 @@ func (d *Dispatcher) finish(a *armed, run *Run, trigger string, batchMax int) {
 	now := time.Now()
 
 	head := 0
-	if run != nil && run.Result.SendCalls > 0 && d.store != nil {
+	if producedTraffic(a, run) && d.store != nil {
 		head = d.store.LastSeq()
 	}
 
@@ -322,6 +347,35 @@ func (d *Dispatcher) finish(a *armed, run *Run, trigger string, batchMax int) {
 	if tripped {
 		d.pause(id, fmt.Sprintf(breakerReasonFm, count))
 	}
+}
+
+// producedTraffic reports whether this run may have added to the capture store, which is
+// what decides whether the cursor jumps past its own window.
+//
+// The two cases answer the same question with different evidence, and the difference is
+// the whole reason this is a function:
+//
+//   - A script's sends all go through the capability registry, so SendCalls is an exact
+//     count. Zero means it read and did not write, and a pure watcher can safely advance
+//     only to what it was shown.
+//   - A command's traffic does not pass through the registry at all. Joro cannot see
+//     whether a subprocess opened a socket, so there is no count to consult and the only
+//     safe answer is to assume it sent. A curl or a scanner routed through Joro's own
+//     proxy lands in the capture store, and a cursor that advanced only to what the run
+//     was handed would immediately hand it its own traffic — a loop that feeds itself,
+//     which is exactly what this rule exists to prevent.
+//
+// The cost of assuming is that a command automation on a traffic trigger skips whatever
+// was captured while it ran. That is already how it behaves — nextBatchLocked hands it one
+// event and counts the rest as dropped — so the two rules agree rather than compounding.
+func producedTraffic(a *armed, run *Run) bool {
+	if run == nil {
+		return false
+	}
+	if a.isCommand {
+		return true
+	}
+	return run.Result.SendCalls > 0
 }
 
 // pause stops an automation the breaker caught, and tells the operator.
@@ -410,6 +464,7 @@ func (d *Dispatcher) reload() {
 		cur.version = a.Manifest.Version
 		cur.triggers = triggers
 		cur.interval = effectiveInterval(a)
+		cur.isCommand = a.Manifest.IsCommand()
 	}
 
 	for id, a := range d.armed {

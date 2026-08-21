@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 
@@ -24,7 +23,7 @@ func (s *APIServer) handleMythicStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleMythicConnect(w http.ResponseWriter, r *http.Request) {
 	var cfg mythic.Config
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+	if err := decodeJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -79,7 +78,7 @@ func (s *APIServer) handleMythicCommand(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		Input string `json:"input"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -115,6 +114,12 @@ func (s *APIServer) handleMythicDownload(w http.ResponseWriter, r *http.Request)
 // handleMythicUpload registers a file with Mythic and issues an upload task to the
 // active callback.
 func (s *APIServer) handleMythicUpload(w http.ResponseWriter, r *http.Request) {
+	// Multipart body; see requireLocalOrigin. Checked before the connection preconditions
+	// so the outcome does not depend on whether a callback is active.
+	if !requireLocalOrigin(w, r) {
+		return
+	}
+
 	if !s.mythicClient.IsConnected() {
 		writeError(w, http.StatusBadRequest, "not connected to Mythic")
 		return

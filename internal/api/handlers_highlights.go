@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 )
 
@@ -20,7 +19,7 @@ func (s *APIServer) handleSetHighlight(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Color string `json:"color"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

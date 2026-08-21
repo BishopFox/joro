@@ -917,7 +917,7 @@ func (s *APIServer) handleSaveUserConfig(w http.ResponseWriter, r *http.Request)
 		HiddenTabs      []string        `json:"hiddenTabs"`
 		DashboardLayout json.RawMessage `json:"dashboardLayout"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1069,7 +1069,7 @@ func (s *APIServer) handleSaveProjectConfig(w http.ResponseWriter, r *http.Reque
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1127,7 +1127,7 @@ func (s *APIServer) handleSwitchProject(w http.ResponseWriter, r *http.Request) 
 		Action        string `json:"action"`
 		SaveScratchAs string `json:"saveScratchAs"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1211,7 +1211,7 @@ func (s *APIServer) handleSetProjectPrefs(w http.ResponseWriter, r *http.Request
 		AutoSave    *bool  `json:"autoSave"`
 		SaveHistory *bool  `json:"saveHistory"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1254,7 +1254,7 @@ func (s *APIServer) handleNewProject(w http.ResponseWriter, r *http.Request) {
 		Action        string `json:"action"`
 		SaveScratchAs string `json:"saveScratchAs"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1404,7 +1404,8 @@ func (s *APIServer) handleImportSharedConfig(w http.ResponseWriter, r *http.Requ
 		Name   string `json:"name"`
 		Config string `json:"config"` // base64(gzipped projectConfigFile)
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// Config is a whole project snapshot, history included, gzipped then base64'd.
+	if err := decodeJSONLimit(r, &body, maxProjectImportBytes); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1457,7 +1458,8 @@ func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Reque
 		Config sharedConfigPayload `json:"config"`
 		Mode   string              `json:"mode"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// Bulk: a shared config carries whole scope and Match & Replace rule sets.
+	if err := decodeJSONLimit(r, &body, maxBulkJSONBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

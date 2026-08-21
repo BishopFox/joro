@@ -61,7 +61,7 @@ func (s *APIServer) handleSetDetectEnabled(w http.ResponseWriter, r *http.Reques
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -101,7 +101,7 @@ func (s *APIServer) handleSetDetectConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var patch detectConfigPatch
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := decodeJSON(r, &patch); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -262,7 +262,7 @@ func (s *APIServer) handleUpdateFinding(w http.ResponseWriter, r *http.Request) 
 		Notes         *string `json:"notes"`
 		Severity      *string `json:"severity"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -451,7 +451,7 @@ func (s *APIServer) handleAddDetectRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var rule detect.Rule
-	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+	if err := decodeJSON(r, &rule); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -473,7 +473,7 @@ func (s *APIServer) handleUpdateDetectRule(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var rule detect.Rule
-	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+	if err := decodeJSON(r, &rule); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -507,7 +507,7 @@ func (s *APIServer) handleSetDetectRuleEnabled(w http.ResponseWriter, r *http.Re
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -528,7 +528,7 @@ func (s *APIServer) handleSetDetectRuleSeverity(w http.ResponseWriter, r *http.R
 	var body struct {
 		Severity string `json:"severity"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -658,7 +658,7 @@ func (s *APIServer) handleStartDetectScan(w http.ResponseWriter, r *http.Request
 	}
 	var req detect.RescanRequest
 	if r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}

@@ -37,6 +37,20 @@ func originGuard(bindAddr string, allowedHosts []string, next http.Handler) http
 	})
 }
 
+// uiOriginHeader is set on every request by web/src/lib/api.ts.
+const uiOriginHeader = "X-Joro-Origin"
+
+// requireLocalOrigin reports whether the request carries uiOriginHeader, writing the 403
+// itself and returning false when the caller should stop. Required on the routes that
+// decode no JSON body: the multipart uploads and the body-less POSTs.
+func requireLocalOrigin(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get(uiOriginHeader) == "" {
+		writeError(w, http.StatusForbidden, "forbidden: missing "+uiOriginHeader+" header")
+		return false
+	}
+	return true
+}
+
 func isMutating(method string) bool {
 	switch method {
 	case http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch:

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Bot, Download, Play, Plus, Power, PowerOff, Trash2, Upload } from 'lucide-react'
+import { Bot, Download, Play, Plus, Power, PowerOff, Terminal, Trash2, Upload } from 'lucide-react'
 import { api } from '../../lib/api'
 import { downloadPackage, pickPackage } from '../../lib/automationPackage'
 import { useAutomationStore } from '../../stores/automationStore'
@@ -169,6 +169,18 @@ export default function ScriptsPanel({
                     >
                       {s.name}
                     </button>
+                    {s.kind === 'command' && (
+                      /* Worth a badge rather than left to the argv line below: what
+                         enabling this arms is a program on the operator's own machine,
+                         which is a different decision from arming a sandboxed script. */
+                      <span
+                        className="inline-flex items-center gap-1 ml-1.5 px-1 py-px rounded-sm bg-surface-input text-semantic-warning text-[10px] align-middle"
+                        title="Runs a local command on this machine, not sandboxed JavaScript."
+                      >
+                        <Terminal size={9} strokeWidth={2} aria-hidden="true" />
+                        command
+                      </span>
+                    )}
                     {s.author && (
                       <span
                         className="inline-flex items-center gap-1 ml-1.5 px-1 py-px rounded-sm bg-surface-input text-content-secondary text-[10px] align-middle"
@@ -182,6 +194,11 @@ export default function ScriptsPanel({
                       {s.id} v{s.version} · sha256:{s.sourceHash.slice(0, 12)}
                       {s.revisions > 1 ? ` · ${s.revisions} revisions` : ''}
                     </div>
+                    {s.command && (
+                      <div className="text-content-secondary font-mono text-[10px] mt-0.5 break-all">
+                        $ {s.command}
+                      </div>
+                    )}
                     {s.paused && (
                       <div className="text-semantic-warning text-[10px] mt-0.5 max-w-md leading-snug">
                         {s.pausedReason}

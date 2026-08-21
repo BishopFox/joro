@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,8 +11,13 @@ import (
 	"github.com/BishopFox/joro/internal/callback"
 )
 
-// proxyToListener forwards a request to the remote listener and copies the response back.
-// Returns true if the response was handled (either forwarded or errored).
+// proxyToListener forwards a request to the remote listener and writes its status and body
+// back. Returns true if the response was handled (either forwarded or errored).
+//
+// Response headers are not copied. Every route reaching this function returns JSON, so the
+// content type is set here, and the body is copied whole rather than capped — a response
+// may carry a screenshot as a data: URI inside its JSON. The client timeout below bounds
+// the transfer.
 func (s *APIServer) proxyToListener(w http.ResponseWriter, r *http.Request) bool {
 	s.mu.RLock()
 	listenerURL := s.settings.ListenerURL
@@ -55,12 +59,7 @@ func (s *APIServer) proxyToListener(w http.ResponseWriter, r *http.Request) bool
 	}
 	defer resp.Body.Close()
 
-	// Copy response headers and body back.
-	for k, vv := range resp.Header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body) //nolint:errcheck
 	return true
@@ -90,7 +89,7 @@ func (s *APIServer) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Note string `json:"note"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -175,7 +174,7 @@ func (s *APIServer) handleUpdateCallbackConfig(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var cfg callback.CallbackConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+	if err := decodeJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

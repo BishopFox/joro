@@ -442,7 +442,7 @@ func registerScript(r *capability.Registry, d Deps) {
 			if d.Script == nil {
 				return nil, fmt.Errorf("the script runtime is unavailable")
 			}
-			return renderAutomations(d.Script.List()), nil
+			return renderAutomations(invokable(d.Script.List())), nil
 		}),
 	})
 
@@ -495,7 +495,13 @@ func registerScript(r *capability.Registry, d Deps) {
 			switch {
 			case errors.Is(err, jsautomation.ErrBusy):
 				return nil, &capability.Error{Code: capability.CodeBusy, Msg: err.Error()}
-			case errors.Is(err, jsautomation.ErrNotFound):
+			case errors.Is(err, jsautomation.ErrNotFound),
+				// A command package is not listed by script_list, so an id naming one
+				// arrived from somewhere else and the caller has no use for the
+				// distinction. Reported as not installed for the same reason
+				// Registry.Invoke swallows the difference between unknown and ungranted:
+				// this tool must not become an oracle for what the operator has locally.
+				errors.Is(err, jsautomation.ErrCommandNotInvokable):
 				return nil, &capability.Error{
 					Code: capability.CodeInvalidArgs,
 					Msg:  fmt.Sprintf("no automation with id %q is installed; use script_list", args.ID),
@@ -552,9 +558,28 @@ func storedBy(p capability.Principal) string {
 //
 // A filesystem failure is returned unwrapped and surfaces as the registry's handler_error,
 // which is the honest code for it: nothing the caller can restate would help.
+// invokable drops the automations a token could never start, which is every command
+// package: jsautomation.Manager.Invoke refuses one from a token outright.
+//
+// Filtered rather than listed-and-refused for the reason Registry.List gives for hiding an
+// ungranted capability — advertising something denied on every call spends the model's
+// context to buy it a wasted call and a confusing error. It also keeps the argv of the
+// operator's local tooling out of an agent's context, which is worth having on its own.
+func invokable(all []jsautomation.Summary) []jsautomation.Summary {
+	out := make([]jsautomation.Summary, 0, len(all))
+	for _, a := range all {
+		if a.Kind == jsautomation.KindCommand {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 func storeError(err error, other string) error {
 	switch {
-	case errors.Is(err, jsautomation.ErrEnabled), errors.Is(err, jsautomation.ErrTooManyPackages):
+	case errors.Is(err, jsautomation.ErrEnabled), errors.Is(err, jsautomation.ErrTooManyPackages),
+		errors.Is(err, jsautomation.ErrCommandNotSubmittable), errors.Is(err, jsautomation.ErrCommandNotInvokable):
 		return &capability.Error{Code: capability.CodeForbidden, Msg: err.Error()}
 	case errors.Is(err, jsautomation.ErrExists), errors.Is(err, jsautomation.ErrNotFound):
 		return &capability.Error{

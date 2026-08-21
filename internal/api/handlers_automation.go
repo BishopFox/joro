@@ -117,7 +117,7 @@ func (s *APIServer) handleCreateAutomationToken(w http.ResponseWriter, r *http.R
 		return
 	}
 	var body createTokenReq
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -173,7 +173,7 @@ func (s *APIServer) handleUpdateAutomationToken(w http.ResponseWriter, r *http.R
 		return
 	}
 	var body updateTokenReq
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -224,6 +224,10 @@ func (s *APIServer) handleRotateAutomationToken(w http.ResponseWriter, r *http.R
 	if !s.requireAutomation(w) {
 		return
 	}
+	// Reads no body; see requireLocalOrigin.
+	if !requireLocalOrigin(w, r) {
+		return
+	}
 	id := r.PathValue("id")
 	tok, secret, err := s.autoStore.Rotate(id)
 	if err != nil {
@@ -242,7 +246,7 @@ func (s *APIServer) handleSetAutomationTokenEnabled(w http.ResponseWriter, r *ht
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -263,6 +267,10 @@ func (s *APIServer) handleSetAutomationTokenEnabled(w http.ResponseWriter, r *ht
 // available" badge deliberately rather than by accident.
 func (s *APIServer) handleReviewAutomationToken(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAutomation(w) {
+		return
+	}
+	// Reads no body; see requireLocalOrigin.
+	if !requireLocalOrigin(w, r) {
 		return
 	}
 	fp := s.capRegistry.Fingerprint()
@@ -392,7 +400,7 @@ func (s *APIServer) handleSetMCPState(w http.ResponseWriter, r *http.Request) {
 		Enabled *bool `json:"enabled"`
 		Port    *int  `json:"port"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeAutomationJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,8 @@ type Handler struct {
 	wsStore    *WSStore
 	broadcast  chan<- any
 	hookRunner HookRunner // nil when no proxy hook plugins are loaded
+	selfBind   string     // bind address of the listener this handler serves; see isSelfTarget
+	selfPort   int        // 0 until SetSelfAddr is called, which disables the self-check
 }
 
 // NewHandler creates a proxy Handler.
@@ -55,12 +58,108 @@ func (h *Handler) SetHookRunner(hr HookRunner) {
 	h.hookRunner = hr
 }
 
+// SetSelfAddr tells the handler which address its own listener is on, enabling the
+// self-target check in ServeHTTP. Left unset, that check is inert.
+func (h *Handler) SetSelfAddr(bindAddr string, port int) {
+	h.selfBind = bindAddr
+	h.selfPort = port
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Every path out — handleHTTP, mitm, the h2 sender, tunnel's dial — passes through
+	// here, so the check sits here rather than at each forwarding site.
+	if target := forwardTarget(r); target != "" && h.isSelfTarget(target) {
+		http.Error(w, "refusing to forward a request to the proxy's own listener", http.StatusMisdirectedRequest)
+		return
+	}
+
 	if r.Method == http.MethodConnect {
 		h.handleConnect(w, r)
 	} else {
 		h.handleHTTP(w, r)
 	}
+}
+
+// forwardTarget returns the host:port a request would be forwarded to, supplying the
+// port the scheme implies when the target carries none.
+func forwardTarget(r *http.Request) string {
+	host := r.URL.Host
+	if host == "" {
+		host = r.Host
+	}
+	if host == "" {
+		return ""
+	}
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return host
+	}
+	if r.Method == http.MethodConnect || r.URL.Scheme == "https" {
+		return net.JoinHostPort(host, "443")
+	}
+	return net.JoinHostPort(host, "80")
+}
+
+// isSelfTarget reports whether hostPort names this proxy's own listener.
+//
+// Forwarded requests are not annotated: no Via header and no hop counter, so a request
+// reaches the target as the client sent it.
+//
+// Only the proxy's own port counts as self. The UI port is reachable through the proxy so
+// that scope, Match & Replace and intercept apply to it, so it is not checked here.
+func (h *Handler) isSelfTarget(hostPort string) bool {
+	if h.selfPort == 0 {
+		return false
+	}
+	host, port, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return false
+	}
+	// Port first: a string compare that settles most requests without touching the host.
+	if port != strconv.Itoa(h.selfPort) {
+		return false
+	}
+	return h.isSelfHost(host)
+}
+
+// isSelfHost reports whether host names an address this proxy's listener answers on.
+func (h *Handler) isSelfHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil {
+		// A DNS name other than localhost could resolve back here, but resolving every
+		// request to find out is not worth the cost.
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	bind := net.ParseIP(h.selfBind)
+	if bind == nil {
+		return false
+	}
+	// A wildcard bind answers on every local address, so any of them is self.
+	if bind.IsUnspecified() {
+		return isLocalIP(ip)
+	}
+	return bind.Equal(ip)
+}
+
+// isLocalIP reports whether ip is assigned to a local interface. Reached only for a
+// non-loopback literal on the proxy's own port under a wildcard bind, so the interface
+// walk stays off the hot path.
+func isLocalIP(ip net.IP) bool {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // handleConnect processes HTTPS CONNECT tunnelling.

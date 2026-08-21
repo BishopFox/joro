@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/BishopFox/joro/internal/proxy"
@@ -22,7 +21,7 @@ func (s *APIServer) handleSetCustomDataEnabled(w http.ResponseWriter, r *http.Re
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -36,7 +35,7 @@ func (s *APIServer) handleAddCustomDataItem(w http.ResponseWriter, r *http.Reque
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

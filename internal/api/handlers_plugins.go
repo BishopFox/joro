@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -90,7 +89,7 @@ func (s *APIServer) makeExtConnectHandler(name string) http.HandlerFunc {
 		}
 
 		var config map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		if err := decodeJSON(r, &config); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
@@ -140,7 +139,7 @@ func (s *APIServer) makeExtCommandHandler(name string) http.HandlerFunc {
 		var body struct {
 			Input string `json:"input"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
@@ -162,6 +161,11 @@ func (s *APIServer) makeExtCommandHandler(name string) http.HandlerFunc {
 func (s *APIServer) handleUploadPlugin(w http.ResponseWriter, r *http.Request) {
 	if s.pluginManager == nil {
 		writeError(w, http.StatusInternalServerError, "plugin manager not initialized")
+		return
+	}
+
+	// Multipart body; see requireLocalOrigin.
+	if !requireLocalOrigin(w, r) {
 		return
 	}
 

@@ -40,7 +40,7 @@ func (s *APIServer) handleSetScopeEnabled(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -50,7 +50,7 @@ func (s *APIServer) handleSetScopeEnabled(w http.ResponseWriter, r *http.Request
 
 func (s *APIServer) handleAddScopeRule(w http.ResponseWriter, r *http.Request) {
 	var body proxy.ScopeRule
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

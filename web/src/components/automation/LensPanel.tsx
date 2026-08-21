@@ -87,10 +87,21 @@ export default function LensPanel({ onEdit }: { onEdit: (id: string) => void }) 
       )}
 
       <p className="text-[10px] text-content-muted leading-relaxed max-w-2xl pt-1">
-        A lens runs with its send capabilities removed, so it can transform what is on screen but
-        cannot reach a target. Its output is rendered and discarded — nothing is stored, and the run
-        is recorded in Activity like any other.
+        A script lens runs with its send capabilities removed, so it can transform what is on screen
+        but cannot reach a target. Its output is rendered and discarded — nothing is stored, and the
+        run is recorded in Activity like any other.
       </p>
+      {/* The asymmetry is real and worth stating here rather than only in the editor: this
+          is the panel where an operator decides which lenses are live, and a command lens
+          runs every time they open a matching request. */}
+      {lenses.some((l) => l.kind === 'command') && (
+        <p className="text-[10px] text-semantic-warning leading-relaxed max-w-2xl">
+          A command lens is different. There are no capabilities to withhold from a program, so
+          Joro cannot stop one reaching the network the way it stops a script — and a lens runs on
+          every matching request you open. Keep these to filters that only read what they are
+          given.
+        </p>
+      )}
     </div>
   )
 }
