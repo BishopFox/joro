@@ -238,6 +238,8 @@
     return (ms / 1000).toFixed(1) + 's';
   }
 
+  // Captured URLs are stored relative when the request reached the proxy in origin-form,
+  // and new URL() throws on those, so the fallback returns the string unchanged.
   function extractPath(url) {
     try {
       const u = new URL(url);
@@ -245,6 +247,21 @@
     } catch {
       return url;
     }
+  }
+
+  // cell builds a <td>, setting text with textContent so a value is never parsed as markup.
+  function cell(text, opts) {
+    const td = document.createElement('td');
+    if (opts && opts.span) {
+      const span = document.createElement('span');
+      span.className = opts.span;
+      span.textContent = text;
+      td.appendChild(span);
+    } else {
+      td.textContent = text;
+    }
+    if (opts && opts.title) td.title = opts.title;
+    return td;
   }
 
   async function fetchJSON(url) {
@@ -284,26 +301,27 @@
     const emptyMsg = $('empty-msg');
 
     if (!recent || !recent.items || recent.items.length === 0) {
-      tbody.innerHTML = '';
+      tbody.replaceChildren();
       emptyMsg.style.display = 'block';
       return;
     }
     emptyMsg.style.display = 'none';
 
+    // Values from the capture store are arbitrary bytes from the wire, so rows are built
+    // from DOM nodes rather than an interpolated markup string. That applies to the title
+    // attribute as much as to cell text.
     const rows = recent.items.map(r => {
-      const mc = methodClass(r.method);
-      const sc = statusClass(r.statusCode);
       const path = extractPath(r.url || '');
-      return `<tr>
-        <td><span class="method ${mc}">${r.method}</span></td>
-        <td><span class="status ${sc}">${r.statusCode || '-'}</span></td>
-        <td>${r.host || '-'}</td>
-        <td title="${path}">${path}</td>
-        <td>${fmtSize(r.respSize)}</td>
-        <td>${fmtDuration(r.durationMs)}</td>
-      </tr>`;
+      const tr = document.createElement('tr');
+      tr.appendChild(cell(r.method, { span: 'method ' + methodClass(r.method) }));
+      tr.appendChild(cell(r.statusCode || '-', { span: 'status ' + statusClass(r.statusCode) }));
+      tr.appendChild(cell(r.host || '-'));
+      tr.appendChild(cell(path, { title: path }));
+      tr.appendChild(cell(fmtSize(r.respSize)));
+      tr.appendChild(cell(fmtDuration(r.durationMs)));
+      return tr;
     });
-    tbody.innerHTML = rows.join('');
+    tbody.replaceChildren(...rows);
   }
 
   refresh();
