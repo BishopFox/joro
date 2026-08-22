@@ -93,6 +93,15 @@ func (e *Engine) rebuildLocked() {
 		if r.Literal != "" {
 			r.literalLower = []byte(strings.ToLower(r.Literal))
 		}
+		if len(r.Literals) > 0 {
+			r.literalsLower = make([][]byte, 0, len(r.Literals))
+			for _, lit := range r.Literals {
+				if lit == "" {
+					continue
+				}
+				r.literalsLower = append(r.literalsLower, []byte(strings.ToLower(lit)))
+			}
+		}
 		if len(r.ContentTypes) > 0 {
 			r.ctSet = make(map[string]struct{}, len(r.ContentTypes))
 			for _, ct := range r.ContentTypes {
@@ -541,6 +550,17 @@ func (e *Engine) scanMessage(m *Message, cfg Config, set *ruleSet) []Finding {
 					continue
 				}
 			}
+			// Any-of prescreen: at least one anchor must be present. Every branch
+			// of the pattern is covered by one of these, so a miss here is a
+			// guaranteed regex miss.
+			if rule.literalsLower != nil {
+				if lower == nil {
+					lower = m.lowerHaystack(target)
+				}
+				if !containsAny(lower, rule.literalsLower) {
+					continue
+				}
+			}
 			out = append(out, e.applyRegexRule(rule, m, target, hay)...)
 		}
 	}
@@ -560,6 +580,16 @@ func (e *Engine) scanMessage(m *Message, cfg Config, set *ruleSet) []Finding {
 		})
 	}
 	return out
+}
+
+// containsAny reports whether hay contains any of the needles.
+func containsAny(hay []byte, needles [][]byte) bool {
+	for _, n := range needles {
+		if bytes.Contains(hay, n) {
+			return true
+		}
+	}
+	return false
 }
 
 // ruleGatesPass applies the per-message gates: status expression, scheme, and
