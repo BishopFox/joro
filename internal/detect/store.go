@@ -146,6 +146,9 @@ func (s *Store) Upsert(f Finding) (*Finding, bool) {
 	}
 
 	existing.generation = gen
+	// Captured before LastSeen advances, so the location gate below can still ask
+	// whether this sighting is newer than the one currently pointed at.
+	prevLastSeen := existing.LastSeen
 	if f.LastSeen.After(existing.LastSeen) {
 		existing.LastSeen = f.LastSeen
 	}
@@ -155,7 +158,13 @@ func (s *Store) Upsert(f Finding) (*Finding, bool) {
 	// Point at the most recent sighting, which is the one most likely still in
 	// the ring buffer. Offset, length, and part describe one location and must be
 	// updated together: a host-grouped rule can merge two different matches.
-	if f.RequestID != "" {
+	//
+	// Gated on the timestamp rather than on arrival: captures are scanned by a
+	// worker pool, so the last result to reach this line is not the newest
+	// sighting. Without the gate a host-grouped finding drifts to whichever
+	// worker happened to finish last.
+	newer := !f.LastSeen.Before(prevLastSeen) || existing.RequestID == ""
+	if f.RequestID != "" && newer {
 		existing.RequestID = f.RequestID
 		existing.URL = f.URL
 		existing.Method = f.Method

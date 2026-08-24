@@ -27,13 +27,18 @@ package detect
 // argument) - a set of lowercase anchor substrings, one guaranteed-present run
 // from every alternation branch. On traffic that is not behind the WAF none of
 // the anchors appear, so the engine skips the regex after a cheap bytes.Contains
-// instead of scanning the whole (up to 1 MB) body. Fourteen rules whose branches
-// anchor only on a 2-3 char cookie/token prefix (cloudflare, aws, cloudfront,
-// teros, wts, west263, bigip, airlock) pass nil and run unscreened, as before -
-// no anchor selective enough to help. Anchors must stay in sync with the pattern:
-// a wrong anchor silently drops matches from the branch it was meant to cover.
+// instead of scanning the whole (up to 1 MB) body. Six rules whose branches
+// anchor only on a 2-3 char cookie/token prefix (cloudflare, bigip, teros,
+// airlock) pass nil and run unscreened - no anchor selective enough to help.
+// cloudflare would need "ray" to cover its cf[-_]ray and ray.id branches, which
+// any script containing "Array" satisfies, and bigip would need "ts"; an anchor
+// that never screens anything out only looks like a prescreen. Anchors must stay
+// in sync with the pattern: a wrong anchor silently drops matches from the branch
+// it was meant to cover.
 //
-// Every pattern compiles under RE2 and is exercised by the Go build.
+// Nothing enforces that these patterns compile: builtins bypass ValidateRule, and
+// rebuildLocked drops a rule whose Pattern fails to compile without a word to
+// anyone. A pattern edited here is checked by hand, by compiling it, before review.
 
 // wafRules returns the WAF fingerprint rules. Called from builtinRules.
 func wafRules() []Rule {
@@ -75,8 +80,8 @@ func wafRules() []Rule {
 		waf(`waf-aliyundun-hdr`, `Aliyundun WAF detected (headers)`, `(?i)error(s)?.aliyun(dun)?.(com|net)|(?i)http(s)?://(www.)?aliyun.(com|net)`, TargetResponseHeader, []string{"aliyun"}),
 		waf(`waf-malcare`, `Malcare WAF detected`, `(?i)malcare|(?i).>login.protection<.+.><.+>powered.by<.+.>(<.+.>)?(.?malcare.-.pro|blogvault)?|(?i).>firewall<.+.><.+>powered.by<.+.>(<.+.>)?(.?malcare.-.pro|blogvault)?`, TargetResponseBody, []string{"malcare", "protection", "firewall"}),
 		waf(`waf-malcare-hdr`, `Malcare WAF detected (headers)`, `(?i)malcare|(?i).>login.protection<.+.><.+>powered.by<.+.>(<.+.>)?(.?malcare.-.pro|blogvault)?|(?i).>firewall<.+.><.+>powered.by<.+.>(<.+.>)?(.?malcare.-.pro|blogvault)?`, TargetResponseHeader, []string{"malcare", "protection", "firewall"}),
-		waf(`waf-wts`, `Wts WAF detected`, `(?i)(<title>)?wts.wa(f)?(\w+(\w+(\w+)?)?)?`, TargetResponseBody, nil),
-		waf(`waf-wts-hdr`, `Wts WAF detected (headers)`, `(?i)(<title>)?wts.wa(f)?(\w+(\w+(\w+)?)?)?`, TargetResponseHeader, nil),
+		waf(`waf-wts`, `Wts WAF detected`, `(?i)(<title>)?wts.wa(f)?(\w+(\w+(\w+)?)?)?`, TargetResponseBody, []string{"wts"}),
+		waf(`waf-wts-hdr`, `Wts WAF detected (headers)`, `(?i)(<title>)?wts.wa(f)?(\w+(\w+(\w+)?)?)?`, TargetResponseHeader, []string{"wts"}),
 		waf(`waf-dw`, `Dw WAF detected`, `(?i)dw.inj.check`, TargetResponseBody, []string{"check"}),
 		waf(`waf-dw-hdr`, `Dw WAF detected (headers)`, `(?i)dw.inj.check`, TargetResponseHeader, []string{"check"}),
 		waf(`waf-denyall`, `Denyall WAF detected`, `(?i)\Acondition.intercepted|(?i)\Asessioncookie=`, TargetResponseHeader, []string{"intercepted", "sessioncookie"}),
@@ -84,8 +89,8 @@ func wafRules() []Rule {
 		waf(`waf-yunsuo-hdr`, `Yunsuo WAF detected (headers)`, `(?i)<img.class=.yunsuologo.|(?i)yunsuo.session|(?i)yunsuologo`, TargetResponseHeader, []string{"yunsuologo", "session"}),
 		waf(`waf-litespeed`, `Litespeed WAF detected`, `(?i)litespeed.web.server`, TargetResponseBody, []string{"litespeed"}),
 		waf(`waf-litespeed-hdr`, `Litespeed WAF detected (headers)`, `(?i)litespeed.web.server`, TargetResponseHeader, []string{"litespeed"}),
-		waf(`waf-cloudfront`, `Cloudfront WAF detected`, `(?i)[a-zA-Z0-9]{,60}.cloudfront.net|(?i)cloudfront|(?i)x.amz.cf.id|nguardx`, TargetResponseBody, nil),
-		waf(`waf-cloudfront-hdr`, `Cloudfront WAF detected (headers)`, `(?i)[a-zA-Z0-9]{,60}.cloudfront.net|(?i)cloudfront|(?i)x.amz.cf.id|nguardx`, TargetResponseHeader, nil),
+		waf(`waf-cloudfront`, `Cloudfront WAF detected`, `(?i)[a-zA-Z0-9]{,60}.cloudfront.net|(?i)cloudfront|(?i)x.amz.cf.id|nguardx`, TargetResponseBody, []string{"cloudfront", "amz", "nguardx"}),
+		waf(`waf-cloudfront-hdr`, `Cloudfront WAF detected (headers)`, `(?i)[a-zA-Z0-9]{,60}.cloudfront.net|(?i)cloudfront|(?i)x.amz.cf.id|nguardx`, TargetResponseHeader, []string{"cloudfront", "amz", "nguardx"}),
 		waf(`waf-anyu`, `Anyu WAF detected`, `(?i)sorry.{1,2}your.access.has.been.intercept(ed)?.by.anyu|(?i)anyu|(?i)anyu-?.the.green.channel`, TargetResponseBody, []string{"intercept", "anyu", "channel"}),
 		waf(`waf-anyu-hdr`, `Anyu WAF detected (headers)`, `(?i)sorry.{1,2}your.access.has.been.intercept(ed)?.by.anyu|(?i)anyu|(?i)anyu-?.the.green.channel`, TargetResponseHeader, []string{"intercept", "anyu", "channel"}),
 		waf(`waf-googlewebservices`, `Googlewebservices WAF detected`, `(?i)your.client.has.issued.a.malformed.or.illegal.request|(?i)our.systems.have.detected.unusual.traffic|(?i)block(ed)?.by.g.cloud.security.policy.+`, TargetResponseBody, []string{"malformed", "detected", "security"}),
@@ -97,10 +102,10 @@ func wafRules() []Rule {
 		waf(`waf-codeigniter`, `Codeigniter WAF detected`, `(?i)the.uri.you.submitted.has.disallowed.characters`, TargetResponseBody, []string{"disallowed"}),
 		waf(`waf-codeigniter-hdr`, `Codeigniter WAF detected (headers)`, `(?i)the.uri.you.submitted.has.disallowed.characters`, TargetResponseHeader, []string{"disallowed"}),
 		waf(`waf-stingray`, `Stingray WAF detected`, `(?i)\AX-Mapping-`, TargetResponseHeader, []string{"mapping"}),
-		waf(`waf-west263`, `West263 WAF detected`, `(?i)wt\d*cdn`, TargetResponseBody, nil),
-		waf(`waf-west263-hdr`, `West263 WAF detected (headers)`, `(?i)wt\d*cdn`, TargetResponseHeader, nil),
-		waf(`waf-aws`, `Aws WAF detected`, `(?i)<RequestId>[0-9a-zA-Z]{16,25}<.RequestId>|(?i)<Error><Code>AccessDenied<.Code>|(?i)x.amz.id.\d+|(?i)x.amz.request.id`, TargetResponseBody, nil),
-		waf(`waf-aws-hdr`, `Aws WAF detected (headers)`, `(?i)<RequestId>[0-9a-zA-Z]{16,25}<.RequestId>|(?i)<Error><Code>AccessDenied<.Code>|(?i)x.amz.id.\d+|(?i)x.amz.request.id`, TargetResponseHeader, nil),
+		waf(`waf-west263`, `West263 WAF detected`, `(?i)wt\d*cdn`, TargetResponseBody, []string{"cdn"}),
+		waf(`waf-west263-hdr`, `West263 WAF detected (headers)`, `(?i)wt\d*cdn`, TargetResponseHeader, []string{"cdn"}),
+		waf(`waf-aws`, `Aws WAF detected`, `(?i)<RequestId>[0-9a-zA-Z]{16,25}<.RequestId>|(?i)<Error><Code>AccessDenied<.Code>|(?i)x.amz.id.\d+|(?i)x.amz.request.id`, TargetResponseBody, []string{"requestid", "accessdenied", "amz"}),
+		waf(`waf-aws-hdr`, `Aws WAF detected (headers)`, `(?i)<RequestId>[0-9a-zA-Z]{16,25}<.RequestId>|(?i)<Error><Code>AccessDenied<.Code>|(?i)x.amz.id.\d+|(?i)x.amz.request.id`, TargetResponseHeader, []string{"requestid", "accessdenied", "amz"}),
 		waf(`waf-yundun`, `Yundun WAF detected`, `(?i)YUNDUN|(?i)^yd.cookie=|(?i)http(s)?.//(www\.)?(\w+.)?yundun(.com)?`, TargetResponseBody, []string{"yundun", "cookie"}),
 		waf(`waf-yundun-hdr`, `Yundun WAF detected (headers)`, `(?i)YUNDUN|(?i)^yd.cookie=|(?i)http(s)?.//(www\.)?(\w+.)?yundun(.com)?`, TargetResponseHeader, []string{"yundun", "cookie"}),
 		waf(`waf-barracuda`, `Barracuda WAF detected`, `(?i)\Abarra.counter.session=?|(?i)(\A|\b)?barracuda.|(?i)barracuda.networks.{1,2}inc`, TargetResponseBody, []string{"counter", "barracuda"}),

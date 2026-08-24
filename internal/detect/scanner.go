@@ -111,7 +111,7 @@ func (s *Scanner) Run(ctx context.Context) {
 		case <-ticker.C:
 		case <-s.wake:
 		}
-		s.scanOnce()
+		s.scanOnce(ctx)
 	}
 }
 
@@ -123,9 +123,88 @@ func (s *Scanner) scopeFunc() proxy.ScopeFunc {
 	return s.scope.InScope
 }
 
+// scanWorkers sizes a fan-out for n items. The ceiling leaves cores for the
+// proxy itself, which is the workload the operator is actually waiting on; the
+// floor keeps one slow body from stalling the batch behind it.
+func scanWorkers(n int) int {
+	workers := runtime.NumCPU() / 2
+	if workers < 2 {
+		workers = 2
+	}
+	if workers > 8 {
+		workers = 8
+	}
+	// A live tick usually carries one or two captures, and spawning the whole
+	// pool for those costs more than it saves.
+	if workers > n {
+		workers = n
+	}
+	return workers
+}
+
+// fanOutScan runs scanItem over items across a bounded worker pool and reports
+// how many were scanned, how many findings were newly created, and whether ctx
+// cancelled the pass before the producer drained.
+//
+// Both scan paths share this, so per-message concurrency stays out of the engine:
+// scanMessage is untouched and the parallelism is strictly across captures.
+// Safe because a scan reads only immutable state — Engine.Scan takes the ruleSet
+// pointer under a read lock and releases it before scanning, and the snapshot is
+// replaced wholesale rather than mutated. Results funnel through the
+// mutex-serialized Upsert, which is cheap next to the scanning.
+//
+// onProgress, when non-nil, is called from the producer at most once per
+// progressInterval.
+func (s *Scanner) fanOutScan(
+	ctx context.Context,
+	items []*proxy.CapturedRequest,
+	scope proxy.ScopeFunc,
+	stream bool,
+	onProgress func(scanned, created int),
+) (scanned, created int, stopped bool) {
+	if len(items) == 0 {
+		return 0, 0, false
+	}
+
+	var scannedN, createdN atomic.Int64
+	workers := scanWorkers(len(items))
+	work := make(chan *proxy.CapturedRequest, workers)
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range work {
+				createdN.Add(int64(s.scanItem(item, scope, stream)))
+				scannedN.Add(1)
+			}
+		}()
+	}
+
+	lastProgress := time.Now()
+producer:
+	for _, item := range items {
+		select {
+		case <-ctx.Done():
+			stopped = true
+			break producer
+		case work <- item:
+		}
+		if onProgress != nil && time.Since(lastProgress) >= progressInterval {
+			lastProgress = time.Now()
+			onProgress(int(scannedN.Load()), int(createdN.Load()))
+		}
+	}
+	close(work)
+	wg.Wait()
+
+	return int(scannedN.Load()), int(createdN.Load()), stopped
+}
+
 // scanOnce scans up to maxPerTick newly captured requests and returns how many
 // were scanned and how many new findings resulted.
-func (s *Scanner) scanOnce() (scanned, newFindings int) {
+func (s *Scanner) scanOnce(ctx context.Context) (scanned, newFindings int) {
 	if s.store == nil || s.engine == nil || !s.engine.IsEnabled() {
 		return 0, 0
 	}
@@ -134,15 +213,24 @@ func (s *Scanner) scanOnce() (scanned, newFindings int) {
 	if len(items) == 0 {
 		return 0, 0
 	}
-	scope := s.scopeFunc()
+
+	// The watermark advances in the producer, never in a worker: SinceSeq returns
+	// items in sequence order, so the maximum is known without waiting on the
+	// scan, and one goroutine owning the cursor keeps the batch semantics — the
+	// cursor moves once, after the batch drains — unchanged by the fan-out.
 	for _, item := range items {
-		n := s.scanItem(item, scope, true)
-		newFindings += n
-		scanned++
 		if item.Seq > cursor {
 			cursor = item.Seq
 		}
 	}
+
+	scanned, newFindings, stopped := s.fanOutScan(ctx, items, s.scopeFunc(), true, nil)
+	if stopped {
+		// Leave the watermark where it was so the undispatched tail is picked up
+		// next pass. Re-scanning what did complete is free: Upsert dedupes.
+		return scanned, newFindings
+	}
+
 	s.cursor.Store(int64(cursor))
 	if newFindings > 0 {
 		s.emitSummary()
@@ -279,55 +367,15 @@ func (s *Scanner) runRescan(ctx context.Context, cancel context.CancelFunc, jobI
 		"jobId": jobID, "kind": req.Scope, "total": len(items),
 	})
 
-	// Fan out across workers. Findings funnel through the mutex-serialized
-	// Upsert, which is cheap next to the scanning.
-	workers := runtime.NumCPU() / 2
-	if workers < 2 {
-		workers = 2
-	}
-	if workers > 8 {
-		workers = 8
-	}
-
-	var scanned, created atomic.Int64
-	work := make(chan *proxy.CapturedRequest, workers)
-	scope := s.scopeFunc()
-
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for item := range work {
-				// Per-finding events are suppressed during a rescan; progress
-				// events and the final summary carry the information instead.
-				created.Add(int64(s.scanItem(item, scope, false)))
-				scanned.Add(1)
-			}
-		}()
-	}
-
-	// Producer with a throttled progress emitter.
-	lastProgress := time.Now()
-	stopped := false
-producer:
-	for _, item := range items {
-		select {
-		case <-ctx.Done():
-			stopped = true
-			break producer
-		case work <- item:
-		}
-		if time.Since(lastProgress) >= progressInterval {
-			lastProgress = time.Now()
+	// Per-finding events are suppressed during a rescan; the throttled progress
+	// events and the final summary carry the information instead.
+	scanned, created, stopped := s.fanOutScan(ctx, items, s.scopeFunc(), false,
+		func(scanned, created int) {
 			s.emit("detect.scan.progress", map[string]any{
-				"jobId": jobID, "scanned": int(scanned.Load()),
-				"total": len(items), "findingsNew": int(created.Load()),
+				"jobId": jobID, "scanned": scanned,
+				"total": len(items), "findingsNew": created,
 			})
-		}
-	}
-	close(work)
-	wg.Wait()
+		})
 
 	purged := 0
 	if req.Purge && !stopped {
@@ -340,8 +388,8 @@ producer:
 	}
 	s.mu.Lock()
 	s.status.Running = false
-	s.status.Scanned = int(scanned.Load())
-	s.status.FindingsNew = int(created.Load())
+	s.status.Scanned = scanned
+	s.status.FindingsNew = created
 	s.status.FinishedAt = time.Now()
 	s.status.Status = finalStatus
 	s.cancel = nil
@@ -350,7 +398,7 @@ producer:
 
 	s.emit("detect.scan.complete", map[string]any{
 		"jobId": jobID, "status": finalStatus,
-		"scanned": int(scanned.Load()), "findingsNew": int(created.Load()),
+		"scanned": scanned, "findingsNew": created,
 		"purged": purged, "durationMs": time.Since(started).Milliseconds(),
 	})
 	s.emitSummary()

@@ -158,8 +158,8 @@ func registerFindings(r *capability.Registry, d Deps) {
 			if sev := splitCSV(args.Severity); len(sev) > 0 {
 				f.Severities = sev
 			} else {
-				// Match the UI's default: 71 of the shipped rules are Info, so
-				// including them unasked would bury everything else.
+				// Match the UI's default: 233 of the 242 shipped rules are Info,
+				// so including them unasked would bury everything else.
 				f.Severities = []string{"critical", "high", "medium", "low"}
 			}
 			items, total := d.Findings.List(f, ruleEnabledFunc(d))
