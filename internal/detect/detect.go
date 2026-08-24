@@ -211,6 +211,13 @@ type Rule struct {
 	// runs if the haystack contains it. Must appear in every string the pattern
 	// can match, or the rule silently never fires.
 	Literal string `json:"literal,omitempty"`
+	// Literals is an any-of prescreen for alternation rules: when set, the regex
+	// only runs if the haystack contains at least one of these case-insensitive
+	// substrings. Every branch of the pattern must be covered by one of them, or
+	// matches from an uncovered branch are silently missed. Used by the WAF
+	// fingerprint rules, whose broad alternations have no single common Literal.
+	// Literal and Literals are independent; a rule with both must satisfy both.
+	Literals []string `json:"literals,omitempty"`
 	// CaptureGroup selects which submatch becomes the evidence (0 = whole match).
 	CaptureGroup int `json:"captureGroup,omitempty"`
 	// PostFilters name validators in the postfilters.go registry, run in order
@@ -250,12 +257,13 @@ type Rule struct {
 
 	// Resolved once by Engine.rebuildLocked; the scan path never compiles a regex
 	// or looks up a registry.
-	compiled     *regexp.Regexp
-	status       func(int) bool
-	filters      []postFilter
-	literalLower []byte
-	ctSet        map[string]struct{}
-	excludeCtSet map[string]struct{}
+	compiled      *regexp.Regexp
+	status        func(int) bool
+	filters       []postFilter
+	literalLower  []byte
+	literalsLower [][]byte
+	ctSet         map[string]struct{}
+	excludeCtSet  map[string]struct{}
 }
 
 // Occurrence records one sighting of a finding.

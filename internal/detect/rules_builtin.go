@@ -42,6 +42,7 @@ func builtinRules() []Rule {
 	rules = append(rules, accessRules()...)
 	rules = append(rules, disclosureRules()...)
 	rules = append(rules, analyzerRules()...)
+	rules = append(rules, wafRules()...)
 	return finalizeBuiltins(rules)
 }
 
