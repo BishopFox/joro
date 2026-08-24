@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Copy, Check, AlertTriangle } from 'lucide-react'
+import { Redacted } from './Redacted'
+import { useStreamerStore } from '../stores/streamerStore'
 
 type Props = {
   secret: string
@@ -18,6 +20,9 @@ type Props = {
  */
 export default function AutomationSecretModal({ secret, tokenName, endpoint, onClose }: Props) {
   const [copied, setCopied] = useState('')
+  // This value is shown once and never again, so a barred secret the operator
+  // cannot read has to say out loud that copying is the only way to keep it.
+  const streamerOn = useStreamerStore((s) => s.enabled)
 
   const config = JSON.stringify(
     { mcpServers: { joro: { url: endpoint, headers: { Authorization: `Bearer ${secret}` } } } },
@@ -42,17 +47,25 @@ export default function AutomationSecretModal({ secret, tokenName, endpoint, onC
       <div className="bg-surface-card border border-border rounded p-4 w-[38rem] space-y-3">
         <h3 className="text-sm font-semibold flex items-center gap-2">
           <AlertTriangle size={15} strokeWidth={2} className="text-semantic-warning" aria-hidden="true" />
-          Token for {tokenName}
+          Token for <Redacted value={tokenName} kind="identity" />
         </h3>
         <p className="text-[11px] text-content-muted">
           This is the only time this secret is shown. Joro stores a hash of it, not the value — if you lose it,
           rotate the token to issue a new one.
         </p>
+        {streamerOn && (
+          <p className="text-[11px] text-semantic-warning">
+            Streamer mode is hiding the value. Copy still yields the real secret — copy it before closing, or
+            turn streamer mode off to read it.
+          </p>
+        )}
 
         <div>
           <label className="block text-[10px] uppercase tracking-wide text-content-muted mb-1">Secret</label>
           <div className="flex gap-2">
-            <code className="font-mono text-[11px] bg-surface-input px-2 py-1.5 rounded-sm flex-1 break-all">{secret}</code>
+            <code className="font-mono text-[11px] bg-surface-input px-2 py-1.5 rounded-sm flex-1 break-all">
+              <Redacted value={secret} kind="secret" />
+            </code>
             <button onClick={() => copy('secret', secret)} className={btn}>
               {copied === 'secret' ? <Check size={12} strokeWidth={2.2} /> : <Copy size={12} strokeWidth={2} />}
               Copy
@@ -62,7 +75,9 @@ export default function AutomationSecretModal({ secret, tokenName, endpoint, onC
 
         <div>
           <label className="block text-[10px] uppercase tracking-wide text-content-muted mb-1">MCP client config</label>
-          <pre className="font-mono text-[10px] bg-surface-input p-2 rounded-sm overflow-x-auto leading-snug">{config}</pre>
+          <pre className="font-mono text-[10px] bg-surface-input p-2 rounded-sm overflow-x-auto leading-snug">
+            <Redacted value={config} kind="secret" />
+          </pre>
           <button onClick={() => copy('config', config)} className={`${btn} mt-1.5`}>
             {copied === 'config' ? <Check size={12} strokeWidth={2.2} /> : <Copy size={12} strokeWidth={2} />}
             Copy config with secret

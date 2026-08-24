@@ -36,6 +36,9 @@ import ProjectSwitcher from './components/ProjectSwitcher'
 import TestingBrowserButton from './components/TestingBrowserButton'
 import { useProjectStore } from './stores/projectStore'
 import { useAutomationStore } from './stores/automationStore'
+import { useStreamerStore } from './stores/streamerStore'
+import { Redacted } from './components/Redacted'
+import { EyeOff } from 'lucide-react'
 
 // relayDot maps the team relay connection state to the header status dot's color
 // and tooltip.
@@ -152,6 +155,22 @@ export default function App() {
     api.updatePresence({ status, project }).catch(() => {})
   }, [teamMode, chatInLayout, settings?.teamStatus, settings?.shareProjectName, activeProject])
 
+  // Streamer mode's shortcut. Ctrl/Cmd+Shift+Period is bound on `code` so the
+  // shifted glyph does not matter, and skipped while a field or an editor has
+  // focus so it never eats a keystroke meant for the document being typed.
+  const streamerOn = useStreamerStore((s) => s.enabled)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.code !== 'Period' || !e.shiftKey || !(e.ctrlKey || e.metaKey)) return
+      const el = e.target as HTMLElement | null
+      if (el?.closest('input, textarea, select, [contenteditable="true"], .cm-editor')) return
+      e.preventDefault()
+      useStreamerStore.getState().toggle()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   const [globalCtxMenu, setGlobalCtxMenu] = useState<{ x: number; y: number } | null>(null)
 
   function handleGlobalContextMenu(e: React.MouseEvent) {
@@ -257,9 +276,28 @@ export default function App() {
               title={relayDot(teamConn).label}
             >
               <span className={`w-2 h-2 rounded-full ${relayDot(teamConn).cls}`} />
-              {settings.teamNickname}
+              <Redacted value={settings.teamNickname} kind="identity" />
             </span>
           )}
+          {/* Doubles as the indicator: an operator has to be able to see whether
+              the mode is armed before going live, so it is visible in both states. */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={streamerOn}
+            aria-label="Streamer mode"
+            onClick={() => useStreamerStore.getState().toggle()}
+            title={
+              streamerOn
+                ? 'Streamer mode on — infrastructure and chrome are hidden. Captured traffic is not. (Ctrl/Cmd+Shift+.)'
+                : 'Streamer mode off (Ctrl/Cmd+Shift+.)'
+            }
+            className={`w-6 h-6 flex items-center justify-center rounded-sm hover:bg-surface-hover ${
+              streamerOn ? 'text-accent' : 'text-content-muted'
+            }`}
+          >
+            <EyeOff size={14} strokeWidth={1.8} />
+          </button>
         </div>
       </header>
 

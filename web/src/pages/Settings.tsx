@@ -15,6 +15,7 @@ import HealthCheck from '../components/HealthCheck'
 import { useToastStore } from '../stores/toastStore'
 import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
+import { useStreamerStore } from '../stores/streamerStore'
 import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot } from 'lucide-react'
 
 const THEMES = [
@@ -134,6 +135,7 @@ export default function SettingsPage() {
   const [interceptTimeout, setInterceptTimeout] = useState(60)
   const [maxRequests, setMaxRequests] = useState(5000)
   const [unknownPluginStatesNotice, setUnknownPluginStatesNotice] = useState<string[]>([])
+  const streamerOn = useStreamerStore((s) => s.enabled)
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('joro-theme') || document.documentElement.getAttribute('data-theme') || 'bishop-fox'
   })
@@ -278,11 +280,11 @@ export default function SettingsPage() {
                   <SubLabel>SOCKS upstream</SubLabel>
                   <div className="space-y-1.5">
                     <div className="flex gap-1.5">
-                      <input type="text" placeholder="Host" value={socksHost} onChange={(e) => setSocksHost(e.target.value)} className={`flex-1 min-w-0 ${inputCls}`} />
+                      <input type="text" placeholder="Host" value={socksHost} onChange={(e) => setSocksHost(e.target.value)} className={`flex-1 min-w-0 joro-redact-field ${inputCls}`} />
                       <input type="number" placeholder="Port" value={socksPort} onChange={(e) => setSocksPort(e.target.value)} className={`w-20 ${inputCls}`} />
                     </div>
                     <div className="flex gap-1.5">
-                      <input type="text" placeholder="User" value={socksUsername} onChange={(e) => setSocksUsername(e.target.value)} className={`flex-1 min-w-0 ${inputCls}`} />
+                      <input type="text" placeholder="User" value={socksUsername} onChange={(e) => setSocksUsername(e.target.value)} className={`flex-1 min-w-0 joro-redact-field ${inputCls}`} />
                       <input type="password" placeholder="Password" value={socksPassword} onChange={(e) => setSocksPassword(e.target.value)} className={`flex-1 min-w-0 ${inputCls}`} />
                     </div>
                   </div>
@@ -445,6 +447,27 @@ export default function SettingsPage() {
                 </Row>
               </Group>
 
+              <Group title="Streamer mode">
+                <Rows>
+                  <Row
+                    label="Hide infrastructure"
+                    title="Replace identifying values with black bars for screen capture"
+                  >
+                    <Switch checked={streamerOn} onChange={(v) => useStreamerStore.getState().setEnabled(v)} />
+                  </Row>
+                </Rows>
+                <p className="text-[11px] text-content-muted mt-2">
+                  Bars over the network graph, proxy health, connection and listener config, project
+                  and operator names, callback tokens and domains, C2 addresses, and local paths.
+                  Toggle from the header or with Ctrl/Cmd+Shift+.
+                </p>
+                <p className="text-[11px] text-semantic-warning mt-1.5">
+                  Captured traffic is not covered: History, Site Map, Detect, the raw request and
+                  response viewers, rendered responses, and plugin tabs keep real values. Guards
+                  against screen capture, not storage — exports and project files are unchanged.
+                </p>
+              </Group>
+
               <Group title="Visible tabs">
                 <p className="text-[11px] text-content-muted mb-2">Hide tabs you don't use from the header nav.</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5">
@@ -489,7 +512,7 @@ export default function SettingsPage() {
                       setBrowserPrefs({ url: e.target.value })
                     }}
                     placeholder="about:blank"
-                    className={`w-full ${inputCls}`}
+                    className={`w-full joro-redact-field ${inputCls}`}
                   />
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-2">

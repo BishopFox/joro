@@ -12,6 +12,8 @@ import { Settings, useSettingsStore } from '../stores/settingsStore'
 import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectionStore'
 import { useTeamSharedConfigStore } from '../stores/teamSharedConfigStore'
 import { useProjectStore } from '../stores/projectStore'
+import { Redacted } from './Redacted'
+import { redactNow } from '../stores/streamerStore'
 
 type FilterTab = 'scope' | 'noise' | 'replace'
 
@@ -221,7 +223,8 @@ export default function ProjectSettings() {
             <span className="text-content-secondary">{teamStatus(teamConn).label}</span>
             {teamConn === 'disconnected' && teamConnError && (
               <span className="text-content-muted truncate">
-                — {teamConnError}{teamConnHTTP ? ` (HTTP ${teamConnHTTP})` : ''}
+                — <Redacted value={teamConnError} kind="url" />
+                {teamConnHTTP ? ` (HTTP ${teamConnHTTP})` : ''}
               </span>
             )}
           </div>
@@ -233,7 +236,7 @@ export default function ProjectSettings() {
             placeholder="http://teamserver:9090"
             value={listenerUrl}
             onChange={(e) => setListenerUrl(e.target.value)}
-            className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+            className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border joro-redact-field"
           />
         </div>
         <div>
@@ -253,7 +256,7 @@ export default function ProjectSettings() {
             placeholder="Your display name"
             value={teamNickname}
             onChange={(e) => setTeamNickname(e.target.value)}
-            className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+            className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border joro-redact-field"
           />
         </div>
         {teamError && (
@@ -478,7 +481,7 @@ export default function ProjectSettings() {
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${rule.include ? 'bg-accent-secondary text-black' : 'bg-semantic-error-bg text-black'}`}>
                         {rule.include ? 'Include' : 'Exclude'}
                       </span>
-                      <span className="text-content-primary font-mono">{rule.pattern}</span>
+                      <span className="text-content-primary font-mono"><Redacted value={rule.pattern} kind="host" /></span>
                       <span className="text-content-muted">{rule.methods?.length ? rule.methods.join(',') : '*'}</span>
                       <span className="text-content-muted">{rule.path || '/*'}</span>
                       <button
@@ -588,7 +591,7 @@ export default function ProjectSettings() {
                 <div className="space-y-1 max-h-48 overflow-y-auto">
                   {noisePatterns.map((p) => (
                     <div key={p.id} className="flex items-center gap-2 text-xs py-1 border-b border-border-subtle">
-                      <span className="text-content-primary font-mono">{p.pattern}</span>
+                      <span className="text-content-primary font-mono"><Redacted value={p.pattern} kind="host" /></span>
                       <button
                         onClick={async () => {
                           await api.deleteNoisePattern(p.id)
@@ -666,9 +669,11 @@ export default function ProjectSettings() {
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-input text-content-secondary">
                         {rule.matchType}
                       </span>
-                      <span className="text-content-primary font-mono truncate max-w-[12rem]">{rule.match}</span>
+                      <span className="text-content-primary font-mono truncate max-w-[12rem]"><Redacted value={rule.match} kind="secret" /></span>
                       <span className="text-content-muted inline-flex items-center"><ArrowRight size={12} /></span>
-                      <span className="text-semantic-success font-mono truncate max-w-[12rem]">{rule.replace || '(empty)'}</span>
+                      <span className="text-semantic-success font-mono truncate max-w-[12rem]">
+                        {rule.replace ? <Redacted value={rule.replace} kind="secret" /> : '(empty)'}
+                      </span>
                       <button
                         onClick={async () => {
                           await api.deleteReplaceRule(rule.id)
@@ -896,7 +901,7 @@ function TeamConfigsPanel({ onImported }: { onImported: (p: unknown) => void }) 
       const cfg = await api.getSharedConfig(id)
       const resp = await api.importProjectConfig(name, cfg.config)
       onImported(resp)
-      setMsg(`Loaded "${name}"`)
+      setMsg(`Loaded "${redactNow(name, 'identity')}"`)
       window.setTimeout(() => setMsg(''), 3000)
     } catch (e) {
       setMsg(String(e))

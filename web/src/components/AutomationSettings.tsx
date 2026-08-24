@@ -11,6 +11,8 @@ import BudgetPanel from './automation/BudgetPanel'
 import LensPanel from './automation/LensPanel'
 import ScriptsPanel from './automation/ScriptsPanel'
 import ConfirmModal from './ConfirmModal'
+import { Redacted } from './Redacted'
+import { useRedact } from '../stores/streamerStore'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border'
 
@@ -21,6 +23,7 @@ const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-bo
 type SubTab = 'tokens' | 'scripts' | 'lenses' | 'settings' | 'activity'
 
 export default function AutomationSettings() {
+  const redact = useRedact()
   const { tokens, capabilities, profiles, classes, mcp, available, refresh, create, update, rotate, setEnabled, review, revoke, setMcp } =
     useAutomationStore()
   const addToast = useToastStore((s) => s.addToast)
@@ -195,7 +198,11 @@ export default function AutomationSettings() {
               {mcp.running ? 'running' : mcp.error ? `error: ${mcp.error}` : 'stopped'}
             </span>
           )}
-          {mcp?.running && <code className="font-mono text-[11px] text-content-secondary">{mcp.endpoint}</code>}
+          {mcp?.running && (
+            <code className="font-mono text-[11px] text-content-secondary">
+              <Redacted value={mcp.endpoint} kind="url" />
+            </code>
+          )}
         </div>
         <p className="text-[10px] text-content-muted">
           A grant change does not push to a connected client — this transport initiates no messages. The client picks it
@@ -238,8 +245,10 @@ export default function AutomationSettings() {
               {tokens.map((t) => (
                 <tr key={t.id} className="border-b border-border-subtle last:border-0 hover:bg-surface-hover">
                   <td className="px-3 py-2">
-                    <div className="font-medium">{t.name}</div>
-                    <code className="font-mono text-[10px] text-content-muted">joro_{t.prefix}…</code>
+                    <div className="font-medium"><Redacted value={t.name} kind="identity" /></div>
+                    <code className="font-mono text-[10px] text-content-muted">
+                      joro_<Redacted value={t.prefix} kind="secret" />…
+                    </code>
                   </td>
                   <td className="px-3 py-2">
                     <span title={t.grants.join('\n')}>{t.grants.length}</span>
@@ -263,7 +272,7 @@ export default function AutomationSettings() {
                   <td className="px-3 py-2 text-content-secondary">
                     {t.requireScope ? 'required' : <span className="text-semantic-warning">off</span>}
                     {t.hostAllow && t.hostAllow.length > 0 && (
-                      <span className="text-content-muted" title={t.hostAllow.join('\n')}>
+                      <span className="text-content-muted" title={t.hostAllow.map((h) => redact(h, 'host')).join('\n')}>
                         {' '}
                         +{t.hostAllow.length} host
                       </span>

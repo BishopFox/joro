@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AlertTriangle, Check, KeyRound, Unlock } from 'lucide-react'
 import type { AutomationProfile, AutomationToken, AutomationTokenInput, Capability } from '../lib/api'
 import GrantPicker from './GrantPicker'
+import { Redacted } from './Redacted'
 
 type Props = {
   capabilities: Capability[]
@@ -85,7 +86,9 @@ export default function AutomationTokenModal({
         className="bg-surface-card border border-border rounded p-4 w-[42rem] max-h-[85vh] overflow-y-auto space-y-3"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-sm font-semibold">{editing ? `Edit ${token!.name}` : 'New automation token'}</h3>
+        <h3 className="text-sm font-semibold">
+          {editing ? <>Edit <Redacted value={token!.name} kind="identity" /></> : 'New automation token'}
+        </h3>
 
         <div>
           <label className="block text-[10px] uppercase tracking-wide text-content-muted mb-1">Name</label>
@@ -138,7 +141,7 @@ export default function AutomationTokenModal({
             <label className="block text-[10px] uppercase tracking-wide text-content-muted mb-1">
               Host whitelist (optional, comma-separated)
             </label>
-            <input className={inputCls} value={hostAllow} onChange={(e) => setHostAllow(e.target.value)} placeholder="*.target.com, api.example.com" />
+            <input className={`${inputCls} joro-redact-field`} value={hostAllow} onChange={(e) => setHostAllow(e.target.value)} placeholder="*.target.com, api.example.com" />
             <p className="text-[10px] text-content-muted mt-1 leading-snug">
               Combined with the scope check above, never instead of it.{' '}
               {hostPatterns.length > 0 && (

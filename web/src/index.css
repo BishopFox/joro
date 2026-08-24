@@ -173,6 +173,44 @@ div:has(> .cm-editor) {
   .deaddrop-glyph { transition: none; }
 }
 
+/* Streamer mode. Redaction is deliberately theme-independent: a bar must read as
+   a bar in every theme, the light ones included. */
+:root {
+  --color-redaction: #000000;
+}
+
+/* The U+2588 run carries the value's length and is what lands in the clipboard
+   or a DOM inspection. The solid background closes the hairline seams the system
+   monospace stack leaves between adjacent block glyphs, so the run reads as one
+   bar rather than a picket fence. */
+.joro-redacted {
+  background-color: var(--color-redaction);
+  color: var(--color-redaction);
+  border-radius: 2px;
+  user-select: none;
+}
+
+/* SVG text takes no background, so the seams are closed with a stroke instead. */
+.joro-redacted-svg {
+  fill: var(--color-redaction);
+  stroke: var(--color-redaction);
+  stroke-width: 2px;
+  paint-order: stroke;
+  user-select: none;
+}
+
+/* An editable field keeps its real value — substituting the string would corrupt
+   it on the next keystroke — so the field is painted over instead. */
+[data-streamer="on"] .joro-redact-field {
+  color: transparent;
+  caret-color: transparent;
+  background-color: var(--color-redaction);
+  text-shadow: none;
+}
+[data-streamer="on"] .joro-redact-field::placeholder {
+  color: transparent;
+}
+
 /* Network graph animations */
 @keyframes joro-edge-flow {
   to { stroke-dashoffset: -20; }

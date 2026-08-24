@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import DashboardPanel, { EmptyPanelBody } from '../DashboardPanel'
 import { useDashboardDataStore } from '../../stores/dashboardDataStore'
 import { timeAgo } from '../../lib/timeAgo'
+import { Redacted } from '../Redacted'
 
 interface UnifiedEvent {
   id: string
@@ -86,10 +87,14 @@ export default function RecentInteractionsWidget() {
                     {e.kind}
                   </span>
                 </td>
-                <td className="px-3 py-1.5 text-content-primary">{e.label}</td>
-                <td className="px-3 py-1.5 text-content-secondary">{e.source}</td>
+                <td className="px-3 py-1.5 text-content-primary">
+                  <Redacted value={e.label} kind="secret" />
+                </td>
+                <td className="px-3 py-1.5 text-content-secondary">
+                  <Redacted value={e.source} kind="ip" />
+                </td>
                 <td className="px-3 py-1.5 text-content-secondary truncate max-w-[200px]">
-                  {e.detail}
+                  <Redacted value={e.detail} kind="url" />
                 </td>
                 <td className="px-3 py-1.5 text-content-muted">{timeAgo(e.timestamp)}</td>
               </tr>

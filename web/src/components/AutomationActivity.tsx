@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, Eye, KeyRound } from 'lucide-react'
 import { api, type AuditEntry } from '../lib/api'
 import { useToastStore } from '../stores/toastStore'
+import { Redacted } from './Redacted'
+import { useRedact } from '../stores/streamerStore'
 
 /**
  * Recent automation activity.
@@ -12,6 +14,7 @@ import { useToastStore } from '../stores/toastStore'
  * than the arguments, since arguments to a send carry credentials and payloads.
  */
 export default function AutomationActivity() {
+  const redact = useRedact()
   const [open, setOpen] = useState(false)
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [filter, setFilter] = useState('')
@@ -87,7 +90,7 @@ export default function AutomationActivity() {
                   }`}
                 >
                   <span className="text-content-muted shrink-0">{new Date(e.at).toLocaleTimeString()}</span>
-                  <span className="shrink-0 w-24 truncate">{e.tokenName}</span>
+                  <span className="shrink-0 w-24 truncate"><Redacted value={e.tokenName} kind="identity" /></span>
                   <span className="shrink-0 w-32 truncate">{e.capability}</span>
                   <span className="shrink-0 w-6 inline-flex gap-0.5">
                     {e.privileged && (
@@ -107,15 +110,19 @@ export default function AutomationActivity() {
                         read as a bare capability name — the operator could see that an
                         agent edited the proxy but not what it did. */}
                     {e.change ? (
-                      <span className="text-semantic-special" title={e.change}>
-                        {e.change}{' '}
+                      <span className="text-semantic-special" title={redact(e.change, 'text')}>
+                        <Redacted value={e.change} kind="text" />{' '}
                       </span>
+                    ) : e.targetHost ? (
+                      <>
+                        {e.targetMethod ?? ''} <Redacted value={`${e.targetHost}${e.targetPath ?? ''}`} kind="url" />{' '}
+                      </>
                     ) : (
-                      e.targetHost ? `${e.targetMethod ?? ''} ${e.targetHost}${e.targetPath ?? ''} ` : ''
+                      ''
                     )}
                     {e.outputBytes > 0 ? `${e.outputBytes}B ` : ''}
                     {e.durationMs}ms
-                    {e.errMsg ? ` — ${e.errMsg}` : ''}
+                    {e.errMsg ? <> — <Redacted value={e.errMsg} kind="text" /></> : ''}
                   </span>
                 </div>
               ))}

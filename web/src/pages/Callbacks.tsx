@@ -5,6 +5,9 @@ import { useXSSHunterStore, type XSSFire, type CollectedPageSummary, type Collec
 import { useSettingsStore, type Settings } from '../stores/settingsStore'
 import { onPluginEvent } from '../lib/ws'
 import { copyText } from '../lib/clipboard'
+import { Redacted } from '../components/Redacted'
+import type { Sensitivity } from '../lib/redact'
+import { useRedact } from '../stores/streamerStore'
 
 function b64Decode(s: string) {
   try { return atob(s) } catch { return s }
@@ -26,6 +29,7 @@ type CallbacksProps = {
 }
 
 export default function Callbacks({ teamMode = false }: CallbacksProps) {
+  const redact = useRedact()
   // Callback store
   const {
     tokens, interactions, interactionsTotal,
@@ -432,9 +436,9 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
       return (
         <div className="space-y-3">
           {sourceBadge}
-          <DetailField label="Query Name" value={item.queryName || ''} />
+          <DetailField label="Query Name" value={item.queryName || ''} kind="host" />
           <DetailField label="Query Type" value={item.queryType || ''} />
-          <DetailField label="Source IP" value={item.sourceIp} />
+          <DetailField label="Source IP" value={item.sourceIp} kind="ip" />
         </div>
       )
     }
@@ -444,8 +448,8 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
       return (
         <div className="space-y-3">
           {sourceBadge}
-          <DetailField label="Method & Path" value={`${item.method} ${item.path}`} />
-          <DetailField label="Source IP" value={item.sourceIp} />
+          <DetailField label="Method & Path" value={`${item.method} ${item.path}`} kind="url" />
+          <DetailField label="Source IP" value={item.sourceIp} kind="ip" />
           {Object.keys(headers).length > 0 && (
             <div>
               <div className="text-xs text-content-muted uppercase mb-1">Headers</div>
@@ -483,7 +487,7 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
       <div className="space-y-3">
         {sourceBadge}
         <DetailField label="Protocol" value={item.type.toUpperCase()} />
-        <DetailField label="Source IP" value={item.sourceIp} />
+        <DetailField label="Source IP" value={item.sourceIp} kind="ip" />
         {item.rawRequest && (
           <div>
             <div className="flex items-center justify-between mb-1">
@@ -532,15 +536,15 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
             />
           </div>
         )}
-        <DetailField label="URL" value={fire.url} copyable />
-        <DetailField label="Origin" value={fire.origin} />
-        <DetailField label="Referrer" value={fire.referrer} />
+        <DetailField label="URL" value={fire.url} copyable kind="url" />
+        <DetailField label="Origin" value={fire.origin} kind="url" />
+        <DetailField label="Referrer" value={fire.referrer} kind="url" />
         <DetailField label="User Agent" value={fire.userAgent} />
-        <DetailField label="Cookies" value={fire.cookies} copyable />
-        <DetailField label="Page Title" value={fire.pageTitle} />
-        <DetailField label="Source IP" value={fire.sourceIp} />
+        <DetailField label="Cookies" value={fire.cookies} copyable kind="secret" />
+        <DetailField label="Page Title" value={fire.pageTitle} kind="identity" />
+        <DetailField label="Source IP" value={fire.sourceIp} kind="ip" />
         <DetailField label="In Iframe" value={fire.inIframe ? 'Yes' : 'No'} />
-        {fire.injectionKey && <DetailField label="Injection Key" value={fire.injectionKey} />}
+        {fire.injectionKey && <DetailField label="Injection Key" value={fire.injectionKey} kind="secret" />}
         <DetailField label="Browser Time" value={fire.browserTime} />
         <DetailField label="Fired At" value={new Date(fire.firedAt).toLocaleString('en-US', { timeZone: 'UTC' }) + ' UTC'} />
         {fire.pageText && (
@@ -614,14 +618,14 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
         {/* Listener config group */}
         <div className="flex items-center gap-2">
           <input
-            className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-40 lg:w-52"
+            className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-40 lg:w-52 joro-redact-field"
             placeholder="Listener URL"
             value={listenerUrl}
             onChange={(e) => setListenerUrl(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSaveConfig()}
           />
           <input
-            className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-36 lg:w-44 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-36 lg:w-44 disabled:opacity-50 disabled:cursor-not-allowed joro-redact-field"
             placeholder="Callback domain"
             value={callbackDomain}
             onChange={(e) => setCallbackDomain(e.target.value)}
@@ -765,7 +769,7 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold uppercase text-semantic-info bg-surface-input px-1.5 py-0.5 rounded">Token</span>
-                    <code className="text-xs text-accent-secondary">{t.token}</code>
+                    <code className="text-xs text-accent-secondary"><Redacted value={t.token} kind="secret" /></code>
                   </div>
                   <button
                     onClick={() => handleDeleteToken(t.id)}
@@ -797,7 +801,7 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-bold uppercase text-semantic-special bg-surface-input px-1.5 py-0.5 rounded">XSS</span>
-                      <code className="text-xs text-accent-secondary">{p.probeId}</code>
+                      <code className="text-xs text-accent-secondary"><Redacted value={p.probeId} kind="secret" /></code>
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDeleteProbe(p.id) }}
@@ -824,7 +828,7 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
                             <span className="ml-1 text-accent-secondary font-mono">#{v.injectionKey}</span>
                           </div>
                           <code className="text-[10px] text-content-secondary break-all block bg-surface-terminal px-1.5 py-1 rounded">
-                            {v.payload}
+                            <Redacted value={v.payload} kind="url" />
                           </code>
                         </div>
                         <button
@@ -915,13 +919,14 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
                       </div>
                       <div
                         className="text-[10px] text-content-muted mt-1 capitalize truncate"
-                        title={inst.meta?.error}
+                        title={redact(inst.meta?.error || '', 'url')}
                       >
-                        {inst.status}{inst.meta?.error ? `: ${inst.meta.error}` : ''}
+                        {inst.status}
+                        {inst.meta?.error ? <>: <Redacted value={inst.meta.error} kind="url" /></> : ''}
                       </div>
                       {inst.payloadUrl && (
                         <div className="flex items-center justify-between mt-1">
-                          <code className="text-[10px] text-accent-secondary truncate">{inst.payloadUrl}</code>
+                          <code className="text-[10px] text-accent-secondary truncate"><Redacted value={inst.payloadUrl} kind="url" /></code>
                           <button
                             onClick={() => copyText(inst.payloadUrl)}
                             className="text-[10px] text-accent-secondary hover:text-accent-secondary-hover shrink-0 ml-2"
@@ -977,9 +982,9 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
                     onClick={() => selectEvent(ev)}
                   >
                     <td className="px-2 py-1">{typeBadge(ev.kind)}</td>
-                    <td className="px-2 py-1 text-accent-secondary font-mono">{ev.hex}</td>
-                    <td className="px-2 py-1 text-content-secondary">{ev.sourceIp}</td>
-                    <td className="px-2 py-1 text-content-secondary truncate max-w-xs">{ev.detail}</td>
+                    <td className="px-2 py-1 text-accent-secondary font-mono"><Redacted value={ev.hex} kind="secret" /></td>
+                    <td className="px-2 py-1 text-content-secondary"><Redacted value={ev.sourceIp} kind="ip" /></td>
+                    <td className="px-2 py-1 text-content-secondary truncate max-w-xs"><Redacted value={ev.detail} kind="url" /></td>
                     <td className="px-2 py-1 text-right text-content-muted">
                       {new Date(ev.timestamp).toLocaleTimeString('en-US', { timeZone: 'UTC' }) + ' UTC'}
                     </td>
@@ -1035,7 +1040,7 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
   )
 }
 
-function DetailField({ label, value, copyable }: { label: string; value: string; copyable?: boolean }) {
+function DetailField({ label, value, copyable, kind }: { label: string; value: string; copyable?: boolean; kind?: Sensitivity }) {
   if (!value) return null
   return (
     <div>
@@ -1050,7 +1055,9 @@ function DetailField({ label, value, copyable }: { label: string; value: string;
           </button>
         )}
       </div>
-      <code className="text-xs text-content-primary break-all">{value}</code>
+      <code className="text-xs text-content-primary break-all">
+        {kind ? <Redacted value={value} kind={kind} /> : value}
+      </code>
     </div>
   )
 }

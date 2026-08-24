@@ -3,6 +3,7 @@ import { api } from '../lib/api'
 import { onSliverEvent, onMythicEvent, onPluginEvent } from '../lib/ws'
 import DynamicConfigForm from '../components/DynamicConfigForm'
 import { useExecutorStore, type OutputLine } from '../stores/executorStore'
+import { redactNow } from '../stores/streamerStore'
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
@@ -455,11 +456,11 @@ export default function Executor() {
   function getPrompt(): string {
     if (execMode === 'webshell') return '$ '
     if (execMode === 'sliver') {
-      if (activeSessionName) return `sliver (${activeSessionName}) > `
+      if (activeSessionName) return `sliver (${redactNow(activeSessionName, 'host')}) > `
       return 'sliver > '
     }
     if (execMode === 'mythic') {
-      if (activeCallbackName) return `mythic (${activeCallbackName}) > `
+      if (activeCallbackName) return `mythic (${redactNow(activeCallbackName, 'host')}) > `
       return 'mythic > '
     }
     // Plugin provider prompt
@@ -527,7 +528,7 @@ export default function Executor() {
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
                 placeholder="https://example.com"
-                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border joro-redact-field"
               />
             </div>
             <div>
@@ -536,7 +537,7 @@ export default function Executor() {
                 value={webshell}
                 onChange={(e) => setWebshell(e.target.value)}
                 placeholder="/uploads/joro.php"
-                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border joro-redact-field"
               />
             </div>
             <div>
@@ -545,7 +546,7 @@ export default function Executor() {
                 value={authKey}
                 onChange={(e) => setAuthKey(e.target.value)}
                 placeholder="UUID auth key"
-                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border joro-redact-field"
               />
             </div>
           </div>
@@ -611,7 +612,7 @@ export default function Executor() {
                       value={mythicUrl}
                       onChange={(e) => setMythicUrl(e.target.value)}
                       placeholder="https://10.0.0.5:7443"
-                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border joro-redact-field"
                     />
                   </div>
                   <div>
@@ -620,7 +621,7 @@ export default function Executor() {
                       value={mythicUsername}
                       onChange={(e) => setMythicUsername(e.target.value)}
                       placeholder="mythic_admin"
-                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
+                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border joro-redact-field"
                     />
                   </div>
                   <div>
@@ -639,7 +640,7 @@ export default function Executor() {
                       value={mythicApiToken}
                       onChange={(e) => setMythicApiToken(e.target.value)}
                       placeholder="apitoken value from Mythic operator settings"
-                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border font-mono"
+                      className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border font-mono joro-redact-field"
                     />
                   </div>
                 </div>

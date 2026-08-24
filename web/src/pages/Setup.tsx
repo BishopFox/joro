@@ -113,7 +113,7 @@ export default function Setup({ onSetupComplete }: Props) {
                 value={listenerUrl}
                 onChange={(e) => setListenerUrl(e.target.value)}
                 placeholder="http://listener:9090"
-                className="w-full bg-surface-input text-content-primary text-xs px-3 py-2 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary"
+                className="w-full bg-surface-input text-content-primary text-xs px-3 py-2 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary joro-redact-field"
               />
             </div>
 
@@ -135,7 +135,7 @@ export default function Setup({ onSetupComplete }: Props) {
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
                 placeholder="Your display name"
-                className="w-full bg-surface-input text-content-primary text-xs px-3 py-2 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary"
+                className="w-full bg-surface-input text-content-primary text-xs px-3 py-2 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary joro-redact-field"
               />
             </div>
 

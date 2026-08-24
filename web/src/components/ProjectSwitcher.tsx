@@ -4,6 +4,8 @@ import { useProjectStore } from '../stores/projectStore'
 import { useToastStore } from '../stores/toastStore'
 import NewProjectModal from './NewProjectModal'
 import { Folder, ChevronDown, Save, Plus } from 'lucide-react'
+import { Redacted } from './Redacted'
+import { redactNow } from '../stores/streamerStore'
 
 // ProjectSwitcher is the header dropdown (left of the Dead Drop spider) for quick
 // project switching. Switching respects the outgoing project's autoSave pref:
@@ -63,7 +65,8 @@ export default function ProjectSwitcher() {
   async function doSwitch(name: string, opts?: { action?: 'save' | 'discard'; saveScratchAs?: string }) {
     try {
       await switchTo(name, opts)
-      addToast(opts?.action === 'save' || opts?.saveScratchAs ? `Saved, switched to ${name}` : `Switched to ${name}`, 'info')
+      const shown = redactNow(name, 'identity')
+      addToast(opts?.action === 'save' || opts?.saveScratchAs ? `Saved, switched to ${shown}` : `Switched to ${shown}`, 'info')
     } catch (e) {
       addToast(`Failed to switch: ${String(e)}`, 'error')
     }
@@ -91,7 +94,7 @@ export default function ProjectSwitcher() {
   async function handleSave() {
     try {
       await saveActive()
-      addToast(`Saved ${active}`, 'info')
+      addToast(`Saved ${redactNow(active, 'identity')}`, 'info')
     } catch (e) {
       addToast(`Failed to save: ${String(e)}`, 'error')
     }
@@ -101,7 +104,7 @@ export default function ProjectSwitcher() {
   async function handleCreateCurrent(name: string) {
     try {
       await createFromCurrent(name)
-      addToast(`Created project ${name}`, 'info')
+      addToast(`Created project ${redactNow(name, 'identity')}`, 'info')
     } catch (e) {
       addToast(`Failed to create: ${String(e)}`, 'error')
     }
@@ -112,7 +115,7 @@ export default function ProjectSwitcher() {
   async function handleCreateEmpty(name: string, opts?: { action?: 'save' | 'discard'; saveScratchAs?: string }) {
     try {
       await createEmpty(name, opts)
-      addToast(`Created empty project ${name}`, 'info')
+      addToast(`Created empty project ${redactNow(name, 'identity')}`, 'info')
     } catch (e) {
       addToast(`Failed to create: ${String(e)}`, 'error')
     }
@@ -131,7 +134,9 @@ export default function ProjectSwitcher() {
         className="flex items-center gap-1.5 max-w-[180px] px-2 py-1 rounded-sm text-xs bg-surface-input border border-border text-content-secondary hover:text-content-primary hover:border-accent-secondary transition-colors"
       >
         <Folder size={14} strokeWidth={1.8} aria-hidden="true" className="shrink-0" />
-        <span className={`truncate ${active ? 'text-content-primary' : 'italic text-content-muted'}`}>{label}</span>
+        <span className={`truncate ${active ? 'text-content-primary' : 'italic text-content-muted'}`}>
+          {active ? <Redacted value={label} kind="identity" /> : label}
+        </span>
         <ChevronDown size={12} aria-hidden="true" className="shrink-0" />
       </button>
 
@@ -152,7 +157,7 @@ export default function ProjectSwitcher() {
                   className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-surface-hover text-left"
                 >
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.active ? 'bg-accent' : 'bg-transparent'}`} />
-                  <span className={`flex-1 truncate ${p.active ? 'text-accent' : 'text-content-primary'}`}>{p.name}</span>
+                  <span className={`flex-1 truncate ${p.active ? 'text-accent' : 'text-content-primary'}`}><Redacted value={p.name} kind="identity" /></span>
                   {!p.autoSave && <span className="text-[9px] text-content-muted" title="Auto-save off">manual</span>}
                 </button>
               ))
@@ -190,7 +195,7 @@ export default function ProjectSwitcher() {
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setPending(null)}>
           <div className="bg-surface-card border border-border rounded p-4 w-80 space-y-3" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-content-primary">
-              Switch to {pending.name}
+              Switch to <Redacted value={pending.name} kind="identity" />
             </h3>
             {pending.scratch ? (
               <>

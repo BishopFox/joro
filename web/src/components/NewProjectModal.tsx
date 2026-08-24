@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { redactNow } from '../stores/streamerStore'
 
 type Props = {
   active: string
@@ -79,12 +80,12 @@ export default function NewProjectModal({ active, activeAutoSave, onClose, onCre
             <p className="text-[10px] text-content-muted">
               {scratchActive
                 ? 'Your current session isn\'t saved to a project.'
-                : `Auto-save is off for "${active}".`}
+                : `Auto-save is off for "${redactNow(active, 'identity')}".`}
             </p>
             <div className="flex gap-3 text-xs">
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input type="radio" checked={outgoing === 'save'} onChange={() => setOutgoing('save')} />
-                {scratchActive ? 'Save current session' : `Save "${active}"`}
+                {scratchActive ? 'Save current session' : `Save "${redactNow(active, 'identity')}"`}
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input type="radio" checked={outgoing === 'discard'} onChange={() => setOutgoing('discard')} />

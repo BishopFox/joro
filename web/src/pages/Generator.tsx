@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../lib/api'
 import { copyText } from '../lib/clipboard'
+import { Redacted } from '../components/Redacted'
 
 function b64Decode(s: string) { try { return atob(s) } catch { return s } }
 
@@ -178,7 +179,7 @@ export default function Generator() {
                 Copy
               </button>
             </div>
-            <code className="text-accent-tertiary text-sm break-all">{result.authKey}</code>
+            <code className="text-accent-tertiary text-sm break-all"><Redacted value={result.authKey} kind="secret" /></code>
           </div>
 
           {/* File name */}

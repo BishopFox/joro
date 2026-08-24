@@ -3,6 +3,8 @@ import { api } from '../../lib/api'
 import { useTeamStore } from '../../stores/teamStore'
 import { useSettingsStore, isTeamMode, type Settings } from '../../stores/settingsStore'
 import { layoutIncludes, useDashboardLayoutStore } from '../../stores/dashboardLayoutStore'
+import { Redacted } from '../Redacted'
+import { useRedact } from '../../stores/streamerStore'
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'online', label: 'Online' },
@@ -25,6 +27,7 @@ export function statusDotClass(status: string): string {
 }
 
 export default function ActiveUsersWidget() {
+  const redact = useRedact()
   const settings = useSettingsStore((s) => s.settings)
   const setSettings = useSettingsStore((s) => s.setSettings)
   const teamMode = isTeamMode(settings)
@@ -95,10 +98,12 @@ export default function ActiveUsersWidget() {
               <div key={user.nickname} className="flex items-start gap-1.5">
                 <span className={`w-2 h-2 mt-1 rounded-full shrink-0 ${statusDotClass(user.status)}`} />
                 <div className="min-w-0">
-                  <div className="text-xs text-content-terminal truncate">{user.nickname}</div>
+                  <div className="text-xs text-content-terminal truncate">
+                    <Redacted value={user.nickname} kind="identity" />
+                  </div>
                   {user.project && (
-                    <div className="text-[10px] text-content-muted truncate" title={user.project}>
-                      {user.project}
+                    <div className="text-[10px] text-content-muted truncate" title={redact(user.project, 'identity')}>
+                      <Redacted value={user.project} kind="identity" />
                     </div>
                   )}
                 </div>

@@ -10,6 +10,7 @@ import {
   roundTrips,
   INPUT_TOKEN,
 } from '../../lib/cmdline'
+import { useRedact } from '../../stores/streamerStore'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border w-full'
 
@@ -383,8 +384,11 @@ function CommandBox({
  * command cannot be test-run until it has been installed.
  */
 function WillRun({ spec, args, source }: { spec: CommandSpec; args: string[]; source: string }) {
+  const redact = useRedact()
   const sourceLabel = SOURCE_LABELS[source]?.label.toLowerCase() ?? source
-  const lines: [string, string][] = [['program', spec.path || '(none yet)']]
+  // An absolute program path carries the OS username. The arguments are the
+  // operator's own authored text and stay readable — they are what the row means.
+  const lines: [string, string][] = [['program', spec.path ? redact(spec.path, 'path') : '(none yet)']]
 
   args.forEach((a, i) => {
     lines.push([
@@ -397,7 +401,7 @@ function WillRun({ spec, args, source }: { spec: CommandSpec; args: string[]; so
   for (const [key, part] of Object.entries(spec.files ?? {})) {
     lines.push([`file`, `{{${key}}} = ${(PART_LABELS[part] ?? part).toLowerCase()}`])
   }
-  for (const [name, v] of Object.entries(spec.env ?? {})) lines.push(['env', `${name}=${v}`])
+  for (const [name, v] of Object.entries(spec.env ?? {})) lines.push(['env', `${name}=${redact(v, 'secret')}`])
   for (const name of spec.envPass ?? []) lines.push(['env', `${name} (inherited)`])
   if (spec.useProxy) lines.push(['proxy', "through Joro's proxy"])
   if (spec.redact) lines.push(['redact', 'credential headers masked'])
@@ -571,7 +575,7 @@ function RowsEditor({
         }
       >
         <input
-          className={`${inputCls} font-mono`}
+          className={`${inputCls} font-mono joro-redact-field`}
           value={spec.path}
           placeholder="grep"
           onChange={(e) => patch({ path: e.target.value })}

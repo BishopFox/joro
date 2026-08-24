@@ -14,6 +14,7 @@ import { useUpdateStore } from '../stores/updateStore'
 import { useWSStore } from '../stores/wsStore'
 import { useXSSHunterStore, type XSSFire } from '../stores/xssHunterStore'
 import type { CapturedWSMessage } from './api'
+import { redactNow } from '../stores/streamerStore'
 
 type WSMessage = {
   type: string
@@ -234,7 +235,7 @@ function handleMessage(msg: WSMessage) {
       // Toast only on the connected→disconnected transition, so backoff retries
       // and reconnect churn don't spam.
       if (prev === 'connected' && d.state === 'disconnected') {
-        const detail = d.error ? `: ${d.error}` : ''
+        const detail = d.error ? `: ${redactNow(d.error, 'url')}` : ''
         useToastStore.getState().addToast(`Team server disconnected${detail}`)
       }
       break

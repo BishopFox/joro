@@ -3,6 +3,7 @@ import { ShieldCheck, ShieldOff } from 'lucide-react'
 import DashboardPanel, { EmptyPanelBody } from '../DashboardPanel'
 import { useDashboardDataStore } from '../../stores/dashboardDataStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { Redacted } from '../Redacted'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -31,7 +32,12 @@ export default function ProxyHealthWidget() {
         <EmptyPanelBody>Loading…</EmptyPanelBody>
       ) : (
         <div className="text-xs">
-          <Row label="Proxy">{`${health.bindAddr || '127.0.0.1'}:${health.proxyPort}`}</Row>
+          {/* Ports are Joro's own configuration and stay readable; the address is
+              what identifies the machine. */}
+          <Row label="Proxy">
+            <Redacted value={health.bindAddr || '127.0.0.1'} kind="ip" />
+            {`:${health.proxyPort}`}
+          </Row>
           <Row label="UI">{`:${health.uiPort}`}</Row>
           <Row label="CA certificate">
             {health.caPresent ? (
@@ -53,7 +59,9 @@ export default function ProxyHealthWidget() {
               <span className="text-content-muted"> / {settings.maxRequests.toLocaleString()}</span>
             ) : null}
           </Row>
-          <Row label="Active project">{health.activeProject || 'none'}</Row>
+          <Row label="Active project">
+            {health.activeProject ? <Redacted value={health.activeProject} kind="identity" /> : 'none'}
+          </Row>
           <Row label="Intercept requests">
             <OnOff on={!!settings?.interceptEnabled} />
           </Row>
@@ -67,7 +75,14 @@ export default function ProxyHealthWidget() {
             )}
           </Row>
           <Row label="Upstream proxy">
-            {settings?.socksHost ? `socks ${settings.socksHost}:${settings.socksPort}` : 'direct'}
+            {settings?.socksHost ? (
+              <>
+                socks <Redacted value={settings.socksHost} kind="host" />
+                {`:${settings.socksPort}`}
+              </>
+            ) : (
+              'direct'
+            )}
           </Row>
         </div>
       )}

@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState, useMemo } from 'react'
 import { Server, Monitor, Plus, Minus } from 'lucide-react'
 import { Tooltip } from './Tooltip'
+import { redactValue } from '../lib/redact'
+import { useStreamerStore } from '../stores/streamerStore'
 
 export interface SliverSession {
   id: string
@@ -151,6 +153,17 @@ export default function NetworkGraph({
   mythicCallbacks = [],
 }: NetworkGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null)
+  // Every label here is operator or implant infrastructure, so streamer mode bars
+  // all of them. The bar is produced before truncate/fitText so it is sized to the
+  // node box like any other label, and .joro-redacted-svg overrides the fill=
+  // presentation attribute — SVG text takes no background, so the seams between
+  // block glyphs are closed with a stroke instead.
+  const streamerOn = useStreamerStore((s) => s.enabled)
+  const hide = useCallback(
+    (v: string) => (streamerOn ? { text: redactValue(v, 'host'), cls: 'joro-redacted-svg' } : { text: v, cls: '' }),
+    [streamerOn]
+  )
+
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({})
   const [dragging, setDragging] = useState(false)
   const dragOffset = useRef({ dx: 0, dy: 0 })
@@ -510,9 +523,10 @@ export default function NetworkGraph({
             fill="var(--color-content-secondary)"
             fontSize={9}
             fontFamily="monospace"
+            className={hide(localHost.hostname).cls}
             style={{ pointerEvents: 'none', userSelect: 'none' }}
           >
-            {truncate(localHost.hostname, 20)}
+            {truncate(hide(localHost.hostname).text, 20)}
           </text>
           <text
             x={pos('joro').x}
@@ -521,9 +535,10 @@ export default function NetworkGraph({
             fill="var(--color-content-muted)"
             fontSize={9}
             fontFamily="monospace"
+            className={hide(localHost.ip).cls}
             style={{ pointerEvents: 'none', userSelect: 'none' }}
           >
-            {localHost.ip}
+            {hide(localHost.ip).text}
           </text>
         </>
       )}
@@ -545,8 +560,8 @@ export default function NetworkGraph({
           {(() => {
             const textLeft = pos('team').x - 14
             const textMaxW = pos('team').x + NODE_RX - 6 - textLeft
-            const url = teamServer.url.replace(/^https?:\/\//, '')
-            const urlFit = fitText(url, 8, textMaxW)
+            const url = hide(teamServer.url.replace(/^https?:\/\//, ''))
+            const urlFit = fitText(url.text, 8, textMaxW)
             return (
               <>
                 <text
@@ -567,6 +582,7 @@ export default function NetworkGraph({
                   fill="var(--color-content-muted)"
                   fontSize={urlFit.fontSize}
                   fontFamily="monospace"
+                  className={url.cls}
                 >
                   {urlFit.text}
                 </text>
@@ -593,8 +609,10 @@ export default function NetworkGraph({
           {(() => {
             const textLeft = pos('sliver').x - 14
             const textMaxW = pos('sliver').x + NODE_RX - 6 - textLeft
-            const addr = `${sliverServer.lhost}:${sliverServer.lport}`
-            const addrFit = fitText(addr, 8, textMaxW)
+            // Barred whole: the class fills the entire <text>, so keeping the port
+            // visible would take a second element and hand-placed x offsets.
+            const addr = hide(`${sliverServer.lhost}:${sliverServer.lport}`)
+            const addrFit = fitText(addr.text, 8, textMaxW)
             return (
               <>
                 <text
@@ -615,6 +633,7 @@ export default function NetworkGraph({
                   fill="var(--color-content-muted)"
                   fontSize={addrFit.fontSize}
                   fontFamily="monospace"
+                  className={addr.cls}
                 >
                   {addrFit.text}
                 </text>
@@ -641,8 +660,8 @@ export default function NetworkGraph({
           {(() => {
             const textLeft = pos('mythic').x - 14
             const textMaxW = pos('mythic').x + NODE_RX - 6 - textLeft
-            const url = mythicServer.url.replace(/^https?:\/\//, '')
-            const urlFit = fitText(url, 8, textMaxW)
+            const url = hide(mythicServer.url.replace(/^https?:\/\//, ''))
+            const urlFit = fitText(url.text, 8, textMaxW)
             return (
               <>
                 <text
@@ -663,6 +682,7 @@ export default function NetworkGraph({
                   fill="var(--color-content-muted)"
                   fontSize={urlFit.fontSize}
                   fontFamily="monospace"
+                  className={url.cls}
                 >
                   {urlFit.text}
                 </text>
@@ -682,7 +702,8 @@ export default function NetworkGraph({
             onMouseDown={handleMouseDown(`mythic-cb-${cb.id}`)}
             style={{ cursor: 'grab', animation: 'joro-node-pulse 3s ease-in-out infinite' }}
           >
-            <title>{`${cb.name}\n${cb.hostname} (${cb.os}/${cb.arch})\n${cb.username}\ncallback ${cb.id}`}</title>
+            {/* The OS and arch stay — they identify the implant's platform, not the host. */}
+            <title>{`${hide(cb.name).text}\n${hide(cb.hostname).text} (${cb.os}/${cb.arch})\n${hide(cb.username).text}\ncallback ${cb.id}`}</title>
             <rect
               x={npos.x - NODE_RX}
               y={npos.y - NODE_RY}
@@ -697,9 +718,12 @@ export default function NetworkGraph({
             {(() => {
               const textLeft = npos.x - 20
               const textMaxW = npos.x + NODE_RX - 6 - textLeft
-              const nameFit = fitText(cb.name || cb.hostname, 10, textMaxW)
-              const hostFit = fitText(cb.hostname, 8, textMaxW)
-              const ipFit = fitText(ip, 7, textMaxW)
+              const name = hide(cb.name || cb.hostname)
+              const host = hide(cb.hostname)
+              const addr = hide(ip)
+              const nameFit = fitText(name.text, 10, textMaxW)
+              const hostFit = fitText(host.text, 8, textMaxW)
+              const ipFit = fitText(addr.text, 7, textMaxW)
               return (
                 <>
                   <text
@@ -710,6 +734,7 @@ export default function NetworkGraph({
                     fontSize={nameFit.fontSize}
                     fontWeight={600}
                     fontFamily="monospace"
+                    className={name.cls}
                   >
                     {nameFit.text}
                   </text>
@@ -720,6 +745,7 @@ export default function NetworkGraph({
                     fill="var(--color-content-secondary)"
                     fontSize={hostFit.fontSize}
                     fontFamily="monospace"
+                    className={host.cls}
                   >
                     {hostFit.text}
                   </text>
@@ -730,6 +756,7 @@ export default function NetworkGraph({
                     fill="var(--color-content-muted)"
                     fontSize={ipFit.fontSize}
                     fontFamily="monospace"
+                    className={addr.cls}
                   >
                     {ipFit.text}
                   </text>
@@ -778,7 +805,8 @@ export default function NetworkGraph({
             onMouseDown={handleMouseDown(`session-${s.id}`)}
             style={alive ? { cursor: 'grab', animation: 'joro-node-pulse 3s ease-in-out infinite' } : { cursor: 'grab', opacity: 0.5 }}
           >
-            <title>{`${s.name}\n${s.hostname} (${s.os}/${s.arch})\n${s.username}\n${s.transport} - ${s.remoteAddress}`}</title>
+            {/* The OS, arch and transport stay — they describe the implant, not the host. */}
+            <title>{`${hide(s.name).text}\n${hide(s.hostname).text} (${s.os}/${s.arch})\n${hide(s.username).text}\n${s.transport} - ${hide(s.remoteAddress).text}`}</title>
             <rect
               x={npos.x - NODE_RX}
               y={npos.y - NODE_RY}
@@ -794,9 +822,12 @@ export default function NetworkGraph({
             {(() => {
               const textLeft = npos.x - 20
               const textMaxW = npos.x + NODE_RX - 6 - textLeft
-              const nameFit = fitText(s.name || s.hostname, 10, textMaxW)
-              const hostFit = fitText(s.hostname, 8, textMaxW)
-              const ipFit = fitText(ip, 7, textMaxW)
+              const name = hide(s.name || s.hostname)
+              const host = hide(s.hostname)
+              const addr = hide(ip)
+              const nameFit = fitText(name.text, 10, textMaxW)
+              const hostFit = fitText(host.text, 8, textMaxW)
+              const ipFit = fitText(addr.text, 7, textMaxW)
               return (
                 <>
                   <text
@@ -807,6 +838,7 @@ export default function NetworkGraph({
                     fontSize={nameFit.fontSize}
                     fontWeight={600}
                     fontFamily="monospace"
+                    className={name.cls}
                   >
                     {nameFit.text}
                   </text>
@@ -817,6 +849,7 @@ export default function NetworkGraph({
                     fill="var(--color-content-secondary)"
                     fontSize={hostFit.fontSize}
                     fontFamily="monospace"
+                    className={host.cls}
                   >
                     {hostFit.text}
                   </text>
@@ -827,6 +860,7 @@ export default function NetworkGraph({
                     fill="var(--color-content-muted)"
                     fontSize={ipFit.fontSize}
                     fontFamily="monospace"
+                    className={addr.cls}
                   >
                     {ipFit.text}
                   </text>
