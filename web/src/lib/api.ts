@@ -456,6 +456,74 @@ export interface TriggerGraph {
   edges: TriggerEdge[]
 }
 
+/** The kinds of box an automation flow graph holds. The semantics live in lib/flowGraph.ts;
+ *  only the wire shape is here, next to TriggerGraph, so the module that reads a graph can
+ *  import the API's types without the API importing it back. */
+export type FlowNodeType =
+  | 'trigger'
+  | 'context'
+  | 'literal'
+  | 'get'
+  | 'template'
+  | 'arith'
+  | 'compare'
+  | 'all'
+  | 'any'
+  | 'not'
+  | 'select'
+  | 'call'
+  | 'storage'
+  | 'log'
+  | 'guard'
+  | 'each'
+  | 'return'
+  | 'body'
+
+/** Per-kind configuration. The server stores and bounds this without interpreting it — the
+ *  compiler in the browser is the only thing that reads these fields. */
+export interface FlowNodeData {
+  ref?: string
+  path?: 'input' | 'trigger' | 'run'
+  value?: string
+  get?: string
+  template?: string
+  op?: string
+  method?: string
+  args?: Record<string, string>
+  action?: string
+  key?: string
+}
+
+export interface FlowNode {
+  id: string
+  type: FlowNodeType
+  x: number
+  y: number
+  data?: FlowNodeData
+}
+
+/** One wire. Ports are named, unlike a trigger edge where the node type implies them: a call
+ *  node has one input per argument of the method it calls, so there is nothing to imply. */
+export interface FlowEdge {
+  from: string
+  /** Which output. Absent means the node's only output. */
+  fromPort?: string
+  to: string
+  toPort: string
+}
+
+/** The visual authoring document for a script automation.
+ *
+ *  Stored on the manifest, but never executed: the entrypoint .js is what runs, and the
+ *  graph only regenerates it on a save from the canvas. There is no hash of the source it
+ *  produced, because compilation is deterministic — recompiling and comparing is an exact
+ *  answer to "was this file edited outside Joro", where a stored hash would be a second
+ *  copy of the same fact that could go out of step with it. */
+export interface FlowGraph {
+  nodes: FlowNode[]
+  edges: FlowEdge[]
+}
+
 /** A trigger: an event, and the graph deciding which of those events is worth a run.
  *
  *  Built-ins are the raw events, synthesized by the server — read-only, with an empty
@@ -531,6 +599,10 @@ export interface AutomationManifest {
   /** Shortest gap between two triggered runs. Combined with the operator's by taking
    *  the longer, which is why it is not inside limits. */
   minIntervalMs?: number
+  /** The canvas this automation was built on, when it was built on one. Absent means the
+   *  source is hand-written, which stays a first-class way to author. Never submittable by
+   *  a token: script.install has no graph argument, for the reason it has no lens one. */
+  graph?: FlowGraph
 }
 
 export interface AutomationRevision {
@@ -705,6 +777,10 @@ export interface AutomationSummary {
   updatedAt: string
   revisions: number
   lastRun?: AutomationLastRun
+  /** Whether this was built on the canvas, so a list can say so without fetching the
+   *  package. Whether the canvas still matches the code is not here: answering that means
+   *  compiling the graph, which happens in the browser. */
+  hasGraph?: boolean
 }
 
 /** One joro.* method, joined with the capability behind it. */

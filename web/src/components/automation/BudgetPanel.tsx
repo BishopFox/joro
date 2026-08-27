@@ -72,7 +72,15 @@ function shown(stored: number | undefined, sp: BudgetSpec): string {
  * Every figure and every sentence comes from GET /automation/limits, which builds them
  * from the constants the runtime enforces. Nothing about the budget is written twice.
  */
-export default function BudgetPanel() {
+export default function BudgetPanel({
+  /**
+   * Rendered inside another scroller rather than owning the panel. The Settings sub-tab
+   * stacks tokens, the MCP listener and the budget in one column, and a second
+   * `overflow-auto` inside that column would scroll the budget against a page that is
+   * already scrolling.
+   */
+  embedded = false,
+}: { embedded?: boolean } = {}) {
   const { budget, scriptsUnavailable, refreshBudget, setBudget } = useAutomationStore()
   const addToast = useToastStore((s) => s.addToast)
 
@@ -103,9 +111,11 @@ export default function BudgetPanel() {
     setCmdHost({ ...budget.command.policy.host })
   }, [budget])
 
+  const shell = embedded ? 'space-y-5' : 'flex-1 overflow-auto p-5 space-y-5'
+
   if (!budget) {
     return (
-      <div className="flex-1 overflow-auto p-5">
+      <div className={embedded ? '' : 'flex-1 overflow-auto p-5'}>
         <h3 className="text-sm font-semibold text-content-primary mb-2">Run budget</h3>
         {/* The server's message names whichever switch is missing, and there are now two
             that can be — so it is shown verbatim rather than paraphrased here, where a
@@ -263,7 +273,7 @@ export default function BudgetPanel() {
   )
 
   return (
-    <div className="flex-1 overflow-auto p-5 space-y-5">
+    <div className={shell}>
       <div className="flex items-start gap-2">
         <div className="max-w-2xl space-y-1.5">
           <h3 className="text-sm font-semibold text-content-primary">Run budget</h3>

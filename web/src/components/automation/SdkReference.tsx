@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, AlertTriangle, Pencil } from 'lucide-react'
-import { api, type SdkMethod } from '../../lib/api'
+import { useSdkStore } from '../../stores/sdkStore'
 
 /**
  * The joro.* surface, for whoever is writing a script.
@@ -16,24 +16,15 @@ import { api, type SdkMethod } from '../../lib/api'
  */
 export default function SdkReference() {
   const [open, setOpen] = useState(false)
-  const [methods, setMethods] = useState<SdkMethod[]>([])
-  const [storage, setStorage] = useState<{ js: string; description: string }[]>([])
-  const [globals, setGlobals] = useState<{ js: string; description: string }[]>([])
   const [expanded, setExpanded] = useState<string | null>(null)
+  // Shared with the canvas, which builds its palette and every call node's argument ports
+  // from the same payload. The store fetches once and swallows a failure, so this panel
+  // simply stays empty while the editor above still works.
+  const { methods, storage, globals, refresh } = useSdkStore()
 
   useEffect(() => {
-    if (!open || methods.length > 0) return
-    api
-      .getScriptSdk()
-      .then((d) => {
-        setMethods(d.methods ?? [])
-        setStorage(d.storage ?? [])
-        setGlobals(d.globals ?? [])
-      })
-      .catch(() => {
-        /* the panel simply stays empty; the editor above still works */
-      })
-  }, [open, methods.length])
+    if (open) refresh()
+  }, [open, refresh])
 
   return (
     <div className="border border-border rounded">

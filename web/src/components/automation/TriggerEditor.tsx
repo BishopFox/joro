@@ -23,6 +23,8 @@ type View = 'graph' | 'builder'
 const inputCls =
   'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border text-content-primary w-full'
 
+const BLANK: Trigger = { id: '', name: '', on: 'request.captured', graph: { nodes: [], edges: [] }, usedBy: [] }
+
 export default function TriggerEditor({
   draft,
   fields,
@@ -30,30 +32,51 @@ export default function TriggerEditor({
   valueLen,
   onClose,
   onSaved,
+  onDeleted,
+  onDirtyChange,
 }: {
-  /** The trigger being edited or created. A built-in arrives with builtin set. */
-  draft: Trigger
+  /** The trigger being edited or created. A built-in arrives with builtin set. Null while
+   *  the catalog has not caught up with a selection, which a refetch resolves. */
+  draft: Trigger | null
   fields: Record<string, TriggerFieldSpec[]>
   events: string[]
   valueLen: number
   onClose: () => void
-  onSaved: () => Promise<void>
+  /** Called after a successful write, with the stored id — which a create only has once it
+   *  lands, and which the rail adopts so a second Save updates rather than recreating. */
+  onSaved: (id: string) => void | Promise<void>
+  onDeleted?: () => void | Promise<void>
+  /** Reported on every edit so the shell can ask before throwing the buffer away. */
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const addToast = useToastStore((s) => s.addToast)
-  const [t, setT] = useState<Trigger>(draft)
+  const [t, setT] = useState<Trigger>(draft ?? BLANK)
   const [view, setView] = useState<View>('graph')
   const [busy, setBusy] = useState(false)
   const [test, setTest] = useState<TriggerTest | null>(null)
-
-  // creating is derived from the id being absent, which is also what makes Clone work:
-  // the clone hands over a copy with no id, and everything below follows from that.
-  const creating = !draft.id
+  // What the buffer looked like when it was last in step with the server. Compared rather
+  // than tracked with a flag so that typing a change and undoing it leaves the editor clean.
+  const [pristine, setPristine] = useState(() => JSON.stringify(draft ?? BLANK))
+  // Whether this trigger has ever been stored. Held rather than derived from t.id, which the
+  // name field writes to on the first keystroke — deriving it would freeze the id after one
+  // character. Clone sets it, which is what makes the clone save as a create.
+  const [creating, setCreating] = useState(!draft?.id)
   const readOnly = !!t.builtin
 
   useEffect(() => {
+    if (!draft) return
     setT(draft)
+    setPristine(JSON.stringify(draft))
+    setCreating(!draft.id)
     setTest(null)
   }, [draft])
+
+  const dirty = !readOnly && JSON.stringify(t) !== pristine
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
+  // Leaving the editor cannot leave a stale dirty flag behind on the shell.
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const patch = (p: Partial<Trigger>) => setT((cur) => ({ ...cur, ...p }))
 
@@ -84,10 +107,14 @@ export default function TriggerEditor({
   const save = async () => {
     setBusy(true)
     try {
-      if (creating) await api.createTrigger(t)
-      else await api.updateTrigger(t.id, t)
-      await onSaved()
-      onClose()
+      const saved = creating ? await api.createTrigger(t) : await api.updateTrigger(t.id, t)
+      // Take the stored trigger back rather than keeping what was sent: Normalize lowercases
+      // the id and the ops, and usedBy/problem are computed on the way out. Without this the
+      // editor stays dirty against a copy the server already rewrote.
+      setT(saved)
+      setPristine(JSON.stringify(saved))
+      setCreating(false)
+      await onSaved(saved.id)
     } catch (e) {
       addToast(String(e instanceof Error ? e.message : e), 'error')
     } finally {
@@ -99,8 +126,8 @@ export default function TriggerEditor({
     setBusy(true)
     try {
       await api.deleteTrigger(t.id)
-      await onSaved()
-      onClose()
+      setPristine(JSON.stringify(t))
+      await (onDeleted ? onDeleted() : onClose())
     } catch (e) {
       addToast(String(e instanceof Error ? e.message : e), 'error')
     } finally {
@@ -110,11 +137,28 @@ export default function TriggerEditor({
 
   const eventFields = fields[t.on] ?? []
 
+  // The rail selects by id and the catalog refetches behind it, so there is a tick where the
+  // selection names a trigger the list has not produced yet.
+  if (!draft) {
+    return (
+      <div className="flex-1 overflow-auto p-5 text-[11px] text-content-muted italic">
+        Loading trigger&hellip;
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col flex-1 min-h-0 p-5 gap-3">
       <div className="flex items-start gap-2">
         <div className="flex-1 grid grid-cols-[auto_1fr_auto_1fr] gap-2 items-center max-w-3xl">
-          <label className="text-[11px] text-content-muted">Name</label>
+          <label className="text-[11px] text-content-muted">
+            Name
+            {dirty && (
+              <span className="ml-1 text-accent-tertiary" title="Unsaved changes">
+                &bull;
+              </span>
+            )}
+          </label>
           <input
             className={inputCls}
             value={t.name}
@@ -157,7 +201,8 @@ export default function TriggerEditor({
         <div className="flex items-center gap-1.5">
           {readOnly ? (
             <button
-              onClick={() =>
+              onClick={() => {
+                setCreating(true)
                 setT({
                   ...t,
                   id: '',
@@ -166,7 +211,7 @@ export default function TriggerEditor({
                   usedBy: [],
                   graph: t.graph.nodes.length ? t.graph : { nodes: [], edges: [] },
                 })
-              }
+              }}
               className="text-[11px] px-2 py-1 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary font-semibold"
               title="Built-in triggers cannot be edited. Cloning makes an editable copy."
             >

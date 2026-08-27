@@ -175,6 +175,13 @@ type Manifest struct {
 	// other half of the transaction, or reorder it; see State.
 	Lens *Lens `json:"lens,omitempty"`
 
+	// Graph is the canvas this automation was built on, when it was built on one. Stored
+	// and never read here: the entrypoint .js is what runs, and the browser is what
+	// compiles this into it — see flow.go for why that direction, and why nothing on this
+	// side interprets a node. Absent means the source is hand-written, which stays a
+	// first-class way to author.
+	Graph *FlowGraph `json:"graph,omitempty"`
+
 	// MinIntervalMs paces an event trigger: the shortest gap between two runs. Not in
 	// Limits because it is the one value where the conservative choice is the larger
 	// one, and Limits combines by taking the smaller of author and operator.
@@ -201,6 +208,9 @@ func (m *Manifest) Normalize() {
 		// after a hand edit — the same choice the lens/trigger drop below makes.
 		m.SDKVersion = ""
 		m.Entrypoint = ""
+		// A command has no source for a canvas to generate. Its wiring still draws — from
+		// the trigger list, on the fly — but there is nothing to persist.
+		m.Graph = nil
 		if m.Command != nil {
 			m.Command.Normalize()
 		}
@@ -522,6 +532,11 @@ type Summary struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 	Revisions    int       `json:"revisions"`
 	LastRun      *LastRun  `json:"lastRun,omitempty"`
+
+	// HasGraph says this was built on the canvas, so a list can mark it without fetching
+	// the package. Whether the canvas still matches the code is deliberately not here:
+	// answering that means compiling the graph, and the compiler is in the browser.
+	HasGraph bool `json:"hasGraph,omitempty"`
 }
 
 // Summarize projects an Automation for a list view.
@@ -554,6 +569,7 @@ func (a *Automation) Summarize() Summary {
 		UpdatedAt:    a.State.UpdatedAt,
 		Revisions:    len(a.State.Revisions),
 		LastRun:      a.State.LastRun.withOutcome(),
+		HasGraph:     a.Manifest.Graph != nil,
 	}
 }
 

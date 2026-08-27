@@ -379,6 +379,11 @@ func (s *Store) validateWrite(m *Manifest, source string) (string, error) {
 	if err := m.Validate(); err != nil {
 		return "", err
 	}
+	// Bounded here rather than in Validate, which runs on every Load: a graph a hand edit
+	// pushed past a bound must report itself, not make the package vanish.
+	if err := validateFlow(m.Graph); err != nil {
+		return "", err
+	}
 	body := sourceOf(*m, source)
 
 	if m.IsCommand() {

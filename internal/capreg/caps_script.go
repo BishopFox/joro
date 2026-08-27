@@ -64,7 +64,10 @@ type scriptInvokeArgs struct {
 // author's request can only ever narrow what the operator already allows, so offering it
 // buys nothing and costs a field for a caller to invent and an operator to check. lens: a
 // lens runs unattended on every transaction the operator opens once it is enabled, which
-// is the sharpest surface here, and the editor is where one belongs.
+// is the sharpest surface here, and the editor is where one belongs. graph: the canvas an
+// automation was built on is an operator's working document, and a caller that submitted
+// one would be submitting a second description of code it is already submitting — the two
+// could disagree, and the .js is what runs.
 //
 // minIntervalMs stays, because it combines by taking the larger of author and operator —
 // declaring one is self-restraint, and it is the only field here a caller can use to make
