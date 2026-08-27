@@ -3,6 +3,7 @@ import { Bot, Download, Play, Plus, Power, PowerOff, Terminal, Trash2, Upload } 
 import { api } from '../../lib/api'
 import { downloadPackage, pickPackage } from '../../lib/automationPackage'
 import { useAutomationStore } from '../../stores/automationStore'
+import { useTriggerStore } from '../../stores/triggerStore'
 import { useToastStore } from '../../stores/toastStore'
 import ConfirmModal from '../ConfirmModal'
 import ScriptEditor, { OPERATOR_STARTED, type EditorDraft } from './ScriptEditor'
@@ -29,18 +30,18 @@ export default function ScriptsPanel({
   onEditorOpened?: () => void
 } = {}) {
   const addToast = useToastStore((s) => s.addToast)
-  const {
-    scripts,
-    scriptTriggers: triggers,
-    scriptsUnavailable: unavailable,
-    refreshScripts: load,
-  } = useAutomationStore()
+  const { scripts, scriptsUnavailable: unavailable, refreshScripts: load } = useAutomationStore()
+  // The trigger catalog, so an export can embed the definitions a manifest references and
+  // an import can tell which of them this Joro is missing.
+  const catalog = useTriggerStore((st) => st.triggers)
+  const refreshTriggers = useTriggerStore((st) => st.refresh)
   const [editing, setEditing] = useState<{ id?: string; draft?: EditorDraft } | null>(null)
   const [confirm, setConfirm] = useState<{ id: string } | null>(null)
 
   useEffect(() => {
     load()
-  }, [load])
+    refreshTriggers()
+  }, [load, refreshTriggers])
 
   useEffect(() => {
     if (!openEditor) return
@@ -62,6 +63,27 @@ export default function ScriptsPanel({
     try {
       const bundle = await pickPackage()
       if (!bundle) return
+
+      // Trigger definitions the package brought that this Joro does not have. Installed
+      // before the editor opens, because the automation is about to reference them by id
+      // and a reference to nothing is an automation that silently never fires.
+      const missing = (bundle.triggers ?? []).filter((t) => !catalog.some((c) => c.id === t.id))
+      for (const t of missing) {
+        try {
+          await api.createTrigger(t)
+        } catch (e) {
+          addToast(`Trigger ${t.id}: ${e instanceof Error ? e.message : e}`, 'error')
+        }
+      }
+      if (missing.length > 0) {
+        await refreshTriggers()
+        addToast(
+          `Installed ${missing.length} trigger${missing.length === 1 ? '' : 's'} this package needs: ` +
+            missing.map((t) => t.name).join(', '),
+          'info'
+        )
+      }
+
       // Opened in the editor rather than installed straight away: importing someone
       // else's automation is exactly when reading it first matters.
       setEditing({ draft: { manifest: bundle.manifest, source: bundle.source } })
@@ -73,7 +95,7 @@ export default function ScriptsPanel({
   const exportOne = async (id: string) => {
     try {
       const pkg = await api.getScript(id)
-      await downloadPackage(pkg.manifest, pkg.source ?? '')
+      await downloadPackage(pkg.manifest, pkg.source ?? '', catalog)
     } catch (e) {
       addToast(String(e instanceof Error ? e.message : e), 'error')
     }
@@ -84,7 +106,6 @@ export default function ScriptsPanel({
       <ScriptEditor
         id={editing.id}
         draft={editing.draft}
-        triggers={triggers}
         onClose={() => {
           setEditing(null)
           load()

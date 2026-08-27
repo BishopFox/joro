@@ -75,6 +75,13 @@ func (s Severity) Rank() int { return severityRank[s] }
 // Valid reports whether s is a known severity.
 func (s Severity) Valid() bool { _, ok := severityRank[s]; return ok }
 
+// Severities lists every severity, most serious first. Exported so a consumer offering
+// them as a choice — the trigger editor's condition dropdown — reads them from here rather
+// than restating a list that would drift the moment one is added.
+var Severities = []Severity{
+	SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow, SeverityInfo,
+}
+
 // Confidence describes whether a match is what the rule claims it is,
 // independent of Severity.
 type Confidence string
@@ -94,6 +101,9 @@ func (c Confidence) Valid() bool {
 	return false
 }
 
+// Confidences lists every confidence, most certain first. See Severities.
+var Confidences = []Confidence{ConfidenceHigh, ConfidenceMedium, ConfidenceLow}
+
 // Category groups rules for filtering and for the Rules UI.
 type Category string
 
@@ -106,6 +116,12 @@ const (
 	CategoryHeaders     Category = "headers"
 	CategoryCookies     Category = "cookies"
 )
+
+// Categories lists every category. See Severities.
+var Categories = []Category{
+	CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
+	CategoryDisclosure, CategoryHeaders, CategoryCookies,
+}
 
 // Valid reports whether c is a known category.
 func (c Category) Valid() bool {

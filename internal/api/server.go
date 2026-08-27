@@ -33,6 +33,7 @@ import (
 	"github.com/BishopFox/joro/internal/proxy"
 	"github.com/BishopFox/joro/internal/sliver"
 	"github.com/BishopFox/joro/internal/team"
+	"github.com/BishopFox/joro/internal/trigger"
 	"github.com/BishopFox/joro/internal/update"
 	"github.com/BishopFox/joro/internal/xsshunter"
 	joroweb "github.com/BishopFox/joro/web"
@@ -138,7 +139,13 @@ type APIServer struct {
 	// manager exists; handlers ring its doorbell after a change so an enable takes
 	// effect immediately rather than on the next 250ms tick.
 	scriptTriggers *jsautomation.Dispatcher
-	automationMu   sync.Mutex // serializes MCP start/stop from HTTP handlers
+	// triggers holds the operator's custom triggers, which automations reference by id.
+	// Global rather than per-project, because the automations referencing them are: a
+	// per-project store would resolve on one engagement and dangle on the next. Nil when
+	// the file could not be read, which disables the feature loudly rather than presenting
+	// an empty set — see requireTriggers.
+	triggers     *trigger.Store
+	automationMu sync.Mutex // serializes MCP start/stop from HTTP handlers
 
 	buildInfo  BuildInfo
 	cancelFunc context.CancelFunc

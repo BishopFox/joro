@@ -9,6 +9,7 @@ import (
 
 	"github.com/BishopFox/joro/internal/jsruntime"
 	"github.com/BishopFox/joro/internal/localcmd"
+	"github.com/BishopFox/joro/internal/trigger"
 )
 
 // SDKVersion1 binds to the automation-v1 bundle. A manifest declares which SDK
@@ -36,36 +37,35 @@ const (
 // Kinds lists the valid Manifest.Kind values, script first.
 var Kinds = []string{KindJS, KindCommand}
 
-// Trigger names. These are Joro's own event type strings, not a parallel vocabulary —
-// an automation subscribes to the thing that already happens.
+// The event names, aliased from internal/trigger, which owns them.
 //
-// callback.interaction is deliberately absent. Every callback listener is constructed
-// in listener mode, scripting exists only in proxy mode, and the team relay forwards
-// nothing but team.* — so a proxy-mode dispatcher would be waiting for an event that
-// structurally cannot arrive. Offering it would be a trigger that silently never fires.
+// Aliases rather than a second set of literals: these appear at forty-odd sites in this
+// package and its callers, and a copy of the strings here would be a table someone has to
+// keep in step with the one the evaluator actually reads. The local spelling stays because
+// this package talks about an automation's triggers, not about the event vocabulary.
+//
+// callback.interaction is deliberately absent from that vocabulary. Every callback
+// listener is constructed in listener mode, scripting exists only in proxy mode, and the
+// team relay forwards nothing but team.* — so a proxy-mode dispatcher would be waiting for
+// an event that structurally cannot arrive.
 const (
-	TriggerManual          = "manual"
-	TriggerRequestSelected = "request.selected"
-	TriggerRequestCaptured = "request.captured"
-	TriggerDetectFinding   = "detect.finding"
-	TriggerFuzzerComplete  = "fuzzer.complete"
+	TriggerManual              = trigger.EventManual
+	TriggerRequestSelected     = trigger.EventRequestSelected
+	TriggerRequestCaptured     = trigger.EventRequestCaptured
+	TriggerDetectFinding       = trigger.EventDetectFinding
+	TriggerFuzzerComplete      = trigger.EventFuzzerComplete
+	TriggerAutomationCompleted = trigger.EventAutomationComplete
 )
 
-// Triggers lists every subscribable trigger, in the order the UI shows them: manual
-// first, then cheapest-to-reason-about to most consequential.
-var Triggers = []string{
-	TriggerManual,
-	TriggerRequestSelected,
-	TriggerDetectFinding,
-	TriggerFuzzerComplete,
-	TriggerRequestCaptured,
-}
+// Triggers lists every event an automation may name directly, in the order the UI shows
+// them.
+var Triggers = trigger.Events
 
 // TriggerLens labels a run the request/response viewer started to render a lens tab.
 // Not in Triggers: the Lens declaration is what enables it, so there is nothing for an
 // operator to switch on here. It names why a run happened, and selects the send-free
 // principal in Manager.Invoke.
-const TriggerLens = "lens"
+const TriggerLens = trigger.EventLens
 
 // Which half of a transaction a lens renders.
 const (
@@ -159,7 +159,16 @@ type Manifest struct {
 	// shape, so it belongs here and Render() is what makes it readable.
 	Command *localcmd.Spec `json:"command,omitempty"`
 
-	Triggers []string        `json:"triggers,omitempty"`
+	// Triggers is what makes this automation run: a list of references, each naming an
+	// event directly or naming a custom trigger the operator built. Order is load-bearing —
+	// the dispatcher takes the first with work, so an author who cares which wins when two
+	// are ready puts it first.
+	//
+	// References rather than definitions, so several automations can share one trigger and
+	// fixing it fixes them all. The cost is a reference that can dangle; see
+	// Dispatcher.reload, where a missing one resolves to a trigger that refuses every
+	// event rather than to no filter at all.
+	Triggers []TriggerRef    `json:"triggers,omitempty"`
 	Limits   *ManifestLimits `json:"limits,omitempty"`
 
 	// Lens, when set, adds a viewer tab. The operator can retitle it, point it at the
@@ -210,14 +219,13 @@ func (m *Manifest) Normalize() {
 	if m.Version == "" {
 		m.Version = "0.0.0"
 	}
-	if len(m.Triggers) == 0 {
-		m.Triggers = []string{TriggerManual}
-	}
-
-	seen := make(map[string]struct{}, len(m.Triggers))
+	// Dedupe. State.TriggersDisabled keys on the reference, so two entries for one would
+	// share the operator's switch. The first wins, which keeps the author's precedence
+	// order meaningful.
+	seen := make(map[TriggerRef]struct{}, len(m.Triggers))
 	kept := m.Triggers[:0]
 	for _, t := range m.Triggers {
-		t = strings.TrimSpace(t)
+		t = TriggerRef(strings.TrimSpace(string(t)))
 		if t == "" {
 			continue
 		}
@@ -228,6 +236,11 @@ func (m *Manifest) Normalize() {
 		kept = append(kept, t)
 	}
 	m.Triggers = kept
+	// Defaulted after the cleanup rather than before it, so a list that was only blanks
+	// ends up with the same thing an absent list does.
+	if len(m.Triggers) == 0 {
+		m.Triggers = []TriggerRef{TriggerManual}
+	}
 
 	if m.Lens != nil {
 		m.Lens.Label = strings.TrimSpace(m.Lens.Label)
@@ -241,9 +254,9 @@ func (m *Manifest) Normalize() {
 		// Validate, which runs on every Load: refusing the pair would make an
 		// already-installed package unloadable. The two the operator starts survive — a
 		// lens in History's context menu is a coherent pairing.
-		m.Triggers = slices.DeleteFunc(m.Triggers, dispatched)
+		m.Triggers = slices.DeleteFunc(m.Triggers, dispatchedRef)
 		if len(m.Triggers) == 0 {
-			m.Triggers = []string{TriggerManual}
+			m.Triggers = []TriggerRef{TriggerManual}
 		}
 	}
 }
@@ -275,9 +288,18 @@ func (m *Manifest) Validate() error {
 		return err
 	}
 
+	// Only the shape is checked here: a reference is a non-empty name. Whether it
+	// resolves is deliberately not, because Validate runs on every Load and a trigger
+	// deleted while an automation still named it would otherwise make that package vanish
+	// rather than report a broken reference. The dispatcher resolves it, and a miss there
+	// refuses to fire.
 	for _, t := range m.Triggers {
-		if !slices.Contains(Triggers, t) {
-			return fmt.Errorf("unknown trigger %q (known: %s)", t, strings.Join(Triggers, ", "))
+		if strings.TrimSpace(string(t)) == "" {
+			return fmt.Errorf("a trigger reference cannot be empty")
+		}
+		if len(t) > trigger.MaxIDLen {
+			return fmt.Errorf("trigger reference %q is %d characters, over the %d limit",
+				t, len(t), trigger.MaxIDLen)
 		}
 	}
 
@@ -486,8 +508,8 @@ type Summary struct {
 	// paths on the operator's machine.
 	Command string `json:"command,omitempty"`
 
-	Triggers     []string  `json:"triggers"`
-	Armed        []string  `json:"armed"`
+	Triggers     []TriggerRef `json:"triggers"`
+	Armed        []TriggerRef `json:"armed"`
 	Lens         *Lens     `json:"lens,omitempty"`
 	LensOrder    int       `json:"lensOrder,omitempty"`
 	Enabled      bool      `json:"enabled"`
@@ -548,28 +570,17 @@ func orEmpty[T any](s []T) []T {
 // manual run deliberately does not consult it.
 func (a *Automation) Runnable() bool { return a.State.Enabled && !a.State.Paused }
 
-// dispatched reports whether the Dispatcher watches this trigger. Manual and
-// request.selected are excluded because the operator starts both. One predicate rather than
-// two spellings of it: Normalize drops exactly this set from a lens, and the two answers must
-// not drift.
-func dispatched(t string) bool {
-	return t != TriggerManual && t != TriggerRequestSelected
-}
-
-// ArmedTriggers lists the event triggers currently live: declared by the manifest, not
+// ArmedTriggers lists the triggers currently live: declared by the manifest, not
 // switched off by the operator, and only while the automation is runnable. Manual and
 // request.selected are excluded — the operator starts both, so the dispatcher does not
-// watch for them.
-func (a *Automation) ArmedTriggers() []string {
+// watch for them. See dispatchedRef.
+func (a *Automation) ArmedTriggers() []TriggerRef {
 	if !a.Runnable() {
 		return nil
 	}
-	var out []string
+	var out []TriggerRef
 	for _, t := range a.Manifest.Triggers {
-		if !dispatched(t) {
-			continue
-		}
-		if a.State.TriggersDisabled[t] {
+		if !dispatchedRef(t) || a.State.TriggersDisabled[string(t)] {
 			continue
 		}
 		out = append(out, t)

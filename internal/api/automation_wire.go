@@ -18,6 +18,7 @@ import (
 	"github.com/BishopFox/joro/internal/jsruntime"
 	"github.com/BishopFox/joro/internal/localcmd"
 	"github.com/BishopFox/joro/internal/mcp"
+	"github.com/BishopFox/joro/internal/trigger"
 )
 
 // SetAutomation installs the automation token store and builds the capability
@@ -154,6 +155,20 @@ func (s *APIServer) newScriptManager() *jsautomation.Manager {
 	// the project config, because that is engagement data rather than code.
 	s.automationStorage = jsautomation.NewStorage()
 
+	// The custom triggers automations reference, in the data directory beside them and
+	// for the same reason: a global automation must not reference a per-project object,
+	// or the reference resolves on one engagement and dangles on the next.
+	//
+	// A file that will not parse disables the feature and says so, rather than presenting
+	// an empty set. The difference matters: an empty store would leave every automation
+	// referencing a custom trigger with nothing to resolve, and the operator would see
+	// them stop firing with no explanation.
+	if store, err := trigger.NewStore(s.cfg.DataDir); err != nil {
+		log.Printf("[automation] custom triggers are unavailable: %v", err)
+	} else {
+		s.triggers = store
+	}
+
 	pkgs := jsautomation.NewStore(filepath.Join(s.cfg.DataDir, "automations"))
 	// Install-time program-size check, which happens where a run's own copy of the
 	// limit is not in reach.
@@ -262,6 +277,7 @@ func (s *APIServer) startScriptTriggers(ctx context.Context) {
 	}
 
 	s.scriptTriggers = jsautomation.NewDispatcher(s.scriptManager, s.store, s.hub.Broadcast())
+	s.scriptTriggers.WatchTriggers(s.triggers)
 	go s.scriptTriggers.Run(ctx, s.hub.Subscribe(0))
 }
 

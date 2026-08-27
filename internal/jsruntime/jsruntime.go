@@ -89,6 +89,14 @@ const (
 	OutcomeUnknown = "unknown"
 )
 
+// Outcomes lists every stable outcome code. Exported so a consumer offering them as a
+// choice — the trigger editor's condition dropdown — reads them from here rather than
+// restating a list that would drift the moment one is added.
+var Outcomes = []string{
+	OutcomeSuccess, OutcomeException, OutcomeTimeout, OutcomeMemoryLimit, OutcomeBudget,
+	OutcomeCancelled, OutcomeDenied, OutcomeRuntimeFailure, OutcomeWorkerLost, OutcomeUnknown,
+}
+
 // OutcomeFor returns the stable code for a termination reason.
 func OutcomeFor(reason string) string {
 	switch reason {

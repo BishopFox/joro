@@ -79,13 +79,20 @@ type scriptInstallArgs struct {
 	MinIntervalMs int      `json:"minIntervalMs"`
 }
 
+// manifest builds the manifest to install.
+//
+// Triggers arrive here as bare names and stay that way. An agent declares which events a
+// package subscribes to; the conditions narrowing those events are the operator's, written
+// in Settings → Automation, and a package installed by a capability lands disabled anyway,
+// so there is nothing an agent could usefully filter before the operator has reviewed it.
+// Widening this to accept a condition set would widen the agent surface for no gain.
 func (a scriptInstallArgs) manifest() jsautomation.Manifest {
 	return jsautomation.Manifest{
 		ID:            a.ID,
 		Name:          a.Name,
 		Version:       a.Version,
 		Description:   a.Description,
-		Triggers:      a.Triggers,
+		Triggers:      jsautomation.NamedTriggers(a.Triggers...),
 		MinIntervalMs: a.MinIntervalMs,
 	}
 }
@@ -277,7 +284,7 @@ func registerScript(r *capability.Registry, d Deps) {
 	// package duplicates the Go values it describes. Adding a trigger constant means
 	// adding it here too; Manifest.Validate refuses an unknown one and names the known
 	// set, so the drift fails loudly rather than silently accepting a dead subscription.
-	const triggerEnum = `["manual","request.selected","detect.finding","fuzzer.complete","request.captured"]`
+	const triggerEnum = `["manual","request.selected","detect.finding","fuzzer.complete","automation.completed","request.captured"]`
 
 	r.MustRegister(capability.Capability{
 		ID:    "script.install",
@@ -350,7 +357,7 @@ func registerScript(r *capability.Registry, d Deps) {
 
 			capability.RecordChange(ctx, "store %s v%s (%d bytes, disabled, triggers %s): sha256:%s",
 				a.Manifest.ID, a.Manifest.Version, len(a.Source),
-				joinOr(a.Manifest.Triggers, "-"), short(a.SourceHash))
+				joinOr(jsautomation.TriggerNames(a.Manifest.Triggers), "-"), short(a.SourceHash))
 			announceStored(d, a, p, true)
 			return renderStored(a, false), nil
 		}),
@@ -633,7 +640,7 @@ func renderStored(a *jsautomation.Automation, replaced bool) string {
 		pick(replaced, "replaced", "stored"), a.Manifest.ID, a.Manifest.Version,
 		len(a.Source), short(a.SourceHash))
 	fmt.Fprintf(&b, "state: disabled — script_invoke refuses it until the operator enables it\n")
-	fmt.Fprintf(&b, "triggers declared: %s (not armed)\n", joinOr(a.Manifest.Triggers, "-"))
+	fmt.Fprintf(&b, "triggers declared: %s (not armed)\n", joinOr(jsautomation.TriggerNames(a.Manifest.Triggers), "-"))
 	b.WriteString("the operator can read, edit, enable or remove it in Settings → Automation; " +
 		"script_replace can change the code while it stays disabled")
 	return b.String()
@@ -665,7 +672,7 @@ func renderAutomations(items []jsautomation.Summary) string {
 		case a.Enabled:
 			state = "enabled"
 		}
-		armed := joinOr(a.Armed, "-")
+		armed := joinOr(jsautomation.TriggerNames(a.Armed), "-")
 		last := "never"
 		if a.LastRun != nil {
 			last = a.LastRun.Outcome

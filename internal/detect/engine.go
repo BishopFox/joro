@@ -603,12 +603,12 @@ func ruleGatesPass(rule *Rule, m *Message) bool {
 	}
 	// Exclusion is checked before the whitelist and wins outright.
 	if rule.excludeCtSet != nil {
-		if _, bad := rule.excludeCtSet[contentTypeKeyword(m.ContentType)]; bad {
+		if _, bad := rule.excludeCtSet[ContentTypeKeyword(m.ContentType)]; bad {
 			return false
 		}
 	}
 	if rule.ctSet != nil {
-		if _, ok := rule.ctSet[contentTypeKeyword(m.ContentType)]; !ok {
+		if _, ok := rule.ctSet[ContentTypeKeyword(m.ContentType)]; !ok {
 			return false
 		}
 	}

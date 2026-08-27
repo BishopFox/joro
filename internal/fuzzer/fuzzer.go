@@ -128,6 +128,11 @@ const (
 	StatusComplete CampaignStatus = "complete"
 )
 
+// TerminalStatuses lists the states a finished campaign can be in — running is excluded,
+// because fuzzer.complete does not fire while one still is. Exported for the trigger
+// editor's condition dropdown.
+var TerminalStatuses = []CampaignStatus{StatusComplete, StatusStopped}
+
 // Campaign is a running or completed fuzzer campaign.
 type Campaign struct {
 	ID        string         `json:"id"`

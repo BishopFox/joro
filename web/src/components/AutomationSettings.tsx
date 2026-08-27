@@ -10,17 +10,18 @@ import ScriptRuns from './ScriptRuns'
 import BudgetPanel from './automation/BudgetPanel'
 import LensPanel from './automation/LensPanel'
 import ScriptsPanel from './automation/ScriptsPanel'
+import TriggersPanel from './automation/TriggersPanel'
 import ConfirmModal from './ConfirmModal'
 import { Redacted } from './Redacted'
 import { useRedact } from '../stores/streamerStore'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border'
 
-// Five surfaces that share a subject and nothing else: what a client may do, what code
-// is installed, which of it renders in the viewer, what every run is held to, and what
-// has happened. Sub-tabs rather than one long panel, mirroring Settings -> Plugins — and
-// the editor needs the full panel height regardless.
-type SubTab = 'tokens' | 'scripts' | 'lenses' | 'settings' | 'activity'
+// Six surfaces that share a subject and nothing else: what a client may do, what code
+// is installed, what wakes it, which of it renders in the viewer, what every run is held
+// to, and what has happened. Sub-tabs rather than one long panel, mirroring
+// Settings -> Plugins — and the editor needs the full panel height regardless.
+type SubTab = 'tokens' | 'scripts' | 'triggers' | 'lenses' | 'settings' | 'activity'
 
 export default function AutomationSettings() {
   const redact = useRedact()
@@ -44,7 +45,8 @@ export default function AutomationSettings() {
   const [port, setPort] = useState(0)
   const [subTab, setSubTab] = useState<SubTab>('tokens')
   const [scopeReady, setScopeReady] = useState(true)
-  // Set when Lenses asks to open an automation, which lives in the Automations tab.
+  // Set when Lenses or Triggers asks to open an automation, which lives in the
+  // Automations tab.
   const [editScript, setEditScript] = useState<string | undefined>()
 
   useEffect(() => {
@@ -117,6 +119,7 @@ export default function AutomationSettings() {
       <div className="flex gap-1 px-3 pt-2 pb-0 bg-surface-card border-b border-border shrink-0">
         {tab('tokens', 'Tokens')}
         {tab('scripts', 'Automations')}
+        {tab('triggers', 'Triggers')}
         {tab('lenses', 'Lenses')}
         {tab('settings', 'Settings')}
         {tab('activity', 'Activity')}
@@ -124,6 +127,15 @@ export default function AutomationSettings() {
 
       {subTab === 'scripts' && (
         <ScriptsPanel openEditor={editScript} onEditorOpened={() => setEditScript(undefined)} />
+      )}
+
+      {subTab === 'triggers' && (
+        <TriggersPanel
+          openEditor={(id) => {
+            setEditScript(id)
+            setSubTab('scripts')
+          }}
+        />
       )}
 
       {subTab === 'lenses' && (

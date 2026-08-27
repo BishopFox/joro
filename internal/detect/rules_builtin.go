@@ -69,7 +69,7 @@ func finalizeBuiltins(rules []Rule) []Rule {
 }
 
 // Simplified content-type keywords used by Rule.ContentTypes and
-// Rule.ExcludeContentTypes, matching the values contentTypeKeyword returns.
+// Rule.ExcludeContentTypes, matching the values ContentTypeKeyword returns.
 //
 // There is no constant for "js": no rule may exclude JavaScript.
 const (

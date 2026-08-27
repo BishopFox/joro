@@ -219,3 +219,101 @@ div:has(> .cm-editor) {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.75; }
 }
+
+/* React Flow, in Joro's palette.
+ *
+ * Its stylesheet ships its own colours, which the no-raw-colours rule makes a problem —
+ * so its CSS variables are remapped onto the semantic tokens rather than each node being
+ * styled around it. That keeps a theme change reaching the canvas for free, which is the
+ * whole point of the tokens.
+ *
+ * Scoped to .joro-flow rather than :root so nothing here leaks into the rest of the UI. */
+.joro-flow .react-flow {
+  --xy-background-color: var(--color-surface-body);
+  --xy-edge-stroke: var(--color-border);
+  --xy-edge-stroke-selected: var(--color-accent);
+  --xy-connectionline-stroke: var(--color-accent-secondary);
+  --xy-handle-background-color: var(--color-surface-card);
+  --xy-handle-border-color: var(--color-border);
+  --xy-controls-button-background-color: var(--color-surface-card);
+  --xy-controls-button-background-color-hover: var(--color-surface-hover);
+  --xy-controls-button-color: var(--color-content-secondary);
+  --xy-controls-button-color-hover: var(--color-content-primary);
+  --xy-controls-button-border-color: var(--color-border);
+  --xy-attribution-background-color: transparent;
+}
+
+/* The dotted background, which reads as noise at the shipped opacity. */
+.joro-flow .react-flow__background-pattern {
+  color: var(--color-border-subtle);
+}
+
+/* A node draws its own border and background; React Flow's default box would double it. */
+.joro-flow .react-flow__node {
+  background: transparent;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Selection is shown by the node's own border colour, so the default outline is noise. */
+.joro-flow .react-flow__node.selected {
+  box-shadow: none;
+}
+
+.joro-flow .react-flow__attribution a {
+  color: var(--color-content-muted);
+  font-size: 9px;
+}
+
+/* The delete control on a trigger connection.
+ *
+ * The edge label layer sets pointer-events: none so edges do not swallow clicks meant for
+ * the canvas, which means anything interactive inside it has to turn them back on. */
+.joro-edge-remove {
+  position: absolute;
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-card);
+  color: var(--color-content-muted);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+/* Shown on hover of the edge or the button, and always while the edge is selected, so it
+   is reachable by keyboard as well as by pointer. */
+.joro-flow .react-flow__edge:hover .joro-edge-remove,
+.joro-flow .react-flow__edge.selected .joro-edge-remove,
+.joro-edge-remove:hover,
+.joro-edge-remove:focus-visible {
+  opacity: 1;
+}
+.joro-edge-remove:hover {
+  color: var(--color-semantic-error);
+  border-color: var(--color-semantic-error);
+}
+
+/* Connection feedback.
+ *
+ * React Flow marks every handle that can end the drag in progress with
+ * .connectionindicator, and TriggerCanvas withholds that from handles the port rules
+ * refuse — so "can take this" and "cannot" are already distinguished by the time this
+ * runs. Fading the rest is what turns a drop that silently does nothing into a visible
+ * refusal, which is the whole complaint it answers.
+ *
+ * .connectingfrom is the handle the drag started at, kept lit so the origin stays obvious. */
+.joro-flow .react-flow__handle.connectionindicator {
+  border-color: var(--color-accent-tertiary) !important;
+}
+.joro-flow .react-flow__handle.connectingto {
+  border-color: var(--color-accent-tertiary) !important;
+  transform: scale(1.6);
+}

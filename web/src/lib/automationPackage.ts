@@ -7,10 +7,13 @@
 // magic bytes on the way back in, and validate field by field so a partial file cannot
 // produce undefined at render time.
 
-import type { AutomationManifest } from './api'
+import type { AutomationManifest, Trigger } from './api'
 
 export const PACKAGE_TYPE = 'joro-automation'
-export const PACKAGE_VERSION = 1
+// 2 added `triggers`. A manifest names its triggers by reference, so a package that uses
+// a custom one is no longer closed over — what it names has to travel with it or the
+// package arrives on another machine pointing at a definition that does not exist.
+export const PACKAGE_VERSION = 2
 
 export interface AutomationBundle {
   type: typeof PACKAGE_TYPE
@@ -18,6 +21,9 @@ export interface AutomationBundle {
   exportedAt: string
   manifest: AutomationManifest
   source: string
+  /** Definitions for the custom triggers this manifest references. Absent in a v1 file,
+   *  and absent in a v2 file whose automation only names built-in events. */
+  triggers?: Trigger[]
 }
 
 /** exportPackage serializes a package to a Blob for download as a .jauto file. */
@@ -58,6 +64,14 @@ export async function importPackage(file: File): Promise<AutomationBundle> {
   if (!b.manifest.id) {
     throw new Error('The package has no automation id')
   }
+  // A file from a newer Joro is refused rather than read for the fields this build
+  // recognizes. Silently dropping what it does not understand is how an automation gets
+  // installed with a trigger it was never meant to run without.
+  if (typeof b.version === 'number' && b.version > PACKAGE_VERSION) {
+    throw new Error(
+      `This package was written by a newer Joro (format ${b.version}, this build reads ${PACKAGE_VERSION})`
+    )
+  }
   // The server validates the manifest properly; this only guarantees the shape the
   // editor is about to render, so a missing optional field is filled rather than fatal.
   return {
@@ -72,17 +86,29 @@ export async function importPackage(file: File): Promise<AutomationBundle> {
       triggers: b.manifest.triggers ?? ['manual'],
     },
     source: b.source,
+    ...(Array.isArray(b.triggers) && b.triggers.length > 0 && { triggers: b.triggers }),
   }
 }
 
-/** downloadPackage triggers a browser download of one automation. */
-export async function downloadPackage(manifest: AutomationManifest, source: string) {
+/** downloadPackage triggers a browser download of one automation.
+ *
+ *  `catalog` is the full trigger list; the custom ones this manifest references are
+ *  resolved out of it and embedded. Passing the catalog rather than the definitions keeps
+ *  every call site from having to work out which ones matter. */
+export async function downloadPackage(
+  manifest: AutomationManifest,
+  source: string,
+  catalog: Trigger[] = []
+) {
+  const refs = new Set(manifest.triggers ?? [])
+  const triggers = catalog.filter((t) => !t.builtin && refs.has(t.id))
   const blob = await exportPackage({
     type: PACKAGE_TYPE,
     version: PACKAGE_VERSION,
     exportedAt: new Date().toISOString(),
     manifest,
     source,
+    ...(triggers.length > 0 && { triggers }),
   })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

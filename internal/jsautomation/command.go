@@ -179,6 +179,13 @@ func CommandPlaceholderAvailability() map[string][]string {
 			localcmd.PlaceholderInput,
 			localcmd.PlaceholderCampaignID,
 		},
+
+		// A finished run carries no transaction and no finding — only what the run itself
+		// was and returned, which reaches the command through {{INPUT}} as the trigger
+		// payload. There is nothing else honest to offer here.
+		TriggerAutomationCompleted: {
+			localcmd.PlaceholderInput,
+		},
 	}
 }
 

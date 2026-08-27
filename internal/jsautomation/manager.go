@@ -159,6 +159,12 @@ type Manager struct {
 	mu        sync.Mutex
 	active    int
 	activeCmd int
+
+	// runWatcher is the dispatcher, when one is running, so a finished run can become an
+	// automation.completed trigger. Its own lock: noteLastRun is called from every run's
+	// goroutine and must not queue behind the admission counter above.
+	runsMu     sync.RWMutex
+	runWatcher *Dispatcher
 }
 
 // New returns a manager. A nil Runtime or Registry getter is tolerated at construction
@@ -588,7 +594,15 @@ func (m *Manager) Invoke(ctx context.Context, req InvokeRequest) (*Run, error) {
 // noteLastRun records the outcome on the automation's sidecar, so the list view can show
 // what happened without holding the whole run log. Best-effort: a run that succeeded must
 // not be reported as failed because a sidecar write did.
+//
+// It is also where a finished run becomes an automation.completed trigger. This is the
+// one point every installed run passes through — dispatcher-fired, operator-started and
+// agent-invoked alike — so a chain fires from all three without any of them remembering
+// to say so.
 func (m *Manager) noteLastRun(id string, run *Run) {
+	if run != nil {
+		m.notifyRunComplete(id, run)
+	}
 	if m.deps.Store == nil || run == nil {
 		return
 	}
@@ -602,6 +616,26 @@ func (m *Manager) noteLastRun(id string, run *Run) {
 	}); err != nil {
 		log.Printf("[automation] %s: recording last run: %v", id, err)
 	}
+}
+
+// WatchRuns registers the dispatcher as the observer of finished runs, so an automation
+// can be triggered by another one completing.
+//
+// A setter rather than a Deps field because the two are built in the other order: the
+// dispatcher needs the manager to invoke through, so the manager exists first and cannot
+// be handed something that does not. NewDispatcher calls this, which keeps the pairing in
+// one place instead of asking every construction site to remember it.
+func (m *Manager) WatchRuns(d *Dispatcher) {
+	m.runsMu.Lock()
+	m.runWatcher = d
+	m.runsMu.Unlock()
+}
+
+func (m *Manager) notifyRunComplete(id string, run *Run) {
+	m.runsMu.RLock()
+	d := m.runWatcher
+	m.runsMu.RUnlock()
+	d.RunCompleted(id, run)
 }
 
 // AutomationPrincipal is the caller for a run nothing launched — a trigger firing, or the

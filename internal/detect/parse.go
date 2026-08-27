@@ -130,9 +130,18 @@ func statusFromLine(line string) int {
 	return code
 }
 
-// contentTypeKeyword maps a MIME type to the simplified keyword used by
+// ContentTypeKeywords lists everything ContentTypeKeyword can return, in the order a
+// chooser should offer them. Beside the function so adding a branch there is visibly a
+// change here too.
+var ContentTypeKeywords = []string{"json", "html", "js", "xml", "css", "csv", "plain", "other"}
+
+// ContentTypeKeyword maps a MIME type to the simplified keyword used by
 // Rule.ContentTypes.
-func contentTypeKeyword(ct string) string {
+//
+// Exported so a trigger condition on contentType means the same thing as a detect rule's
+// gate on it. An operator learns one vocabulary and it holds wherever Joro asks them for
+// a content type.
+func ContentTypeKeyword(ct string) string {
 	c := strings.ToLower(ct)
 	switch {
 	case strings.Contains(c, "json"):
@@ -405,6 +414,6 @@ func (m *Message) IsHTMLDocument() bool {
 	if len(m.RespBody) == 0 {
 		return false
 	}
-	kw := contentTypeKeyword(m.ContentType)
+	kw := ContentTypeKeyword(m.ContentType)
 	return kw == "html"
 }

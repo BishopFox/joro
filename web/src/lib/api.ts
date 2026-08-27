@@ -426,6 +426,88 @@ export interface AutomationLens {
   part: LensPart
 }
 
+/** One box on a trigger's canvas. Ports are implied by type: an edge out of the event
+ *  node carries the event, every other edge carries a true or false. */
+export type TriggerNodeType = 'event' | 'condition' | 'all' | 'any' | 'not' | 'fire'
+
+export interface TriggerNode {
+  id: string
+  type: TriggerNodeType
+  x: number
+  y: number
+  /** Condition nodes only. `field` and `op` must be a pairing the server's catalog
+   *  allows — see `fields` on the trigger list response, which is where the canvas's
+   *  selects come from. */
+  field?: string
+  op?: string
+  value?: string
+  negate?: boolean
+  /** String operators fold case unless this is set. */
+  caseSensitive?: boolean
+}
+
+export interface TriggerEdge {
+  from: string
+  to: string
+}
+
+export interface TriggerGraph {
+  nodes: TriggerNode[]
+  edges: TriggerEdge[]
+}
+
+/** A trigger: an event, and the graph deciding which of those events is worth a run.
+ *
+ *  Built-ins are the raw events, synthesized by the server — read-only, with an empty
+ *  graph, meaning "every one of these". `problem` says why a stored trigger will not
+ *  fire; it is computed on the way out, so it can never disagree with the evaluator. */
+export interface Trigger {
+  id: string
+  name: string
+  description?: string
+  on: string
+  graph: TriggerGraph
+  builtin?: boolean
+  problem?: string
+  /** The automations referencing this one. Editing a trigger changes every one of them,
+   *  and delete is refused while this is non-empty. */
+  usedBy: string[]
+}
+
+/** One condition field an event carries, with the operators it takes. Served rather than
+ *  hardcoded, so the canvas cannot offer a pairing the server would refuse. */
+export interface TriggerFieldSpec {
+  name: string
+  kind: 'text' | 'bytes' | 'number' | 'bool' | 'status'
+  ops: string[]
+  description: string
+  /** Everything this field can hold, for a field with a closed set. The editor renders a
+   *  dropdown instead of a text box. Advisory: a value outside the set is still storable,
+   *  because the set can grow. */
+  values?: string[]
+}
+
+/** A dry run of a trigger against recent traffic. `replayable` is false for an event with
+ *  no corpus to try it on — the graph is still reported valid or not. */
+export interface TriggerTest {
+  valid: boolean
+  error?: string
+  /** Nodes nothing reaches from the run node. Not an error, but they do nothing, so the
+   *  trigger fires more broadly than the picture suggests. */
+  orphans?: string[]
+  scanned: number
+  count: number
+  matched: Array<{
+    seq: number
+    method: string
+    host: string
+    url: string
+    status: number
+    contentType?: string
+  }>
+  replayable: boolean
+}
+
 /** The author-owned half of an installed automation. Cannot request capabilities: the
  *  sdkVersion selects a Joro-owned bundle, which is the point of the indirection. */
 export interface AutomationManifest {
@@ -440,6 +522,8 @@ export interface AutomationManifest {
   entrypoint?: string
   /** The whole body of a command automation. Absent on a script. */
   command?: CommandSpec
+  /** What makes this automation run, in precedence order: the dispatcher takes the first
+   *  with work. Each entry names an event directly or names a custom trigger. */
   triggers?: string[]
   limits?: AutomationLimits
   /** Set to add a viewer tab. The operator can retitle, repoint and reorder it. */
@@ -1376,6 +1460,30 @@ export const api = {
       scripting: boolean
       commands: CommandMeta
     }>('GET', '/automation/scripts'),
+  listTriggers: () =>
+    req<{
+      triggers: Trigger[]
+      /** Which fields each event carries, and the operators each takes. An event absent
+       *  from the map carries nothing to test. */
+      fields: Record<string, TriggerFieldSpec[]>
+      limits: { nodes: number; edges: number; valueLen: number }
+      ops: string[]
+      nodeTypes: TriggerNodeType[]
+      events: string[]
+    }>('GET', '/automation/triggers'),
+  getTrigger: (id: string) => req<Trigger>('GET', `/automation/triggers/${id}`),
+  createTrigger: (t: Partial<Trigger>) => req<Trigger>('POST', '/automation/triggers', t),
+  updateTrigger: (id: string, t: Partial<Trigger>) =>
+    req<Trigger>('PUT', `/automation/triggers/${id}`, t),
+  deleteTrigger: (id: string) => req<{ status: string }>('DELETE', `/automation/triggers/${id}`),
+  /** The graph a new trigger starts from. Served rather than built here so the starting
+   *  point cannot drift from what the server will accept. */
+  seedTrigger: (on: string) =>
+    req<{ on: string; graph: TriggerGraph }>('GET', `/automation/triggers/seed?on=${on}`),
+  /** Dry-run a trigger against recent traffic. Takes the whole trigger rather than an id,
+   *  so trying one out does not cost a saved — and therefore referenceable — trigger. */
+  testTrigger: (t: Partial<Trigger>, limit?: number) =>
+    req<TriggerTest>('POST', '/automation/triggers/test', { ...t, limit }),
   getScript: (id: string) => req<AutomationPackage>('GET', `/automation/scripts/${id}`),
   installScript: (manifest: AutomationManifest, source: string) =>
     req<AutomationPackage>('POST', '/automation/scripts', { manifest, source }),

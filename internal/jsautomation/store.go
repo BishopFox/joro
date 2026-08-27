@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/BishopFox/joro/internal/atomicfile"
 	"github.com/BishopFox/joro/internal/jsruntime"
 )
 
@@ -468,6 +469,11 @@ func (s *Store) updateLocked(id string, m Manifest, source, expectedHash, author
 	// A trigger the operator switched off stays off; one the update newly declares is
 	// not armed by that fact alone, because ArmedTriggers only reads the manifest for
 	// triggers the operator has not overridden.
+	//
+	// Nothing has to be carried across for the trigger itself: a manifest holds only a
+	// reference, and the definition it names lives in the trigger store, untouched by any
+	// write here.
+
 	if cur.Manifest.Entrypoint != m.Entrypoint {
 		_ = os.Remove(filepath.Join(dir, cur.Manifest.Entrypoint))
 	}
@@ -534,14 +540,14 @@ func (s *Store) writeAllLocked(dir string, m Manifest, source string, st State) 
 	if err != nil {
 		return fmt.Errorf("encoding manifest: %w", err)
 	}
-	if err := writeFileAtomic(filepath.Join(dir, manifestFile), append(mjson, '\n'), 0o600); err != nil {
+	if err := atomicfile.Write(filepath.Join(dir, manifestFile), append(mjson, '\n'), 0o600); err != nil {
 		return err
 	}
 	// A command has no source file: source is a rendering of the manifest that was just
 	// written, so a second copy on disk would be the same fact twice with nothing
 	// keeping them in step.
 	if !m.IsCommand() {
-		if err := writeFileAtomic(filepath.Join(dir, m.Entrypoint), []byte(source), 0o600); err != nil {
+		if err := atomicfile.Write(filepath.Join(dir, m.Entrypoint), []byte(source), 0o600); err != nil {
 			return err
 		}
 	}
@@ -553,52 +559,7 @@ func (s *Store) writeStateLocked(dir string, st State) error {
 	if err != nil {
 		return fmt.Errorf("encoding state: %w", err)
 	}
-	return writeFileAtomic(filepath.Join(dir, stateFile), append(b, '\n'), 0o600)
-}
-
-// writeFileAtomic writes via a temp file and a rename, so an interrupted write leaves the
-// previous content rather than a truncated file. configstore writes in place; the token
-// store does it this way, and installed code deserves the same treatment — a half-written
-// automation is a package that fails to load with no obvious cause.
-//
-// The temp file is created with os.CreateTemp, which opens O_EXCL under a name it
-// generates. Two properties follow, and both are wanted: the open fails outright rather
-// than writing through anything that already sits at that path, and the name is not
-// predictable, so it cannot be staked out in advance. A fixed ".tmp" suffix has neither —
-// it is guessable, and a plain write to it follows what it finds. The rename is safe
-// either way, since it replaces a path rather than resolving through it.
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("creating a temp file beside %s: %w", path, err)
-	}
-	tmp := f.Name()
-
-	// Every failure past this point removes the temp file: a leftover would otherwise
-	// accumulate in the automation's directory on each failed write.
-	fail := func(err error) error {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-
-	if _, err := f.Write(data); err != nil {
-		return fail(fmt.Errorf("writing %s: %w", tmp, err))
-	}
-	// CreateTemp opens at 0600; set the requested mode explicitly so the file on disk
-	// does not depend on that staying true.
-	if err := f.Chmod(perm); err != nil {
-		return fail(fmt.Errorf("setting mode on %s: %w", tmp, err))
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("closing %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("renaming onto %s: %w", path, err)
-	}
-	return nil
+	return atomicfile.Write(filepath.Join(dir, stateFile), append(b, '\n'), 0o600)
 }
 
 // ValidateSource rejects a package whose source could never run: too large, or not

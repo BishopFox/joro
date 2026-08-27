@@ -3,7 +3,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { javascript } from '@codemirror/lang-javascript'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { Bot, Download, Play, Save, X } from 'lucide-react'
+import { Bot, Download, Filter, Play, Save, X } from 'lucide-react'
 import {
   api,
   LENS_PARTS,
@@ -16,6 +16,7 @@ import {
 } from '../../lib/api'
 import { downloadPackage } from '../../lib/automationPackage'
 import { useAutomationStore } from '../../stores/automationStore'
+import { useTriggerStore } from '../../stores/triggerStore'
 import { useToastStore } from '../../stores/toastStore'
 import CommandForm from './CommandForm'
 import RunOutput from './RunOutput'
@@ -65,7 +66,6 @@ const BLANK_SPEC: CommandSpec = { path: '', stdin: 'none', inline: '', output: '
 export default function ScriptEditor({
   id,
   draft,
-  triggers,
   onClose,
   onSaved,
 }: {
@@ -73,7 +73,6 @@ export default function ScriptEditor({
   id?: string
   /** Seed for a new automation, or one imported from a file. */
   draft?: EditorDraft
-  triggers: string[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -87,6 +86,10 @@ export default function ScriptEditor({
   const kinds = useAutomationStore((st) => st.scriptKinds)
   const scriptingEnabled = useAutomationStore((st) => st.scriptingEnabled)
   const commandMeta = useAutomationStore((st) => st.commandMeta)
+  // Both built-in events and custom triggers, so the sidebar offers everything an
+  // automation can be pointed at rather than only the events Joro ships.
+  const catalog = useTriggerStore((st) => st.triggers)
+  const refreshTriggers = useTriggerStore((st) => st.refresh)
 
   const [manifest, setManifest] = useState<AutomationManifest>(draft?.manifest ?? blankManifest())
   const [source, setSource] = useState(draft?.source ?? STARTER)
@@ -142,7 +145,8 @@ export default function ScriptEditor({
 
   useEffect(() => {
     refreshBudget()
-  }, [refreshBudget])
+    refreshTriggers()
+  }, [refreshBudget, refreshTriggers])
 
   const extensions = useMemo(() => [javascript(), EditorView.lineWrapping], [])
 
@@ -235,6 +239,8 @@ export default function ScriptEditor({
     patch({ triggers: cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t] })
   }
 
+  const hasTrigger = (t: string) => (manifest.triggers ?? []).includes(t)
+
   // A command's body is its program, not its source; the server derives the source from
   // the spec, so requiring one here would refuse every valid command package. What it does
   // need is a command line that parsed — see commandError.
@@ -287,7 +293,7 @@ export default function ScriptEditor({
             {id ? 'Save' : 'Install'}
           </button>
           <button
-            onClick={() => downloadPackage(manifest, source)}
+            onClick={() => downloadPackage(manifest, source, catalog)}
             disabled={!canSave}
             className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary disabled:opacity-40"
             title="Export as a .jauto package"
@@ -407,23 +413,42 @@ export default function ScriptEditor({
           </Field>
 
           <Field label="Triggers">
+            {/* Both kinds in one list, because from here they are the same thing: something
+                to point this automation at. A built-in fires on every one of its events; a
+                custom one adds conditions, so it fires on some of them. */}
             <div className="space-y-0.5">
-              {triggers.map((t) => {
-                const off = !!manifest.lens && !OPERATOR_STARTED.includes(t)
+              {catalog.map((t) => {
+                const off = !!manifest.lens && !OPERATOR_STARTED.includes(t.id)
                 return (
                   <label
-                    key={t}
+                    key={t.id}
                     className={`flex items-center gap-1.5 text-[11px] text-content-secondary ${
                       off ? 'opacity-40 cursor-not-allowed' : ''
                     }`}
+                    title={t.description}
                   >
                     <input
                       type="checkbox"
-                      checked={(manifest.triggers ?? []).includes(t)}
+                      checked={hasTrigger(t.id)}
                       disabled={off}
-                      onChange={() => toggleTrigger(t)}
+                      onChange={() => toggleTrigger(t.id)}
                     />
-                    <code className="font-mono">{t}</code>
+                    <code className="font-mono truncate">{t.builtin ? t.id : t.name}</code>
+                    {!t.builtin && (
+                      <span
+                        className="text-[10px] text-accent-tertiary shrink-0"
+                        title={`A custom trigger on ${t.on}`}
+                      >
+                        <Filter size={9} className="inline mb-px" />
+                      </span>
+                    )}
+                    {/* A trigger that will not fire is worth saying here rather than only
+                        in the Triggers tab: this is where it gets armed. */}
+                    {t.problem && (
+                      <span className="text-[10px] text-semantic-error shrink-0" title={t.problem}>
+                        broken
+                      </span>
+                    )}
                   </label>
                 )
               })}
@@ -434,7 +459,17 @@ export default function ScriptEditor({
                 start yourself apply.
               </p>
             )}
-            {(manifest.triggers ?? []).includes('request.captured') &&
+            <p className="text-[10px] text-content-muted mt-1 leading-snug">
+              Build one that fires on some events rather than all of them in Settings &rarr;
+              Automation &rarr; Triggers.
+            </p>
+            {manifest.lens && (
+              <p className="text-[10px] text-content-muted mt-1 leading-snug">
+                A lens is started by the viewer, so it subscribes to no event. Only the triggers you
+                start yourself apply.
+              </p>
+            )}
+            {hasTrigger('request.captured') &&
               (isCommand ? (
                 /* A command is handed one event, not a batch, and its cursor always jumps
                    to the newest capture — Joro cannot count a subprocess's requests, so it

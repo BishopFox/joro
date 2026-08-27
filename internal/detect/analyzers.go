@@ -424,7 +424,7 @@ func anCacheControlAuthenticated(m *Message, emit func(AnalyzerHit)) {
 	if strings.Contains(cc, "no-store") {
 		return
 	}
-	kw := contentTypeKeyword(m.ContentType)
+	kw := ContentTypeKeyword(m.ContentType)
 	if kw != "html" && kw != "json" {
 		return
 	}
@@ -556,7 +556,7 @@ func anMissingContentTypeOptions(m *Message, emit func(AnalyzerHit)) {
 	if m.RespStatus < 200 || m.RespStatus >= 300 {
 		return
 	}
-	switch contentTypeKeyword(m.ContentType) {
+	switch ContentTypeKeyword(m.ContentType) {
 	case "html", "js", "json", "css":
 	default:
 		// Images, fonts, and downloads are not sniffable in a way that matters.
@@ -1121,7 +1121,7 @@ func anDotenvDump(m *Message, emit func(AnalyzerHit)) {
 	}
 	// An HTML body is a single-page app's index page returned for an unknown
 	// path, not an env file.
-	if contentTypeKeyword(m.ContentType) == "html" && !strings.Contains(strings.ToLower(m.Path), ".env") {
+	if ContentTypeKeyword(m.ContentType) == "html" && !strings.Contains(strings.ToLower(m.Path), ".env") {
 		return
 	}
 	matches := envLineRe.FindAllSubmatch(m.RespBody, 200)
@@ -1173,7 +1173,7 @@ func anPIIBulkExposure(m *Message, emit func(AnalyzerHit)) {
 	if !m.BodyScannable {
 		return
 	}
-	switch contentTypeKeyword(m.ContentType) {
+	switch ContentTypeKeyword(m.ContentType) {
 	case "json", "xml", "csv", "plain":
 	default:
 		return
