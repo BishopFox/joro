@@ -34,6 +34,7 @@ const CLASS_LABELS: Record<string, string> = {
   context: 'Session context',
   config: 'Proxy configuration',
   detect: 'Detection rules & scanning',
+  webhook: 'Outbound webhooks',
   exec: 'Command execution',
   c2: 'C2 servers',
   script: 'Script automation',

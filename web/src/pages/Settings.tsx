@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import type { PluginInfo } from '../lib/api'
 import ProjectBrowser from '../components/ProjectBrowser'
 import AutomationSettings from '../components/AutomationSettings'
+import WebhookSettings from '../components/webhooks/WebhookSettings'
 import PluginSettings from '../components/PluginSettings'
 import { Settings, isTeamMode, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
@@ -16,7 +17,7 @@ import { useToastStore } from '../stores/toastStore'
 import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
 import { useStreamerStore } from '../stores/streamerStore'
-import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot } from 'lucide-react'
+import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot, Webhook } from 'lucide-react'
 
 const THEMES = [
   { value: 'aomori', label: 'Aomori' },
@@ -39,7 +40,7 @@ const THEMES = [
   { value: 'tokyo', label: 'Tokyo' },
 ]
 
-type Category = 'project' | 'general' | 'appearance' | 'testing' | 'plugins' | 'automation'
+type Category = 'project' | 'general' | 'appearance' | 'testing' | 'plugins' | 'automation' | 'webhooks'
 
 const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   {
@@ -71,6 +72,11 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
     id: 'automation',
     label: 'Automation',
     icon: <Bot size={15} strokeWidth={1.7} aria-hidden="true" />,
+  },
+  {
+    id: 'webhooks',
+    label: 'Webhooks',
+    icon: <Webhook size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
 ]
 
@@ -232,13 +238,14 @@ export default function SettingsPage() {
         })}
       </nav>
 
-      {/* Content pane. Plugins and Automation are full-bleed rather than
-          padded-and-scrolling: the former's feature-plugin sub-tabs are iframes and the
-          latter's script editor is a CodeMirror instance, and both need a real height —
-          a block parent gives a `flex-1` child none. Both supply their own padding. */}
+      {/* Content pane. Plugins, Automation and Webhooks are full-bleed rather than
+          padded-and-scrolling: the first's feature-plugin sub-tabs are iframes, the second's
+          script editor is a CodeMirror instance, and the third is a rail beside an editor —
+          all three need a real height, and a block parent gives a `flex-1` child none. Each
+          supplies its own padding. */}
       <div className="flex-1 min-h-0">
         <div className={`h-full bg-surface-card rounded-lg shadow-sm ${
-          category === 'plugins' || category === 'automation'
+          category === 'plugins' || category === 'automation' || category === 'webhooks'
             ? 'flex flex-col overflow-hidden'
             : 'overflow-y-auto p-5'
         }`}>
@@ -246,6 +253,9 @@ export default function SettingsPage() {
 
           {/* Automation fetches its own data, so it needs no settings guard. */}
           {category === 'automation' && <AutomationSettings />}
+
+          {/* Webhooks likewise, and it is available with no automation flag at all. */}
+          {category === 'webhooks' && <WebhookSettings />}
 
           {category === 'plugins' && (
             <PluginSettings plugins={plugins} onRefresh={refreshPlugins} />

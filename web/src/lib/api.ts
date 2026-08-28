@@ -542,6 +542,86 @@ export interface Trigger {
   usedBy: string[]
 }
 
+export type WebhookFormat = 'envelope' | 'slack' | 'discord' | 'template'
+export type WebhookDelivery = 'each' | 'batch'
+export type WebhookAuthKind = 'none' | 'bearer' | 'basic' | 'header'
+
+export interface WebhookHeader {
+  name: string
+  /** Empty on the way out — the server never returns a stored value. Left empty on the way
+   *  back in, the stored one is kept, so a round trip cannot wipe what you cannot see. */
+  value: string
+}
+
+/** A configured outbound endpoint: trigger references, a destination, and a body.
+ *
+ *  `problem` says why a stored webhook will not deliver; it is computed on the way out, so
+ *  it can never disagree with the dispatcher. `paused` is Joro's switch, set by the runaway
+ *  breaker, as distinct from `enabled`, which is the operator's. */
+export interface Webhook {
+  id: string
+  name: string
+  description?: string
+  enabled: boolean
+  paused?: boolean
+  pausedReason?: string
+  triggers: string[]
+
+  url: string
+  method: string
+  headers?: WebhookHeader[]
+  auth: { kind: WebhookAuthKind; token?: string; user?: string; header?: string }
+  signing: { enabled: boolean; secret?: string; header?: string }
+
+  format: WebhookFormat
+  template?: string
+  delivery: WebhookDelivery
+
+  timeoutMs?: number
+  retries?: number
+  minIntervalMs?: number
+  insecureTls?: boolean
+  /** Whether a sandboxed automation may fire this by id. Off by default: the tick is the
+   *  operator's, and it is the whole gate on joro.webhook.send reaching this endpoint. */
+  allowAutomations?: boolean
+
+  problem?: string
+
+  /** Which secrets are stored, since their values never leave the server. */
+  hasAuthSecret: boolean
+  hasSigningSecret: boolean
+  secretHeaders: string[]
+}
+
+/** One placeholder Joro supplies itself, available whatever the event. */
+export interface WebhookToken {
+  name: string
+  token: string
+  description: string
+}
+
+/** One delivery attempt, newest first. In memory only — diagnostics, not a record. */
+export interface WebhookDeliveryLog {
+  id: string
+  at: string
+  event: string
+  trigger?: string
+  events: number
+  dropped?: number
+  attempts: number
+  status?: number
+  durationMs: number
+  error?: string
+}
+
+/** A dry run: the exact bytes sent, and what the endpoint answered. */
+export interface WebhookTest {
+  body: string
+  status: number
+  durationMs: number
+  error?: string
+}
+
 /** One condition field an event carries, with the operators it takes. Served rather than
  *  hardcoded, so the canvas cannot offer a pairing the server would refuse. */
 export interface TriggerFieldSpec {
@@ -1560,6 +1640,40 @@ export const api = {
    *  so trying one out does not cost a saved — and therefore referenceable — trigger. */
   testTrigger: (t: Partial<Trigger>, limit?: number) =>
     req<TriggerTest>('POST', '/automation/triggers/test', { ...t, limit }),
+
+  listWebhooks: () =>
+    req<{
+      webhooks: Webhook[]
+      formats: WebhookFormat[]
+      deliveries: WebhookDelivery[]
+      authKinds: WebhookAuthKind[]
+      methods: string[]
+      /** The placeholders Joro supplies whatever the event. */
+      tokens: WebhookToken[]
+      /** Which event fields a body template may name, per event. Bytes fields are absent:
+       *  they exist so a condition can search a body, not so a notification can carry one. */
+      fields: Record<string, string[]>
+      limits: {
+        webhooks: number
+        triggers: number
+        headers: number
+        templateBytes: number
+        timeoutMs: number
+        retries: number
+        minIntervalMs: number
+      }
+    }>('GET', '/webhooks'),
+  getWebhook: (id: string) => req<Webhook>('GET', `/webhooks/${id}`),
+  createWebhook: (h: Partial<Webhook>) => req<Webhook>('POST', '/webhooks', h),
+  updateWebhook: (id: string, h: Partial<Webhook>) => req<Webhook>('PUT', `/webhooks/${id}`, h),
+  deleteWebhook: (id: string) => req<{ status: string }>('DELETE', `/webhooks/${id}`),
+  setWebhookEnabled: (id: string, enabled: boolean) =>
+    req<Webhook>('PUT', `/webhooks/${id}/enabled`, { enabled }),
+  /** Render a sample event and deliver it for real. A rejected delivery still resolves —
+   *  the status and error are the answer, not a failed call. */
+  testWebhook: (id: string) => req<WebhookTest>('POST', `/webhooks/${id}/test`),
+  listWebhookDeliveries: (id: string) =>
+    req<{ deliveries: WebhookDeliveryLog[] }>('GET', `/webhooks/${id}/deliveries`),
   getScript: (id: string) => req<AutomationPackage>('GET', `/automation/scripts/${id}`),
   installScript: (manifest: AutomationManifest, source: string) =>
     req<AutomationPackage>('POST', '/automation/scripts', { manifest, source }),

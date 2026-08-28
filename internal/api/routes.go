@@ -300,6 +300,22 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 		mux.HandleFunc("PUT /api/v1/automation/limits", s.handleSetScriptBudget)
 	}
 
+	// Webhooks. Registered unconditionally with every handler gated on requireWebhooks,
+	// for the same reason the automation block is: an unregistered route falls through to
+	// the SPA catch-all and answers 200 with HTML rather than 404 with JSON.
+	//
+	// Outside that block because a webhook is not part of the automation surface. It needs
+	// none of the three automation flags, and an operator who wants a finding in their team
+	// channel should not have to arm an agent to get one.
+	mux.HandleFunc("GET /api/v1/webhooks", s.handleListWebhooks)
+	mux.HandleFunc("POST /api/v1/webhooks", s.handleCreateWebhook)
+	mux.HandleFunc("GET /api/v1/webhooks/{id}", s.handleGetWebhook)
+	mux.HandleFunc("PUT /api/v1/webhooks/{id}", s.handleUpdateWebhook)
+	mux.HandleFunc("DELETE /api/v1/webhooks/{id}", s.handleDeleteWebhook)
+	mux.HandleFunc("PUT /api/v1/webhooks/{id}/enabled", s.handleSetWebhookEnabled)
+	mux.HandleFunc("POST /api/v1/webhooks/{id}/test", s.handleTestWebhook)
+	mux.HandleFunc("GET /api/v1/webhooks/{id}/deliveries", s.handleListWebhookDeliveries)
+
 	// Plugin routes (dynamic, based on loaded plugins).
 	registerPluginRoutes(s, mux)
 }

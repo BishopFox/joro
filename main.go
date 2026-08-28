@@ -65,6 +65,7 @@ func main() {
 	flag.BoolVar(&cfg.AutomationPrivileged, "automation-privileged", false, "Expose web shell execution and Sliver/Mythic C2 as automation capabilities (off by default; still requires an explicit per-capability grant)")
 	flag.BoolVar(&cfg.AutomationScripting, "automation-scripting", false, "Expose script.run, which executes submitted JavaScript in a sandboxed worker process against Joro's automation SDK (off by default; still requires an explicit grant)")
 	flag.BoolVar(&cfg.AutomationCommands, "automation-commands", false, "Allow installed command automations to run local operating-system commands, on a trigger or as a lens (off by default; operator-installed only, never reachable from an automation token)")
+	flag.BoolVar(&cfg.NoWebhooks, "no-webhooks", false, "Disable outbound webhooks entirely (no routes, no webhooks.json, no outbound requests)")
 
 	// scriptWorker is how a script sandbox re-execs this binary. Not an operator
 	// switch: it reads a job from stdin and speaks a private protocol on stdout.

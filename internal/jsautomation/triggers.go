@@ -222,12 +222,12 @@ func (d *Dispatcher) observe(ev any) {
 
 	case "detect.finding":
 		if ref := findingRef(we.Data); ref != nil {
-			d.enqueue(TriggerDetectFinding, "", ref)
+			d.enqueue(TriggerDetectFinding, "", ref, we.Data)
 		}
 
 	case "fuzzer.complete":
 		if ref := compact(we.Data, &campaignFields{}); ref != nil {
-			d.enqueue(TriggerFuzzerComplete, "", ref)
+			d.enqueue(TriggerFuzzerComplete, "", ref, we.Data)
 		}
 	}
 }
@@ -246,8 +246,8 @@ func (d *Dispatcher) RunCompleted(automationID string, run *Run) {
 	if d == nil || run == nil || automationID == "" {
 		return
 	}
-	if ref := runRef(automationID, run); ref != nil {
-		d.enqueue(TriggerAutomationCompleted, automationID, ref)
+	if ref := RunRef(automationID, run); ref != nil {
+		d.enqueue(TriggerAutomationCompleted, automationID, ref, ref)
 	}
 }
 
@@ -261,8 +261,23 @@ func (d *Dispatcher) RunCompleted(automationID string, run *Run) {
 //
 // from names the automation that produced the event, and is empty for anything Joro
 // produced. It exists for the one rule below.
-func (d *Dispatcher) enqueue(on, from string, ref json.RawMessage) {
-	subject := trigger.NewJSONSubject(ref)
+//
+// ref and payload are the same event seen two ways, and keeping them apart is what makes a
+// condition on this event work at all. ref is what the script is handed, and its shape is the
+// SDK's contract with every automation already written against it — a finding arrives nested
+// under `finding`, a finished run reports what started it as `on`. payload is the producer's
+// own broadcast, which trigger.Project reconciles against the vocabulary the operator wrote
+// their condition in. Matching the script's payload directly is what used to happen, and it
+// silently matched nothing: NewJSONSubject is a flat lookup, so `severity` found the wrapper
+// rather than the finding inside it.
+func (d *Dispatcher) enqueue(on, from string, ref json.RawMessage, payload any) {
+	fields := trigger.Project(on, payload)
+	if fields == nil {
+		// Unreadable is not the same as empty. An empty projection satisfies a negated
+		// condition, which would fire a trigger the operator wrote to exclude this.
+		return
+	}
+	subject := trigger.NewMapSubject(fields)
 
 	d.mu.Lock()
 	for _, a := range d.armed {
@@ -886,8 +901,14 @@ type runFields struct {
 // move a body between automations.
 const maxTriggerValueBytes = 4 << 10
 
-// runRef projects a finished run into the reference its successors see.
-func runRef(automationID string, run *Run) json.RawMessage {
+// RunRef projects a finished run into the reference its successors see.
+//
+// Exported because automation.completed never reaches Joro's bus, so anything else that wants
+// to react to a finished run is registered through Manager.WatchRuns and has to project the
+// Run itself. One projection rather than one per watcher: the field names here are what
+// trigger.Project reconciles against the condition vocabulary, and a second hand-written copy
+// is how a condition comes to fire for one watcher and not another.
+func RunRef(automationID string, run *Run) json.RawMessage {
 	f := runFields{
 		AutomationID: automationID,
 		RunID:        run.ID,

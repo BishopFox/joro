@@ -46,6 +46,13 @@ type Binding struct {
 //     time by hand, never bundled.
 //   - script.* — a script that can start scripts launders its own budget.
 //
+// webhook.fire is the one member here whose bytes leave the engagement, and it is in on a
+// different footing from the rest. It is not bounded by what it may reach, because scope
+// describes web targets and a notification endpoint is not one; it is bounded by the operator
+// having ticked a specific endpoint open to automation. That tick is the arming, and it is why
+// this belongs beside the reads rather than behind a new BundleVersion: without one, every
+// call fails, and the set of destinations is fixed by the operator before a run starts.
+//
 // Weigh an addition against how far it reaches, not against the grant that launched the
 // run: a run's grants come from this table and are never intersected with the launching
 // token's, so anything here is authority every triggered run and every armed lens holds,
@@ -98,6 +105,9 @@ var Bindings = []Binding{
 
 	{JS: "detect.rules", Cap: "detect.rules.list"},
 	{JS: "detect.config", Cap: "detect.config.get"},
+
+	{JS: "webhook.list", Cap: "webhook.list"},
+	{JS: "webhook.send", Cap: "webhook.fire"},
 }
 
 // CapabilityIDs returns the capability IDs the SDK can reach, sorted and deduplicated.

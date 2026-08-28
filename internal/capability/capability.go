@@ -40,6 +40,7 @@ const (
 	ClassContext   Class = "context"
 	ClassConfig    Class = "config"
 	ClassDetect    Class = "detect"
+	ClassWebhook   Class = "webhook"
 	ClassExec      Class = "exec"
 	ClassC2        Class = "c2"
 	ClassScript    Class = "script"
@@ -49,11 +50,13 @@ const (
 // order is load-bearing now that write-heavy classes exist: sorting by ID instead
 // would put config and detect at the top of the picker, leading with the groups an
 // operator should consider last. Script is last of all, after execution and C2, for
-// the same reason — it is the group whose authority is not its own.
+// the same reason — it is the group whose authority is not its own. Webhook sits
+// with them rather than with the reads: it is the one class whose bytes leave the
+// engagement entirely.
 var Classes = []Class{
 	ClassInstance, ClassHistory, ClassSitemap, ClassScope, ClassFindings, ClassNotes,
 	ClassHTTP, ClassWebSocket, ClassFuzzer, ClassContext, ClassConfig, ClassDetect,
-	ClassExec, ClassC2, ClassScript,
+	ClassWebhook, ClassExec, ClassC2, ClassScript,
 }
 
 func validClass(c Class) bool { return slices.Contains(Classes, c) }

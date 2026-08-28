@@ -38,3 +38,23 @@ func newUpstreamTLSConfig(serverName string, nextProtos []string) *tls.Config {
 		NextProtos:         nextProtos,
 	}
 }
+
+// newOutboundTLSConfig builds a tls.Config for dialing a host that is Joro's own
+// infrastructure rather than a target: certificates verified, a TLS 1.2 floor, and Go's
+// default suites.
+//
+// The distinction is not fussiness. Everything above exists because a pentest target is
+// frequently a legacy box we MITM and never validate; the destinations this is for are the
+// operator's own — a notification endpoint whose URL is itself the credential, so posting one
+// over an unverified connection hands it to whoever answered. It lives in this file so the
+// rule that no caller outside internal/proxy builds a tls.Config stays true, and so both
+// postures are read side by side rather than one being discovered later.
+//
+// insecure is a per-destination opt-in for an internal receiver with a self-signed
+// certificate, which is the case that would otherwise push an operator to a worse workaround.
+func newOutboundTLSConfig(insecure bool) *tls.Config {
+	return &tls.Config{
+		InsecureSkipVerify: insecure, //nolint:gosec // opt-in, per destination
+		MinVersion:         tls.VersionTLS12,
+	}
+}

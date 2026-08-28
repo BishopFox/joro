@@ -11,6 +11,7 @@ import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectio
 import { useTeamFlaggedStore, type FlaggedSummary } from '../stores/teamFlaggedStore'
 import { useTeamSharedConfigStore, type SharedConfigSummary } from '../stores/teamSharedConfigStore'
 import { useUpdateStore } from '../stores/updateStore'
+import { useWebhookStore } from '../stores/webhookStore'
 import { useWSStore } from '../stores/wsStore'
 import { useXSSHunterStore, type XSSFire } from '../stores/xssHunterStore'
 import type { CapturedWSMessage } from './api'
@@ -367,6 +368,20 @@ function handleMessage(msg: WSMessage) {
         useToastStore
           .getState()
           .addToast(`Automation ${d.id ?? ''} was paused: ${d.pausedReason ?? 'runaway'}`, 'error')
+      }
+      break
+    }
+    case 'webhook.state': {
+      // The only webhook event on the bus, and the only state change an operator did not
+      // make: the runaway breaker pausing one they armed. Per-delivery events would be a
+      // firehose, and the editor polls its delivery log instead.
+      const d = msg.data as { id?: string; paused?: boolean; pausedReason?: string }
+      useWebhookStore.getState().invalidate()
+      useWebhookStore.getState().refresh()
+      if (d?.paused) {
+        useToastStore
+          .getState()
+          .addToast(`Webhook ${d.id ?? ''} was paused: ${d.pausedReason ?? 'runaway'}`, 'error')
       }
       break
     }

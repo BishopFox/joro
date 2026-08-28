@@ -35,6 +35,7 @@ import (
 	"github.com/BishopFox/joro/internal/team"
 	"github.com/BishopFox/joro/internal/trigger"
 	"github.com/BishopFox/joro/internal/update"
+	"github.com/BishopFox/joro/internal/webhook"
 	"github.com/BishopFox/joro/internal/xsshunter"
 	joroweb "github.com/BishopFox/joro/web"
 )
@@ -147,6 +148,14 @@ type APIServer struct {
 	triggers     *trigger.Store
 	automationMu sync.Mutex // serializes MCP start/stop from HTTP handlers
 
+	// The webhook feature. Independent of automation: an operator wanting a finding in
+	// their team channel should not have to arm an agent to get one, so these are built in
+	// New rather than in SetAutomation and are nil only under --no-webhooks or when
+	// webhooks.json could not be read. See webhook_wire.go.
+	webhooks        *webhook.Store
+	webhookDeliver  *webhook.Deliverer
+	webhookDispatch *webhook.Dispatcher
+
 	buildInfo  BuildInfo
 	cancelFunc context.CancelFunc
 	restart    bool
@@ -220,7 +229,7 @@ func New(
 	// holds no reference to it, since the scanner pulls from the capture store.
 	detectEngine := detect.NewEngine()
 	detectFindings := detect.NewStore(0)
-	return &APIServer{
+	s := &APIServer{
 		cfg:           cfg,
 		store:         store,
 		intercept:     intercept,
@@ -262,6 +271,12 @@ func New(
 			DisableUpdateChecks: cfg.DisableUpdateChecks,
 		},
 	}
+	// Both stores are built here rather than in SetAutomation, because both outlive
+	// automation: a webhook references a trigger, and neither needs an agent to be useful.
+	// See initTriggers for why the trigger store moved out of newScriptManager.
+	s.initTriggers()
+	s.initWebhooks()
+	return s
 }
 
 // RestartRequested returns true if the server was shut down for a restart (e.g. after update).
@@ -369,6 +384,9 @@ func (s *APIServer) Start(ctx context.Context) error {
 		// Bring up the persisted MCP listener state and the token flush loop.
 		// No-ops entirely when automation was not configured.
 		s.startAutomation(ctx)
+		// No-ops entirely under --no-webhooks. Started after automation so the run
+		// watcher startScriptTriggers registers is already in place.
+		s.startWebhooks(ctx)
 	}
 
 	// Serve frontend (skip in listener mode - listener is API-only).

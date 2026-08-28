@@ -58,6 +58,12 @@ type Config struct {
 	// operator who installed one should be told why it will not run rather than left
 	// wondering whether it is broken.
 	AutomationCommands bool
+	// NoWebhooks disables outbound webhooks entirely: no routes registered, no
+	// webhooks.json read or written, no dispatcher subscribed to the event bus. A
+	// deployment-posture switch in the same family as NoAutomation, and the answer for an
+	// engagement where nothing may leave the machine — a webhook is the one feature whose
+	// bytes go somewhere Joro's scope does not describe.
+	NoWebhooks bool
 }
 
 // Default returns a Config populated with sensible defaults.

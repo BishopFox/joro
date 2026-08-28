@@ -24,10 +24,13 @@ import (
 // Absent means the file could not be read at startup, which is deliberately fatal for the
 // feature rather than silently empty: an empty store would make every automation
 // referencing a custom trigger read as unreferenced and start firing on its raw event.
+//
+// It does not gate on automation. A trigger is a shared named object with two consumers now,
+// and a webhook is available with no automation flag at all — routing this through
+// requireAutomations would leave the webhook editor unable to list the triggers it references.
+// Nothing about the trust story changes: these routes stay UI-only, and no capability reaches
+// them either way.
 func (s *APIServer) requireTriggers(w http.ResponseWriter) *trigger.Store {
-	if !s.requireAutomations(w) {
-		return nil
-	}
 	if s.triggers == nil {
 		writeError(w, http.StatusNotFound,
 			"custom triggers are unavailable on this instance; see the startup log for why "+
@@ -73,24 +76,29 @@ func (s *APIServer) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// triggerUsedBy names the automations referencing a trigger.
+// triggerUsedBy names everything referencing a trigger: automations and webhooks both.
 //
-// Read from the installed set on every call rather than kept as an index: the set is small,
-// this is an operator-paced endpoint, and an index would be a second copy of the truth that
-// could disagree with the manifests about what is actually referenced.
+// The union, not just the automations. A trigger is shared, and deleting one out from under a
+// webhook fails safe — a dangling reference never fires — but silently, which is the failure
+// internal/trigger is arranged to make loud. Missing a consumer here is what would make it
+// quiet again.
+//
+// Read from both sets on every call rather than kept as an index: they are small, this is an
+// operator-paced endpoint, and an index would be a second copy of the truth that could
+// disagree about what is actually referenced.
 func (s *APIServer) triggerUsedBy(id string) []string {
 	out := []string{}
-	if s.scriptManager == nil || s.scriptManager.Packages() == nil {
-		return out
-	}
-	for _, a := range s.scriptManager.Packages().List() {
-		for _, ref := range a.Manifest.Triggers {
-			if string(ref) == id {
-				out = append(out, a.Manifest.Name)
-				break
+	if s.scriptManager != nil && s.scriptManager.Packages() != nil {
+		for _, a := range s.scriptManager.Packages().List() {
+			for _, ref := range a.Manifest.Triggers {
+				if string(ref) == id {
+					out = append(out, a.Manifest.Name)
+					break
+				}
 			}
 		}
 	}
+	out = append(out, s.webhooks.UsedBy(id)...)
 	sort.Strings(out)
 	return out
 }
@@ -191,7 +199,7 @@ func (s *APIServer) handleDeleteTrigger(w http.ResponseWriter, r *http.Request) 
 // was well-formed and the answer is about the graph, which is what the canvas renders
 // either way — a 400 would make the editor treat an ordinary bad regex as a failed call.
 func (s *APIServer) handleTestTrigger(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAutomations(w) {
+	if s.requireTriggers(w) == nil {
 		return
 	}
 	var body struct {
@@ -216,7 +224,7 @@ func (s *APIServer) handleTestTrigger(w http.ResponseWriter, r *http.Request) {
 // Served rather than built in the client so the starting point cannot drift from what the
 // server will accept — a seed that failed Validate would open the canvas on an error.
 func (s *APIServer) handleSeedTrigger(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAutomations(w) {
+	if s.requireTriggers(w) == nil {
 		return
 	}
 	on := r.URL.Query().Get("on")

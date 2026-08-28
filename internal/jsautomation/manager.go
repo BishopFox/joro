@@ -160,11 +160,21 @@ type Manager struct {
 	active    int
 	activeCmd int
 
-	// runWatcher is the dispatcher, when one is running, so a finished run can become an
-	// automation.completed trigger. Its own lock: noteLastRun is called from every run's
-	// goroutine and must not queue behind the admission counter above.
-	runsMu     sync.RWMutex
-	runWatcher *Dispatcher
+	// runWatchers observe finished runs, so one can become an automation.completed trigger.
+	// Its own lock: noteLastRun is called from every run's goroutine and must not queue
+	// behind the admission counter above.
+	//
+	// A slice because automation.completed is the one event that never reaches Joro's bus —
+	// a per-run broadcast would be a firehose an agent controls — so every consumer of it
+	// has to be told here. The trigger dispatcher registers itself; anything else is
+	// registered by whoever built it.
+	runsMu      sync.RWMutex
+	runWatchers []RunWatcher
+}
+
+// RunWatcher is told when an installed automation finishes.
+type RunWatcher interface {
+	RunCompleted(automationID string, run *Run)
 }
 
 // New returns a manager. A nil Runtime or Registry getter is tolerated at construction
@@ -618,24 +628,33 @@ func (m *Manager) noteLastRun(id string, run *Run) {
 	}
 }
 
-// WatchRuns registers the dispatcher as the observer of finished runs, so an automation
-// can be triggered by another one completing.
+// WatchRuns registers an observer of finished runs, so an automation can be triggered by
+// another one completing.
 //
 // A setter rather than a Deps field because the two are built in the other order: the
 // dispatcher needs the manager to invoke through, so the manager exists first and cannot
 // be handed something that does not. NewDispatcher calls this, which keeps the pairing in
 // one place instead of asking every construction site to remember it.
-func (m *Manager) WatchRuns(d *Dispatcher) {
+//
+// Appends rather than replaces. The trigger dispatcher is not the only thing that can care
+// that a run finished — a webhook watching automation.completed is registered here too, since
+// this event never reaches the bus for it to subscribe to.
+func (m *Manager) WatchRuns(w RunWatcher) {
+	if w == nil {
+		return
+	}
 	m.runsMu.Lock()
-	m.runWatcher = d
+	m.runWatchers = append(m.runWatchers, w)
 	m.runsMu.Unlock()
 }
 
 func (m *Manager) notifyRunComplete(id string, run *Run) {
 	m.runsMu.RLock()
-	d := m.runWatcher
+	watchers := m.runWatchers
 	m.runsMu.RUnlock()
-	d.RunCompleted(id, run)
+	for _, w := range watchers {
+		w.RunCompleted(id, run)
+	}
 }
 
 // AutomationPrincipal is the caller for a run nothing launched — a trigger firing, or the

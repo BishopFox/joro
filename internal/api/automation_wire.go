@@ -18,7 +18,6 @@ import (
 	"github.com/BishopFox/joro/internal/jsruntime"
 	"github.com/BishopFox/joro/internal/localcmd"
 	"github.com/BishopFox/joro/internal/mcp"
-	"github.com/BishopFox/joro/internal/trigger"
 )
 
 // SetAutomation installs the automation token store and builds the capability
@@ -101,6 +100,11 @@ func (s *APIServer) SetAutomation(store *automation.Store) {
 		Scripting: s.scriptingEnabled(),
 		Script:    s.scriptRunnerDep(),
 
+		// Fire-only, and ID-addressed. A run may choose among the endpoints the operator
+		// opened to automation; it cannot author one, read one's URL, or reach a webhook
+		// that was not ticked. See caps_webhook.go.
+		Webhooks: s.webhookFirer(),
+
 		Broadcast: s.hub.Broadcast(),
 	}, s.capAudit)
 	s.mcpListener = mcp.NewListener()
@@ -155,19 +159,9 @@ func (s *APIServer) newScriptManager() *jsautomation.Manager {
 	// the project config, because that is engagement data rather than code.
 	s.automationStorage = jsautomation.NewStorage()
 
-	// The custom triggers automations reference, in the data directory beside them and
-	// for the same reason: a global automation must not reference a per-project object,
-	// or the reference resolves on one engagement and dangles on the next.
-	//
-	// A file that will not parse disables the feature and says so, rather than presenting
-	// an empty set. The difference matters: an empty store would leave every automation
-	// referencing a custom trigger with nothing to resolve, and the operator would see
-	// them stop firing with no explanation.
-	if store, err := trigger.NewStore(s.cfg.DataDir); err != nil {
-		log.Printf("[automation] custom triggers are unavailable: %v", err)
-	} else {
-		s.triggers = store
-	}
+	// The custom triggers automations reference are opened in New, not here: webhooks
+	// reference them too and are available without either automation flag. See
+	// initTriggers, which carries the rest of that reasoning.
 
 	pkgs := jsautomation.NewStore(filepath.Join(s.cfg.DataDir, "automations"))
 	// Install-time program-size check, which happens where a run's own copy of the
@@ -278,6 +272,9 @@ func (s *APIServer) startScriptTriggers(ctx context.Context) {
 
 	s.scriptTriggers = jsautomation.NewDispatcher(s.scriptManager, s.store, s.hub.Broadcast())
 	s.scriptTriggers.WatchTriggers(s.triggers)
+	// A webhook watching automation.completed has to be told here too: that event never
+	// reaches the bus, so subscribing to it is not possible. WatchRuns appends.
+	s.watchAutomationRuns()
 	go s.scriptTriggers.Run(ctx, s.hub.Subscribe(0))
 }
 
