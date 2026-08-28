@@ -370,6 +370,13 @@ func eventRequestCaptured(r *CapturedRequest) event.WSEvent {
 // InterceptMeta the queue does, so the bytes the operator sees cannot drift from
 // the bytes the queue holds. reqRaw is populated for both kinds, so the payload
 // stays well-formed for any consumer that predates response interception.
+//
+// pausedAt is stamped here rather than carried on InterceptMeta because the queue
+// stamps its own inside pause(), which this call immediately precedes. The two
+// differ by the cost of a function call, which neither reorders two pauses nor
+// shows at the one-second resolution the operator's age column renders. Without
+// it a row that arrived over the event stream has no age at all until the next
+// reconcile poll replaces it.
 func eventInterceptQueued(kind InterceptKind, m InterceptMeta) event.WSEvent {
 	return event.WSEvent{Type: "intercept.queued", Data: map[string]any{
 		"id":       m.ID,
@@ -379,6 +386,7 @@ func eventInterceptQueued(kind InterceptKind, m InterceptMeta) event.WSEvent {
 		"host":     m.Host,
 		"protocol": m.Protocol,
 		"status":   m.Status,
+		"pausedAt": timeNow(),
 		"reqRaw":   m.ReqRaw,
 		"respRaw":  m.RespRaw,
 	}}

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -265,7 +266,19 @@ func (q *InterceptQueue) DrainAll(kind InterceptKind) int {
 	return n
 }
 
-// List returns a snapshot of all currently pending requests and responses.
+// List returns a snapshot of all currently pending requests and responses,
+// ordered oldest pause first.
+//
+// The order is a guarantee, not a convenience. The backing store is a map, whose
+// iteration order the runtime randomizes, so an unsorted listing reshuffles the
+// operator's queue on every poll and makes an agent diffing two listings see
+// changes that did not happen. The UI relies on the guarantee to keep the detail
+// pane on the oldest paused item: it reads element zero and appends items that
+// arrive over the event stream, since a new pause is always the newest. Both
+// halves of that have to stay true together.
+//
+// PausedAt alone is not a total order — two pauses can land on the same clock
+// tick — so ID breaks the tie and keeps repeated listings byte-identical.
 func (q *InterceptQueue) List() []*PendingIntercept {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
@@ -273,5 +286,13 @@ func (q *InterceptQueue) List() []*PendingIntercept {
 	for _, pi := range q.queue {
 		result = append(result, pi)
 	}
+	// Safe under the read lock: every field sorted on is written once, at
+	// construction, before the entry enters the map.
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].PausedAt.Equal(result[j].PausedAt) {
+			return result[i].PausedAt.Before(result[j].PausedAt)
+		}
+		return result[i].ID < result[j].ID
+	})
 	return result
 }

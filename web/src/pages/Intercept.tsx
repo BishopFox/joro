@@ -4,7 +4,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { ArrowDown, ArrowUp } from 'lucide-react'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { PendingItem, useInterceptStore } from '../stores/interceptStore'
 import { useToastStore } from '../stores/toastStore'
 import { useResizable } from '../lib/useResizable'
@@ -26,10 +26,20 @@ function b64Encode(s: string) {
 // until the operator navigated away.
 const RECONCILE_MS = 5000
 
+// How long Forward and Drop stay inert after the pane loads an item on its own.
+//
+// Resolving an item pulls the next one in under the pointer, and a forward or a drop
+// has no undo, so without this a double-click or a held key resolves an item the
+// operator never saw. Long enough to break the second click of a double-click, short
+// enough to stay under the time it takes to read the row that just appeared.
+const SETTLE_MS = 200
+
 // The raw bytes an operator edits, by phase.
 function rawFor(item: PendingItem) {
   return item.kind === 'response' ? (item.respRaw ?? '') : item.reqRaw
 }
+
+const keyOf = (item: PendingItem) => `${item.kind}:${item.id}`
 
 function TogglePill({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
   return (
@@ -61,7 +71,6 @@ export default function Intercept() {
   } = useInterceptStore()
   const navigate = useNavigate()
   const addToast = useToastStore((s) => s.addToast)
-  const [editedRaw, setEditedRaw] = useState('')
   const [wrap, setWrap] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
@@ -69,6 +78,30 @@ export default function Intercept() {
 
   const isResponse = selected?.kind === 'response'
   const anyEnabled = enabled || responsesEnabled
+  const selKey = selected ? keyOf(selected) : ''
+
+  // Edits are held per item rather than mirrored into one buffer by an effect. The
+  // pane now changes item on its own, and an effect writes after paint — so for a
+  // frame the header would name the item that just arrived while the editor still
+  // showed the bytes of the one just resolved. Deriving it during render makes that
+  // disagreement unrepresentable, and keys the work an operator has already done to
+  // the item it belongs to, so leaving an item and coming back does not discard it.
+  const [edits, setEdits] = useState<Record<string, string>>({})
+  const editedRaw = selected ? (edits[selKey] ?? b64Decode(rawFor(selected))) : ''
+  const onEdit = useCallback(
+    (v: string) => setEdits((e) => ({ ...e, [selKey]: v })),
+    [selKey]
+  )
+
+  // Forget the edits of items the queue has let go of.
+  useEffect(() => {
+    setEdits((e) => {
+      const live = new Set(items.map(keyOf))
+      const kept = Object.keys(e).filter((k) => live.has(k))
+      if (kept.length === Object.keys(e).length) return e
+      return Object.fromEntries(kept.map((k) => [k, e[k]]))
+    })
+  }, [items])
 
   const refresh = useCallback(async () => {
     const data = await api.getIntercept()
@@ -99,9 +132,13 @@ export default function Intercept() {
     return () => clearInterval(t)
   }, [items.length])
 
+  const [armedFor, setArmedFor] = useState('')
   useEffect(() => {
-    if (selected) setEditedRaw(b64Decode(rawFor(selected)))
-  }, [selected])
+    if (!selKey) return
+    const t = setTimeout(() => setArmedFor(selKey), SETTLE_MS)
+    return () => clearTimeout(t)
+  }, [selKey])
+  const canResolve = !!selected && armedFor === selKey
 
   async function toggle(phase: 'requests' | 'responses') {
     const isReq = phase === 'requests'
@@ -116,27 +153,35 @@ export default function Intercept() {
     }
   }
 
-  async function forward() {
-    if (!selected) return
-    const patch = isResponse
-      ? { respRaw: b64Encode(editedRaw) }
-      : { reqRaw: b64Encode(editedRaw) }
+  // Resolving is awaited before the row goes: the endpoint only hands the decision to
+  // the goroutine already parked on it, so the wait is a loopback round trip, and it
+  // keeps the buttons pointed at this item until they are pointed at the next one.
+  async function resolve(kind: 'forward' | 'drop') {
+    if (!selected || !canResolve) return
+    const id = selected.id
     try {
-      await api.forwardIntercept(selected.id, patch)
-    } catch {
-      // A 404 means the pause already timed out or was released; the row is
-      // stale either way, so clear it rather than nagging.
+      if (kind === 'drop') {
+        await api.dropRequest(id)
+      } else {
+        // Re-encoding is skipped on a drop: the bytes are discarded, and a response
+        // body can be large.
+        const raw = b64Encode(editedRaw)
+        await api.forwardIntercept(id, isResponse ? { respRaw: raw } : { reqRaw: raw })
+      }
+    } catch (err) {
+      // A 404 means the pause already timed out or was released; the row is stale
+      // either way, so clear it rather than nagging. Anything else has to be said out
+      // loud — the pane moves on to the next item regardless, and an operator who is
+      // already reading that one has nothing else to tell them this one never went.
+      if (!(err instanceof ApiError && err.status === 404)) {
+        addToast(err instanceof Error ? err.message : `Failed to ${kind}`, 'error')
+      }
     }
-    removeItem(selected.id)
+    removeItem(id)
   }
 
-  async function drop() {
-    if (!selected) return
-    try {
-      await api.dropRequest(selected.id)
-    } catch { /* already resolved — see forward() */ }
-    removeItem(selected.id)
-  }
+  const forward = () => resolve('forward')
+  const drop = () => resolve('drop')
 
   async function releaseAll() {
     try {
@@ -222,10 +267,10 @@ export default function Intercept() {
           ) : (
             items.map((item) => (
               <button
-                key={`${item.kind}:${item.id}`}
+                key={keyOf(item)}
                 onClick={() => setSelected(item)}
                 className={`w-full text-left p-2 border-b border-border-subtle text-xs hover:bg-surface-hover ${
-                  selected?.kind === item.kind && selected?.id === item.id ? 'bg-surface-hover' : ''
+                  selKey === keyOf(item) ? 'bg-surface-hover' : ''
                 }`}
               >
                 <div className="flex items-center gap-1.5">
@@ -258,16 +303,18 @@ export default function Intercept() {
             <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-surface-card shrink-0">
               <button
                 onClick={forward}
-                className="text-xs px-3 py-1 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black font-semibold"
+                disabled={!canResolve}
+                className="text-xs px-3 py-1 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Forward
               </button>
               <button
                 onClick={drop}
+                disabled={!canResolve}
                 title={isResponse
                   ? 'Discard this response — the request was already sent upstream'
                   : 'Discard this request without sending it'}
-                className="text-xs px-3 py-1 rounded-sm bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary font-semibold"
+                className="text-xs px-3 py-1 rounded-sm bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Drop
               </button>
@@ -294,11 +341,15 @@ export default function Intercept() {
             </div>
             <div className="flex-1 relative min-h-0">
               <div className="absolute inset-0 overflow-hidden">
+                {/* Keyed on the item so the cursor and scroll reset with it: without
+                    the remount CodeMirror replaces the document in place and leaves the
+                    caret at its old offset, now inside a different request. */}
                 <CodeMirror
+                  key={selKey}
                   value={editedRaw}
                   theme={oneDark}
                   height="100%"
-                  onChange={setEditedRaw}
+                  onChange={onEdit}
                   extensions={wrap ? [contextMenuExt, EditorView.lineWrapping] : [contextMenuExt]}
                   basicSetup={{ lineNumbers: true, foldGutter: false }}
                 />
@@ -307,7 +358,9 @@ export default function Intercept() {
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-content-muted text-sm">
-            {anyEnabled ? 'Select an intercepted item' : 'Enable intercept to pause traffic'}
+            {anyEnabled
+              ? `Waiting for ${enabled && responsesEnabled ? 'requests and responses' : enabled ? 'requests' : 'responses'}...`
+              : 'Enable intercept to pause traffic'}
           </div>
         )}
       </div>
