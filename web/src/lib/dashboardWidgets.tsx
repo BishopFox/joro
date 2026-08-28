@@ -81,7 +81,7 @@ export const WIDGETS: WidgetDef[] = [
   {
     id: 'automation-activity',
     label: 'Automation Activity',
-    description: 'Capability calls made by automation tokens, with denied and error counts.',
+    description: 'Capability calls made by automations and agents, with denied and error counts.',
     requiresProxyMode: true,
     needs: ['automationActivity'],
     render: () => <AutomationActivityWidget />,

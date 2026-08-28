@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { Bot } from 'lucide-react'
 import DashboardPanel from '../DashboardPanel'
+import { Redacted } from '../Redacted'
 import { useDashboardDataStore } from '../../stores/dashboardDataStore'
 
 /**
@@ -25,23 +27,28 @@ export default function AutomationActivityWidget() {
     )
   }
 
-  // Distinguishing "no tokens" from "no calls yet" matters: the first is a setup
-  // step the operator has not taken, the second is a quiet agent.
-  if (audit.stats.tokens === 0) {
+  if (audit === 'unavailable') {
     return (
-      <DashboardPanel title="Automation">
-        <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-4">
-          <Bot size={22} strokeWidth={1.6} className="text-content-muted" aria-hidden="true" />
-          <p className="text-xs text-content-muted">No automation tokens configured.</p>
-          <button onClick={goToSettings} className="text-xs text-accent-secondary hover:underline">
-            Set one up →
-          </button>
-        </div>
-      </DashboardPanel>
+      <Prompt onClick={goToSettings} label="Automation settings →">
+        Automation is disabled for this run (<code className="font-mono">--no-automation</code>).
+      </Prompt>
     )
   }
 
   const { lastHour, deniedLastHour, errorsLastHour, tokensActive, tokens } = audit.stats
+
+  // Entries take precedence over the token count. A run a trigger or the operator
+  // started records activity under a synthetic principal and never has a token, so
+  // gating on tokens here would hide exactly the automations nobody is watching.
+  // With nothing recorded, the two silences still differ: no tokens is a setup step
+  // the operator has not taken, tokens with no calls is a quiet agent.
+  if (audit.entries.length === 0 && tokens === 0) {
+    return (
+      <Prompt onClick={goToSettings} label="Set one up →">
+        No automation tokens configured.
+      </Prompt>
+    )
+  }
 
   return (
     <DashboardPanel
@@ -53,11 +60,15 @@ export default function AutomationActivityWidget() {
       }
     >
       <div className="h-full flex flex-col min-h-0">
-        <div className="grid grid-cols-4 gap-2 px-3 py-2 border-b border-border-subtle shrink-0">
+        {/* The first three tiles count every principal. The token tile is dropped
+            when there are none, where it would read "0/0" beside live activity. */}
+        <div
+          className={`grid ${tokens > 0 ? 'grid-cols-4' : 'grid-cols-3'} gap-2 px-3 py-2 border-b border-border-subtle shrink-0`}
+        >
           <Stat label="calls / hr" value={lastHour} />
           <Stat label="denied" value={deniedLastHour} tone={deniedLastHour > 0 ? 'warning' : undefined} />
           <Stat label="errors" value={errorsLastHour} tone={errorsLastHour > 0 ? 'error' : undefined} />
-          <Stat label="tokens" value={`${tokensActive}/${tokens}`} />
+          {tokens > 0 && <Stat label="tokens" value={`${tokensActive}/${tokens}`} />}
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto font-mono text-[10px] px-3 py-1.5">
@@ -72,13 +83,40 @@ export default function AutomationActivityWidget() {
                 }`}
               >
                 <span className="text-content-muted shrink-0">{new Date(e.at).toLocaleTimeString()}</span>
-                <span className="shrink-0 truncate max-w-[6rem]">{e.tokenName}</span>
+                <span className="shrink-0 truncate max-w-[6rem]">
+                  <Redacted value={e.tokenName} kind="identity" />
+                </span>
                 <span className="truncate">{e.capability}</span>
                 <span className="ml-auto shrink-0 text-content-muted">{e.code || e.result}</span>
               </div>
             ))
           )}
         </div>
+      </div>
+    </DashboardPanel>
+  )
+}
+
+// Prompt is the panel's non-activity state: a line of explanation and the one link
+// that acts on it. Shared so the two cases it covers — automation off for the run,
+// and nothing set up yet — cannot drift apart visually.
+function Prompt({
+  children,
+  onClick,
+  label,
+}: {
+  children: ReactNode
+  onClick: () => void
+  label: string
+}) {
+  return (
+    <DashboardPanel title="Automation">
+      <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-4">
+        <Bot size={22} strokeWidth={1.6} className="text-content-muted" aria-hidden="true" />
+        <p className="text-xs text-content-muted">{children}</p>
+        <button onClick={onClick} className="text-xs text-accent-secondary hover:underline">
+          {label}
+        </button>
       </div>
     </DashboardPanel>
   )

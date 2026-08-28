@@ -998,6 +998,20 @@ export const TEAM_POLL_TIMEOUT = 4000
 // requireLocalOrigin in internal/api/originguard.go.
 const UI_ORIGIN_HEADER = { 'X-Joro-Origin': '1' } as const
 
+// ApiError carries the HTTP status alongside the server's message, so a caller can tell a
+// deployment choice from a failure — a 404 from a feature disabled at startup reads the same
+// as a timeout otherwise. The message is the server's, unchanged, and this is an Error, so a
+// handler that only wants text can keep ignoring the distinction.
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
   const ctrl = timeoutMs ? new AbortController() : undefined
   const timer = timeoutMs ? setTimeout(() => ctrl!.abort(), timeoutMs) : undefined
@@ -1012,7 +1026,7 @@ async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: 
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
+      throw new ApiError((err as { error: string }).error || res.statusText, res.status)
     }
     return res.json() as Promise<T>
   } finally {
@@ -1030,7 +1044,7 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error((err as { error: string }).error || res.statusText)
+    throw new ApiError((err as { error: string }).error || res.statusText, res.status)
   }
   return res.json() as Promise<T>
 }

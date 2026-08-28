@@ -50,7 +50,9 @@ interface DashboardDataState extends CallbackData {
   sliver: SliverInfo
   mythic: MythicInfo
   health: HealthInfo | null
-  automationActivity: AutomationAudit | null
+  // 'unavailable' means automation is off for this run, which the widget states
+  // rather than sitting on a spinner. null is the distinct "not fetched yet".
+  automationActivity: AutomationAudit | 'unavailable' | null
 
   setMode: (mode: string) => void
   setLocalHost: (h: { hostname: string; ip: string } | null) => void
@@ -58,7 +60,7 @@ interface DashboardDataState extends CallbackData {
   setSliver: (s: SliverInfo) => void
   setMythic: (m: Partial<MythicInfo>) => void
   setHealth: (h: HealthInfo) => void
-  setAutomationActivity: (a: AutomationAudit) => void
+  setAutomationActivity: (a: AutomationAudit | 'unavailable') => void
 }
 
 const emptySliver: SliverInfo = {

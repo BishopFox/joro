@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react'
-import { api } from './api'
+import { api, ApiError } from './api'
 import { onMythicEvent } from './ws'
 import { buildFindingQuery } from './detectFilters'
 import type { DataNeed } from './dashboardWidgets'
@@ -88,9 +88,15 @@ export function useDashboardPolling(needs: ReadonlySet<DataNeed>, teamMode: bool
         : null,
       // Local calls, so not teamDown-gated.
       needs.has('health') ? api.healthCheck().catch(() => null) : null,
-      // 404s when automation is disabled, which the widget renders as a setup
-      // prompt rather than an error.
-      needs.has('automationActivity') ? api.listAutomationAudit({ limit: 20 }).catch(() => null) : null,
+      // A 404 here means automation is disabled for this run, which the widget
+      // renders as a setup prompt rather than an error. Only that status takes
+      // the branch: any other failure falls to the null sentinel above and keeps
+      // the last-known activity, so a blip does not read as "automation is off".
+      needs.has('automationActivity')
+        ? api
+            .listAutomationAudit({ limit: 20 })
+            .catch((e) => (e instanceof ApiError && e.status === 404 ? ('unavailable' as const) : null))
+        : null,
     ])
 
     if (modeRes) setMode(modeRes.mode)
