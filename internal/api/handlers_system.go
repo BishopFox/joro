@@ -8,6 +8,7 @@ import (
 
 	"github.com/BishopFox/joro/internal/browser"
 	"github.com/BishopFox/joro/internal/event"
+	"github.com/BishopFox/joro/internal/plugins"
 	"github.com/BishopFox/joro/internal/update"
 )
 
@@ -133,6 +134,14 @@ func (s *APIServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 				Data: map[string]string{"error": err.Error()},
 			}
 			return
+		}
+
+		// The new binary will not load plugins the old one built. Say so while the
+		// banner is still on screen; after the restart it is a row in Settings.
+		if s.pluginManager != nil {
+			if notice := plugins.RebuildNotice(s.pluginManager.PluginDir()); notice != "" {
+				progress(notice)
+			}
 		}
 
 		s.hub.Broadcast() <- event.WSEvent{

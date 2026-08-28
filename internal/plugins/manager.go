@@ -18,7 +18,7 @@ type PluginInfo struct {
 	Version  string         `json:"version"`
 	Desc     string         `json:"description"`
 	Type     sdk.PluginType `json:"type"`
-	Status   string         `json:"status"`             // "loaded", "error"
+	Status   string         `json:"status"`             // "loaded", "error", "removed", "disabled"
 	Error    string         `json:"error,omitempty"`
 	Hash     string         `json:"hash"`               // SHA-256 of .so file
 	Filename string         `json:"filename"`            // original .so/.dylib filename
@@ -188,6 +188,25 @@ func (m *Manager) Start(ctx context.Context) error {
 		log.Printf("[plugins] loaded %s v%s (%s) [%s]", manifest.Name, manifest.Version, manifest.Type, lp.hash[:12])
 	}
 
+	return nil
+}
+
+// StartDisabled is Start with the loading left out, for --no-plugins.
+//
+// It still lists what is installed, as rows no plugin code was run to produce.
+// Booting with plugins off is how an operator recovers from a plugin that
+// prevents booting at all, so the list is the point: an empty one would hide the
+// very file the flag exists to delete, and the delete endpoint works from a row.
+func (m *Manager) StartDisabled() error {
+	for _, name := range installedPlugins(m.pluginDir) {
+		m.allPlugins = append(m.allPlugins, PluginInfo{
+			Status:   "disabled",
+			Filename: name,
+		})
+	}
+	if len(m.allPlugins) > 0 {
+		log.Printf("[plugins] --no-plugins: %d installed plugin(s) not loaded", len(m.allPlugins))
+	}
 	return nil
 }
 

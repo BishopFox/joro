@@ -928,8 +928,9 @@ export interface PluginInfo {
   type: string // "exec_provider" | "tab" | "feature" | "proxy_hook" | "dashboard"
   // "removed" means the file is deleted but the code is still loaded, which lasts
   // until a restart. A row with status "error" and an empty name is a file that
-  // would not load at all, so it has only a filename and a reason.
-  status: string // "loaded" | "error" | "removed"
+  // would not load at all, so it has only a filename and a reason. "disabled" is
+  // the same shape, for a file --no-plugins listed without opening.
+  status: string // "loaded" | "error" | "removed" | "disabled"
   error?: string
   hash: string
   filename: string

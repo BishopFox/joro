@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import Toasts from './components/Toasts'
 import UpdateBanner from './components/UpdateBanner'
+import PluginBanner from './components/PluginBanner'
 import ErrorBoundary from './components/ErrorBoundary'
 import { Navigate, NavLink, Route, Routes } from 'react-router'
 import ContextMenu from './components/ContextMenu'
 import { getSelectionMenuItems } from './lib/selectionMenu'
-import { api } from './lib/api'
+import { api, type PluginInfo } from './lib/api'
 import { connectWS } from './lib/ws'
 import { Settings, isTeamMode, useSettingsStore } from './stores/settingsStore'
 import { useTeamConnectionStore, type RelayState } from './stores/teamConnectionStore'
@@ -67,6 +68,7 @@ export default function App() {
   const [needsAuth, setNeedsAuth] = useState(false)
   const [pluginTabs, setPluginTabs] = useState<Array<{ to: string; label: string }>>([])
   const [dashboardPlugin, setDashboardPlugin] = useState<string | null>(null)
+  const [failedPlugins, setFailedPlugins] = useState<PluginInfo[]>([])
   const hiddenTabs = useHiddenTabsStore((s) => s.hiddenTabs)
   const stagedCount = useDeadDropStore((s) => s.staged.length)
   const activeProject = useProjectStore((s) => s.active)
@@ -127,6 +129,9 @@ export default function App() {
       )
       const dash = plugs.find((e) => e.type === 'dashboard' && e.status === 'loaded')
       if (dash) setDashboardPlugin(dash.name)
+      // A plugin that would not load has no tab to show, so the banner is the
+      // only place an operator who never opens Settings would hear about it.
+      setFailedPlugins(plugs.filter((e) => e.status === 'error'))
     }).catch(() => {})
   }, [checkTeamMode])
 
@@ -209,6 +214,7 @@ export default function App() {
     <div className="flex flex-col h-screen">
       <Toasts />
       <UpdateBanner />
+      <PluginBanner failed={failedPlugins} />
       {/* Top nav */}
       <header className="flex items-center gap-0.5 px-2 lg:px-3 h-10 bg-surface-card border-b border-border shrink-0 overflow-x-auto">
         <span className="text-accent text-sm font-bold uppercase tracking-wider mr-3 lg:mr-6 shrink-0">Joro</span>

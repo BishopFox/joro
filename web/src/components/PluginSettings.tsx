@@ -225,6 +225,10 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
                       <Tooltip content="File deleted. The plugin keeps running until you restart.">
                         <span className="text-semantic-warning font-semibold">Removed</span>
                       </Tooltip>
+                    ) : p.status === 'disabled' ? (
+                      <Tooltip content="Joro was started with --no-plugins, so this file was listed but never loaded.">
+                        <span className="text-content-muted font-semibold">Disabled</span>
+                      </Tooltip>
                     ) : (
                       <Tooltip content={p.error || 'Error'}>
                         <span className="text-semantic-error font-semibold">

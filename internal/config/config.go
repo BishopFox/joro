@@ -64,6 +64,14 @@ type Config struct {
 	// engagement where nothing may leave the machine — a webhook is the one feature whose
 	// bytes go somewhere Joro's scope does not describe.
 	NoWebhooks bool
+	// NoPlugins skips loading plugins from ~/.joro/plugins/ — the files are still
+	// listed, so the UI can delete one, but no plugin code runs.
+	//
+	// This is a recovery switch, not only a posture one. A Go plugin is dlopen'd
+	// before the API server starts, and the runtime can throw on a file it will not
+	// accept, so a plugin the host cannot load is a binary that will not boot. Every
+	// other route out of that state needs a shell in ~/.joro/plugins/.
+	NoPlugins bool
 }
 
 // Default returns a Config populated with sensible defaults.
