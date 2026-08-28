@@ -65,9 +65,9 @@ import FlowNodeInspector, { describeFlowNode } from './FlowNodeInspector'
  * render and never held as separate state, positions included, so a drag writes straight
  * back to the graph and there is no synchronisation step that can be skipped.
  *
- * One case has no document to write to. A hand-written script and a command automation are
- * shown as a wiring diagram — what wakes it, the body, what it produces — derived from the
- * manifest rather than stored, because it holds nothing the manifest does not. Its boxes
+ * One case has no document to write to. A script whose body is hand-written is shown as a
+ * wiring diagram — what wakes it, the body, what it produces — derived from the manifest
+ * rather than stored, because it holds nothing the manifest does not. Its boxes
  * still drag: the positions live in this component and are forgotten on unmount, which is
  * the honest behaviour for a picture that is itself recomputed. Adding and removing a
  * trigger there is real, because that writes the manifest's trigger list.
@@ -108,7 +108,7 @@ export interface CanvasProps {
   onSelect: (id: string | null) => void
   /** Opens the trigger a trigger node stands for. */
   onEditTrigger?: (id: string) => void
-  /** Opens the body a code or command node stands for. */
+  /** Opens the body the code node stands for. */
   onOpenBody?: () => void
   /** Removing a trigger box is removing the automation's declaration of it, which lives on
    *  the manifest — the box is only a picture of it. */
@@ -341,7 +341,7 @@ export function FlowPalette({
    * canvas is where an automation is authored, so adding a box to it is not a mode the
    * operator has to opt into first — it is the thing they just did. What it costs is stated
    * where the cost lands, on a banner above the canvas that stays up until they save or
-   * detach. Absent for a command, which has no dataflow to author.
+   * detach.
    */
   onPromote?: (apply: (g: FlowGraph) => FlowGraph) => void
   wrapRef?: RefObject<HTMLDivElement | null>
@@ -831,12 +831,11 @@ function TriggerNode({ data, selected }: NodeProps<RFNode<NodeData>>) {
 }
 
 function BodyNode({ data, selected }: NodeProps<RFNode<NodeData>>) {
-  const command = data.node.data?.value === 'command'
   return (
     <div className={`${shell(!!selected, !!data.problem, 'border-border')} relative`} style={data.size}>
       <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-content-muted mb-0.5 px-3">
         <Terminal size={10} strokeWidth={2.4} aria-hidden="true" />
-        {command ? 'Command' : 'Code'}
+        Code
       </div>
       <div className="text-[10px] font-mono text-content-secondary leading-snug line-clamp-2 break-all px-3">
         {data.detail}

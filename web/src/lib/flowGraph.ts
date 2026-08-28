@@ -637,13 +637,13 @@ export function syncTriggerNodes(g: FlowGraph, refs: string[]): FlowGraph {
 }
 
 /**
- * The wiring of an automation the graph does not author — hand-written code, or a command.
+ * The wiring of a script the graph does not author — one whose body is hand-written.
  *
  * Derived from the manifest every render and never stored: it holds nothing the manifest
  * does not already say, so persisting it would be a second copy of the trigger list that
  * could disagree with the first.
  */
-export function wiringGraph(refs: string[], kind: string, lens?: { label: string }): FlowGraph {
+export function wiringGraph(refs: string[], lens?: { label: string }): FlowGraph {
   const nodes: FlowNode[] = refs.map((ref, i) => ({
     id: `trigger:${ref}`,
     type: 'trigger',
@@ -652,7 +652,7 @@ export function wiringGraph(refs: string[], kind: string, lens?: { label: string
     data: { ref },
   }))
   const mid = Math.max(0, ((refs.length - 1) * ROW) / 2)
-  nodes.push({ id: 'body', type: 'body', x: COL, y: mid, data: { value: kind } })
+  nodes.push({ id: 'body', type: 'body', x: COL, y: mid })
   nodes.push({ id: 'return', type: 'return', x: COL * 2, y: mid, data: { value: lens?.label } })
   const edges: FlowEdge[] = refs.map((ref) => ({ from: `trigger:${ref}`, to: 'body', toPort: 'in' }))
   edges.push({ from: 'body', to: 'return', toPort: 'in' })

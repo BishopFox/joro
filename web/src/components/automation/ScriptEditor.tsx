@@ -131,7 +131,41 @@ export default function ScriptEditor({
   const sdkMethods = useSdkStore((st) => st.methods)
   const refreshSdk = useSdkStore((st) => st.refresh)
 
-  const [manifest, setManifest] = useState<AutomationManifest>(draft?.manifest ?? blankManifest())
+  /**
+   * What the editor holds while an installed package is still in flight.
+   *
+   * A blank new automation is the wrong answer for one that already exists: it is a script
+   * with a starter canvas, so opening a command flashed the graph half, the palette and the
+   * kind select reading "Sandboxed script" over the form — and opening a hand-written script
+   * flashed a canvas and the banner warning that saving would replace its body. Both were
+   * then replaced by the real manifest, which is the flicker.
+   *
+   * So it opens on what the rail already knows — the summary the list was drawn from, which
+   * the server built from this same manifest. The kind is the load-bearing part, since it
+   * decides which half opens at all. What a summary does not carry is left absent rather
+   * than guessed: the command spec, because it names paths on the operator's machine, and
+   * the graph, because it is the document itself and a starter one seeded over a body that
+   * has none is what raised the banner.
+   */
+  const openingManifest = (): AutomationManifest => {
+    if (draft?.manifest) return draft.manifest
+    if (!id) return blankManifest()
+    // Nothing lists this id: fall back to a script, which the load corrects.
+    const known = scripts.find((s) => s.id === id)
+    if (!known) return { ...blankManifest(), id, graph: undefined }
+    return {
+      ...blankManifest(known.kind),
+      id,
+      name: known.name,
+      version: known.version,
+      description: known.description,
+      triggers: known.triggers,
+      lens: known.lens,
+      graph: undefined,
+    }
+  }
+
+  const [manifest, setManifest] = useState<AutomationManifest>(openingManifest)
   const [source, setSource] = useState(draft?.source ?? STARTER)
   // The operator's half of the budget, and what the two halves resolve to under the
   // global. Kept apart from the manifest because they are saved through a different
@@ -150,8 +184,9 @@ export default function ScriptEditor({
   const [lensOrder, setLensOrder] = useState('0')
   const [confirmDelete, setConfirmDelete] = useState(false)
   // Graph first: it is what the automation does, and the generated code is a view of it. A
-  // hand-written automation opens on the same tab, showing the wiring it does have.
-  const [view, setView] = useState<'graph' | 'code'>('graph')
+  // hand-written automation opens on the same tab, showing the wiring it does have. Read
+  // through `view` below, which is this except for a command.
+  const [scriptView, setScriptView] = useState<'graph' | 'code'>('graph')
   const [confirmDetach, setConfirmDetach] = useState(false)
   // Whether the package as stored has a canvas. Distinguishes the two ways the code and the
   // canvas can disagree, which read very differently: a stored canvas whose file has since
@@ -164,7 +199,9 @@ export default function ScriptEditor({
   const canvasWrap = useRef<HTMLDivElement>(null)
   // What the buffer looked like when it was last in step with the server. Compared rather
   // than tracked with a flag so that typing a change and undoing it leaves the editor clean.
-  const [pristine, setPristine] = useState(() => JSON.stringify([draft?.manifest ?? blankManifest(), draft?.source ?? STARTER]))
+  // Seeded from the same opening manifest, so an editor that has not finished loading is not
+  // already reporting itself dirty.
+  const [pristine, setPristine] = useState(() => JSON.stringify([openingManifest(), draft?.source ?? STARTER]))
   // Why the command line cannot currently be stored, when it cannot.
   //
   // This gate has to be here rather than left to the server, which is the asymmetry with a
@@ -179,6 +216,13 @@ export default function ScriptEditor({
   // thing, and the revision history would read as one artifact when it is two.
   const kind: AutomationKind = manifest.kind ?? 'js'
   const isCommand = kind === 'command'
+  /** Which half of the package is on screen.
+   *
+   *  Derived rather than held, because the kind can change under the editor while an
+   *  automation is unsaved and a stored view would then have to be corrected afterwards.
+   *  A command has no dataflow to author — its body is a program, not the shape of one —
+   *  so there is one view of it and the tab row offering a second is not rendered. */
+  const view: 'graph' | 'code' = isCommand ? 'code' : scriptView
   const spec = manifest.command ?? BLANK_SPEC
   const summary = id ? scripts.find((s) => s.id === id) : undefined
 
@@ -283,8 +327,8 @@ export default function ScriptEditor({
   // trigger list rather than holding a second one.
   const canvasGraph: FlowGraph = useMemo(() => {
     if (graph) return syncTriggerNodes(graph, manifest.triggers ?? [])
-    return wiringGraph(manifest.triggers ?? [], kind, manifest.lens)
-  }, [graph, manifest.triggers, manifest.lens, kind])
+    return wiringGraph(manifest.triggers ?? [], manifest.lens)
+  }, [graph, manifest.triggers, manifest.lens])
 
   const onGraphChange = (g: FlowGraph) => patch({ graph: g })
 
@@ -298,6 +342,9 @@ export default function ScriptEditor({
   const removeTrigger = (ref: string) => {
     patch({ triggers: (manifest.triggers ?? []).filter((t) => t !== ref) })
   }
+  /** The same edit from a list rather than from a box, for the views that have no boxes. */
+  const toggleTrigger = (ref: string) =>
+    (manifest.triggers ?? []).includes(ref) ? removeTrigger(ref) : addTrigger(ref)
 
   const patch = (p: Partial<AutomationManifest>) => setManifest((m) => ({ ...m, ...p }))
   const patchLimits = (p: Partial<AutomationLimits>) =>
@@ -463,7 +510,7 @@ export default function ScriptEditor({
           }
           onExport={onExport && id ? () => onExport(id) : undefined}
           view={view}
-          onView={setView}
+          onView={setScriptView}
           hasGraph={!!graph}
           graphStale={graphStale}
           // The messages, not a count: "1 problem" with no way to see what it is stops the
@@ -487,13 +534,7 @@ export default function ScriptEditor({
                 triggers={manifest.lens ? catalog.filter((t) => OPERATOR_STARTED.includes(t.id)) : catalog}
                 declared={manifest.triggers ?? []}
                 onAddTrigger={addTrigger}
-                // Only a script has a body a canvas can author. A command's is its program, so
-                // its diagram stays a diagram.
-                onPromote={
-                  isCommand
-                    ? undefined
-                    : (apply) => patch({ graph: apply(tidy(seedGraph(manifest.triggers ?? []), sdkMethods)) })
-                }
+                onPromote={(apply) => patch({ graph: apply(tidy(seedGraph(manifest.triggers ?? []), sdkMethods)) })}
                 wrapRef={canvasWrap}
               />
             ) : undefined
@@ -558,7 +599,7 @@ export default function ScriptEditor({
                   selected={selectedNode}
                   onSelect={setSelectedNode}
                   onEditTrigger={onEditTrigger}
-                  onOpenBody={() => setView('code')}
+                  onOpenBody={() => setScriptView('code')}
                   onRemoveTrigger={removeTrigger}
                   wrapRef={canvasWrap}
                 />
@@ -622,6 +663,12 @@ export default function ScriptEditor({
                 commandOr={commandOr}
                 input={input}
                 setInput={setInput}
+                // Only while the body is on screen. The canvas already has one box per
+                // trigger and a rail that adds and removes them, so the list would be a
+                // second control over the same list; the code and command halves have no
+                // boxes, so without it they could not be pointed at anything.
+                triggerCatalog={view === 'code' ? catalog : undefined}
+                onToggleTrigger={view === 'code' ? toggleTrigger : undefined}
               />
 
               <div className="border-t border-border pt-3">
@@ -636,7 +683,7 @@ export default function ScriptEditor({
                     derived={!graph}
                     onRemoveTrigger={removeTrigger}
                     onEditTrigger={onEditTrigger}
-                    onOpenBody={() => setView('code')}
+                    onOpenBody={() => setScriptView('code')}
                   />
                 ) : (
                   <div className="space-y-2">
@@ -707,7 +754,7 @@ export default function ScriptEditor({
               // on screen rather than reverting to whatever the file said before.
               if (compiled && !graphStale) setSource(compiled.source)
               patch({ graph: undefined })
-              setView('code')
+              setScriptView('code')
             }}
             onClose={() => setConfirmDetach(false)}
           />

@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Download, Play, Power, PowerOff, Save, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Bot, Download, Filter, Play, Power, PowerOff, Save, Trash2, X } from 'lucide-react'
 import {
   LENS_PARTS,
   type AutomationKind,
@@ -6,6 +6,7 @@ import {
   type AutomationManifest,
   type CommandMeta,
   type LensPart,
+  type Trigger,
 } from '../../lib/api'
 import TabButton from '../TabButton'
 
@@ -201,38 +202,42 @@ export default function AutomationHeader({
           buttons becomes two short ones and the header stays the same height whatever is
           in it.
 
-          Graph is first because it is what the automation does; the code half is what that
-          compiles to. A hand-written automation gets the same pair, where the graph shows
-          the wiring it does have — what wakes it and what it produces. */}
-      <div className="flex items-start gap-3 px-3 pb-2">
-        <div className="flex items-center gap-0.5 shrink-0">
-          <TabButton active={view === 'graph'} onClick={() => onView('graph')}>
-            Graph
-          </TabButton>
-          <TabButton active={view === 'code'} onClick={() => onView('code')}>
-            {isCommand ? 'Command' : 'Code'}
-          </TabButton>
-          {problems.length > 0 && (
-            <span className="ml-2 text-[10px] text-semantic-error cursor-help" title={problems.join('\n')}>
-              {problems.length} problem{problems.length === 1 ? '' : 's'}
-            </span>
-          )}
-          {hasGraph && problems.length === 0 && (
-            <span
-              className={`ml-2 text-[10px] ${graphStale ? 'text-semantic-warning' : 'text-content-muted'}`}
-              title={
-                graphStale
-                  ? 'The stored code was edited outside Joro and no longer matches this canvas.'
-                  : 'The code is generated from the canvas.'
-              }
-            >
-              {graphStale ? 'canvas out of step with the code' : 'code generated from the canvas'}
-            </span>
-          )}
-        </div>
+          A script only. Its body has both a shape and a text, and graph is first because
+          the shape is what the automation does while the code is what that compiles to; a
+          hand-written one gets the same pair, where the graph shows the wiring it does
+          have. A command's body is a program, so there is one view of it and nothing in
+          this row would have anything to say. */}
+      {!isCommand && (
+        <div className="flex items-start gap-3 px-3 pb-2">
+          <div className="flex items-center gap-0.5 shrink-0">
+            <TabButton active={view === 'graph'} onClick={() => onView('graph')}>
+              Graph
+            </TabButton>
+            <TabButton active={view === 'code'} onClick={() => onView('code')}>
+              Code
+            </TabButton>
+            {problems.length > 0 && (
+              <span className="ml-2 text-[10px] text-semantic-error cursor-help" title={problems.join('\n')}>
+                {problems.length} problem{problems.length === 1 ? '' : 's'}
+              </span>
+            )}
+            {hasGraph && problems.length === 0 && (
+              <span
+                className={`ml-2 text-[10px] ${graphStale ? 'text-semantic-warning' : 'text-content-muted'}`}
+                title={
+                  graphStale
+                    ? 'The stored code was edited outside Joro and no longer matches this canvas.'
+                    : 'The code is generated from the canvas.'
+                }
+              >
+                {graphStale ? 'canvas out of step with the code' : 'code generated from the canvas'}
+              </span>
+            )}
+          </div>
 
-        {toolbar && <div className="ml-auto flex flex-wrap justify-end gap-1">{toolbar}</div>}
-      </div>
+          {toolbar && <div className="ml-auto flex flex-wrap justify-end gap-1">{toolbar}</div>}
+        </div>
+      )}
     </div>
   )
 }
@@ -267,6 +272,8 @@ export function AutomationOptions({
   commandOr,
   input,
   setInput,
+  triggerCatalog,
+  onToggleTrigger,
 }: {
   id?: string
   manifest: AutomationManifest
@@ -289,8 +296,13 @@ export function AutomationOptions({
   commandOr: (k: 'timeoutMs') => number | undefined
   input: string
   setInput: (v: string) => void
+  /** Every trigger this automation could be pointed at, or undefined where the boxes on the
+   *  canvas are the control. Supplying it is what puts the list below in the rail. */
+  triggerCatalog?: Trigger[]
+  onToggleTrigger?: (id: string) => void
 }) {
   const hasTrigger = (t: string) => (manifest.triggers ?? []).includes(t)
+  const pickTriggers = triggerCatalog && onToggleTrigger
 
   return (
     <div className="space-y-3">
@@ -350,13 +362,67 @@ export function AutomationOptions({
         </Field>
       </div>
 
-      {/* Pacing, and what the declared triggers imply.
+      {/* What wakes this, how often, and what those choices imply.
 
-          There is no trigger list here. The graph shows one box per trigger and the canvas
-          rail adds and removes them, so a checkbox list beside it would be a second control
-          over one thing — and the one further from the boxes it governs. What survives is
-          what the boxes cannot say: the consequences of a choice already made. */}
+          The list is here only while the body is what is on screen. On the canvas the graph
+          shows one box per trigger and its rail adds and removes them, so a checkbox list
+          beside it would be a second control over one thing — and the one further from the
+          boxes it governs. Looking at code there are no boxes, so this is the only control,
+          and without it a hand-written automation could not be pointed at anything. What is
+          in both is what the boxes cannot say: the consequences of a choice already made. */}
       <div className="space-y-2 border-t border-border-subtle pt-3">
+        {pickTriggers && (
+          <Field label="Triggers">
+            {/* Both kinds in one list, because from here they are the same thing: something to
+                point this automation at. A built-in fires on every one of its events; a custom
+                one adds conditions, so it fires on some of them. */}
+            <div className="space-y-0.5">
+              {triggerCatalog.map((t) => {
+                // A lens is started by the viewer, so Normalize drops any dispatched trigger
+                // declared beside one. Offering those would mean ticking a box that clears
+                // itself on save.
+                const off = !!manifest.lens && !OPERATOR_STARTED.includes(t.id)
+                return (
+                  <label
+                    key={t.id}
+                    className={`flex items-center gap-1.5 text-[11px] text-content-secondary ${
+                      off ? 'opacity-40 cursor-not-allowed' : ''
+                    }`}
+                    title={t.description}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={hasTrigger(t.id)}
+                      disabled={off}
+                      onChange={() => onToggleTrigger(t.id)}
+                    />
+                    <code className="font-mono truncate">{t.builtin ? t.id : t.name}</code>
+                    {!t.builtin && (
+                      <span
+                        className="text-[10px] text-accent-tertiary shrink-0"
+                        title={`A custom trigger on ${t.on}`}
+                      >
+                        <Filter size={9} className="inline mb-px" aria-hidden="true" />
+                      </span>
+                    )}
+                    {/* A trigger that will not fire is worth saying where it gets armed, not
+                        only where it is built. */}
+                    {t.problem && (
+                      <span className="text-[10px] text-semantic-error shrink-0" title={t.problem}>
+                        broken
+                      </span>
+                    )}
+                  </label>
+                )
+              })}
+            </div>
+            <p className="text-[10px] text-content-muted mt-1 leading-snug">
+              Build one that fires on some events rather than all of them in Settings &rarr; Automation
+              &rarr; Triggers.
+            </p>
+          </Field>
+        )}
+
         <Field label="Minimum interval (ms)">
           {/* A LimitBox with no label of its own: same blank-means-inherit box, so it gets the
               same stepper behaviour rather than a second copy of it. */}

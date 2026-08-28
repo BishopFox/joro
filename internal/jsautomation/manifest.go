@@ -208,8 +208,8 @@ func (m *Manifest) Normalize() {
 		// after a hand edit — the same choice the lens/trigger drop below makes.
 		m.SDKVersion = ""
 		m.Entrypoint = ""
-		// A command has no source for a canvas to generate. Its wiring still draws — from
-		// the trigger list, on the fly — but there is nothing to persist.
+		// A command has no source for a canvas to generate, so it is never authored on
+		// one and there is nothing here to persist.
 		m.Graph = nil
 		if m.Command != nil {
 			m.Command.Normalize()

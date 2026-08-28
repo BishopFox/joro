@@ -342,7 +342,7 @@ export function describeFlowNode(
     case 'return':
       return 'the run’s value'
     case 'body':
-      return d.value === 'command' ? 'a local program' : 'hand-written JavaScript'
+      return 'hand-written JavaScript'
     default:
       return ''
   }
