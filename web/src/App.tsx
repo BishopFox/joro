@@ -320,7 +320,7 @@ export default function App() {
           <Route path="/deaddrop" element={<DeadDrop />} />
           <Route path="/generator" element={<Generator />} />
           <Route path="/executor" element={<Executor />} />
-          <Route path="/callbacks" element={<Callbacks teamMode={teamMode} />} />
+          <Route path="/callbacks" element={<Callbacks />} />
           <Route path="/notes" element={<Notes teamMode={teamMode} />} />
           <Route path="/transform" element={<Transform />} />
           {/* Plugin management lives in Settings → Plugins; there is no /plugins route. */}

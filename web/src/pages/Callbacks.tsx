@@ -24,11 +24,7 @@ type UnifiedEvent = {
   fire?: XSSFire
 }
 
-type CallbacksProps = {
-  teamMode?: boolean
-}
-
-export default function Callbacks({ teamMode = false }: CallbacksProps) {
+export default function Callbacks() {
   const redact = useRedact()
   // Callback store
   const {
@@ -58,10 +54,8 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
   const [pluginLoading, setPluginLoading] = useState<Record<string, boolean>>({})
   const [pluginError, setPluginError] = useState<Record<string, string>>({})
 
-  // Config state
-  const [listenerUrl, setListenerUrl] = useState('')
-  const [listenerSaved, setListenerSaved] = useState(false)
-  const [listenerError, setListenerError] = useState('')
+  // Callback domain, read-only here: it is set at listener startup via --domain.
+  // Retained because payloadUrl() builds SSRF payload hostnames from it.
   const [callbackDomain, setCallbackDomain] = useState('')
 
   // Token creation state
@@ -94,9 +88,7 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
   // Load initial data + poll tokens, probes, interactions, fires every 15s
   useEffect(() => {
     api.getSettings().then((s) => {
-      const st = s as Settings
-      setSettings(st)
-      setListenerUrl(st.listenerUrl || '')
+      setSettings(s as Settings)
     })
     api.listTokens().then(setTokens)
     api.listProbes().then(setProbes).catch(() => {})
@@ -270,18 +262,6 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
   function payloadUrl(tokenHex: string) {
     const host = domain ? `${tokenHex}.${domain}` : `${tokenHex}.<not configured>`
     return `http://${host}`
-  }
-
-  async function handleSaveConfig() {
-    setListenerError('')
-    try {
-      const updated = await api.updateSettings({ listenerUrl })
-      setSettings(updated as Settings)
-      setListenerSaved(true)
-      window.setTimeout(() => setListenerSaved((s) => s ? false : s), 3000)
-    } catch (e) {
-      setListenerError(e instanceof Error ? e.message : String(e))
-    }
   }
 
   async function handleCreateToken() {
@@ -613,39 +593,8 @@ export default function Callbacks({ teamMode = false }: CallbacksProps) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Top: Config + Creation Bar (single row) */}
+      {/* Top: Creation Bar (single row) */}
       <div className="flex flex-wrap items-center gap-2 lg:gap-3 px-3 py-2 border-b border-border bg-surface-card shrink-0">
-        {/* Listener config group */}
-        <div className="flex items-center gap-2">
-          <input
-            className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-40 lg:w-52 joro-redact-field"
-            placeholder="Listener URL"
-            value={listenerUrl}
-            onChange={(e) => setListenerUrl(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSaveConfig()}
-          />
-          <input
-            className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-36 lg:w-44 disabled:opacity-50 disabled:cursor-not-allowed joro-redact-field"
-            placeholder="Callback domain"
-            value={callbackDomain}
-            onChange={(e) => setCallbackDomain(e.target.value)}
-            disabled={teamMode}
-            title={teamMode
-              ? 'Callback domain is configured on the team server at startup (--domain) and is read-only here.'
-              : undefined}
-          />
-          <button
-            onClick={handleSaveConfig}
-            className="px-3 py-1.5 rounded-sm bg-accent-secondary hover:bg-accent-secondary-hover text-black text-xs font-semibold shrink-0"
-          >
-            Save
-          </button>
-          {listenerSaved && <span className="text-xs text-semantic-success shrink-0">Saved!</span>}
-          {listenerError && <span className="text-xs text-semantic-error shrink-0">{listenerError}</span>}
-        </div>
-
-        <div className="w-px h-6 bg-border shrink-0 hidden lg:block" />
-
         {/* SSRF token group */}
         <div className="flex items-center gap-2">
           <input

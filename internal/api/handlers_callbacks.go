@@ -24,7 +24,7 @@ func (s *APIServer) proxyToListener(w http.ResponseWriter, r *http.Request) bool
 	s.mu.RUnlock()
 
 	if listenerURL == "" {
-		writeError(w, http.StatusServiceUnavailable, "Listener URL not configured - set it in the Interact tab")
+		writeError(w, http.StatusServiceUnavailable, "Listener URL not configured - set it in Settings > Project > Team Server")
 		return true
 	}
 
@@ -168,22 +168,6 @@ func (s *APIServer) handleGetCallbackConfig(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, cfg)
 }
 
-func (s *APIServer) handleUpdateCallbackConfig(w http.ResponseWriter, r *http.Request) {
-	if !s.listenerMode {
-		s.proxyToListener(w, r)
-		return
-	}
-	var cfg callback.CallbackConfig
-	if err := decodeJSON(r, &cfg); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-	if err := s.cbStore.SetConfig(&cfg); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, cfg)
-}
 func (s *APIServer) handleGetMode(w http.ResponseWriter, r *http.Request) {
 	mode := "proxy"
 	if s.teamServerMode {

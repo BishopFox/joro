@@ -74,7 +74,7 @@ func (s *APIServer) handleGetPayloads(w http.ResponseWriter, r *http.Request) {
 	cfg, _ := s.cbStore.GetConfig()
 	domain := cfg.Domain
 	if domain == "" {
-		writeError(w, http.StatusBadRequest, "callback domain not configured - set it in the Interact tab")
+		writeError(w, http.StatusBadRequest, "callback domain not configured - start the listener with --domain")
 		return
 	}
 
@@ -239,6 +239,12 @@ func (s *APIServer) handleGetCollectedPage(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, page)
 }
 
+// The xss_collect_pages / xss_chainload_uri keys are a global default beneath the per-probe
+// collect pages and chainload URI, applied by the probe handler when a probe sets neither.
+// These two endpoints are the only way to read or change that tier — the UI configures
+// probes individually and offers no control for it — so removing them would leave a value
+// already in callbacks.db applying to every such probe with no way to inspect or clear it.
+// A PUT with an empty collectPages is the clear operation.
 func (s *APIServer) handleGetXSSConfig(w http.ResponseWriter, r *http.Request) {
 	if !s.listenerMode {
 		s.proxyToListener(w, r)

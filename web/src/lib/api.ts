@@ -1305,8 +1305,6 @@ export const api = {
   clearInteractions: (tokenId?: string) =>
     req<unknown>('DELETE', `/callbacks/interactions${tokenId ? `?token_id=${tokenId}` : ''}`),
   getCallbackConfig: () => req<{ domain: string; responseIp: string }>('GET', '/callbacks/config'),
-  updateCallbackConfig: (cfg: { domain: string; responseIp: string }) =>
-    req<{ domain: string; responseIp: string }>('PUT', '/callbacks/config', cfg),
 
   // XSS Hunter
   listProbes: () => req<XSSProbe[]>('GET', '/xss/probes', undefined, TEAM_POLL_TIMEOUT),
@@ -1333,6 +1331,8 @@ export const api = {
     req<CollectedPageSummary[]>('GET', `/xss/fires/${fireId}/pages`),
   getCollectedPage: (id: string) =>
     req<CollectedPage>('GET', `/xss/pages/${id}`),
+  // The global collect-pages / chainload tier beneath per-probe config. No UI calls these;
+  // they are how that tier is read and cleared. See handlers_xsshunter.go.
   getXSSConfig: () => req<XSSConfig>('GET', '/xss/config'),
   updateXSSConfig: (cfg: XSSConfig) => req<XSSConfig>('PUT', '/xss/config', cfg),
 

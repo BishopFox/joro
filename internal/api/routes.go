@@ -26,7 +26,6 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/callbacks/interactions", s.handleListInteractions)
 	mux.HandleFunc("DELETE /api/v1/callbacks/interactions", s.handleClearInteractions)
 	mux.HandleFunc("GET /api/v1/callbacks/config", s.handleGetCallbackConfig)
-	mux.HandleFunc("PUT /api/v1/callbacks/config", s.handleUpdateCallbackConfig)
 
 	// XSS Hunter routes (both modes - handler logic differs per mode)
 	mux.HandleFunc("GET /api/v1/xss/probes", s.handleListProbes)
