@@ -4,6 +4,7 @@ import { onSliverEvent, onMythicEvent, onPluginEvent } from '../lib/ws'
 import DynamicConfigForm from '../components/DynamicConfigForm'
 import { useExecutorStore, type OutputLine } from '../stores/executorStore'
 import { redactNow } from '../stores/streamerStore'
+import { Redacted } from '../components/Redacted'
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
@@ -565,7 +566,7 @@ export default function Executor() {
                       onChange={(e) => setConfigText(e.target.value)}
                       placeholder='Paste operator config JSON or use file upload...'
                       rows={4}
-                      className="flex-1 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border font-mono resize-none"
+                      className="flex-1 bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border font-mono resize-none joro-redact-field"
                     />
                     <div className="flex flex-col gap-2">
                       <label className="px-3 py-1.5 rounded-sm bg-surface-input border border-border text-xs text-content-secondary hover:bg-surface-hover cursor-pointer text-center">
@@ -588,7 +589,7 @@ export default function Executor() {
                 <span className="text-xs text-semantic-success font-semibold">Connected</span>
                 {activeSessionName && (
                   <span className="text-xs text-content-secondary">
-                    Session: <span className="text-accent-secondary font-semibold">{activeSessionName}</span>
+                    Session: <span className="text-accent-secondary font-semibold"><Redacted value={activeSessionName} kind="host" /></span>
                   </span>
                 )}
                 <div className="flex-1" />
@@ -662,7 +663,7 @@ export default function Executor() {
                 <span className="text-xs text-semantic-success font-semibold">Connected</span>
                 {activeCallbackName && (
                   <span className="text-xs text-content-secondary">
-                    Callback: <span className="text-accent-secondary font-semibold">{activeCallbackName}</span>
+                    Callback: <span className="text-accent-secondary font-semibold"><Redacted value={activeCallbackName} kind="host" /></span>
                   </span>
                 )}
                 <div className="flex-1" />

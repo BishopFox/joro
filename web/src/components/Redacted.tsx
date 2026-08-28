@@ -4,7 +4,12 @@ import { useStreamerStore } from '../stores/streamerStore'
 interface RedactedProps {
   value: string | number | null | undefined
   kind?: Sensitivity
-  /** Extra classes, applied whether or not the mode is on, so layout is stable. */
+  /**
+   * Extra classes for the bar itself, applied only while the mode is on. To
+   * style the value in both states, wrap the component — .joro-redacted is
+   * declared after Tailwind's utilities at equal specificity, so it takes a
+   * color class passed here and leaves a layout one to vanish with the bar.
+   */
   className?: string
 }
 
