@@ -402,7 +402,7 @@ export default function ManipulateHTTP() {
         </div>
 
         {/* Horizontal drag handle */}
-        <div className="drag-handle-h" onMouseDown={hSplit.onMouseDown} />
+        <div className="drag-handle-h" {...hSplit.handleProps} />
 
         <div className="flex flex-col overflow-hidden min-h-0" style={{ flex: 1 - hSplit.fraction }}>
           <div className="flex items-center gap-1 px-2 py-1 bg-surface-card border-b border-border shrink-0">

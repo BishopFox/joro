@@ -76,7 +76,7 @@ export default function ActiveUsersWidget() {
           </div>
           {!announcing && (
             <p className="text-[10px] text-content-muted leading-snug">
-              Hidden from teammates — add the Team Chat widget to your dashboard to appear online.
+              Hidden from teammates - add the Team Chat widget to your dashboard to appear online.
             </p>
           )}
           <label className="flex items-center gap-1.5 text-xs text-content-terminal cursor-pointer">

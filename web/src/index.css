@@ -67,22 +67,40 @@ div:has(> .cm-editor) {
   background-color: var(--color-selection) !important;
 }
 
-/* Drag handles for resizable panels */
+/* Drag handles for resizable panels.
+ *
+ * The divider stays 4px wide; ::after widens the grab area to 10px, because a
+ * 4px target is a fussy thing to hit. z-index is required rather than cosmetic:
+ * the pane after the handle in DOM order would otherwise paint over that
+ * overhang, and at several sites it holds an `absolute inset-0` iframe.
+ * position: relative is the containing block for the ::after, nothing more.
+ *
+ * The overhang grows away from the scrollbar, not symmetrically: a scrolling
+ * pane's 6px scrollbar sits flush against the near side of its divider, and a
+ * grab zone reaching back over it would take half the thumb with it. */
 .drag-handle-h {
+  position: relative;
+  z-index: 1;
   width: 4px;
   cursor: col-resize;
   background: var(--color-border);
   flex-shrink: 0;
+  touch-action: none;
   transition: background-color 150ms ease;
 }
+.drag-handle-h::after { content: ''; position: absolute; inset: 0 -6px 0 0; }
 .drag-handle-h:hover { background: var(--color-accent-secondary); }
 .drag-handle-v {
+  position: relative;
+  z-index: 1;
   height: 4px;
   cursor: row-resize;
   background: var(--color-border);
   flex-shrink: 0;
+  touch-action: none;
   transition: background-color 150ms ease;
 }
+.drag-handle-v::after { content: ''; position: absolute; inset: 0 0 -6px 0; }
 .drag-handle-v:hover { background: var(--color-accent-secondary); }
 
 /* Scrollbar styling */
@@ -268,6 +286,10 @@ div:has(> .cm-editor) {
   color: var(--color-content-muted);
   font-size: 9px;
 }
+
+/* Chain map arcs: the binding gutter. Stroke and opacity both change on hover,
+   so the transition is declared once here rather than per path. */
+.joro-chain-arc { transition: stroke 120ms ease, opacity 120ms ease; }
 
 /* The delete control on a trigger connection.
  *

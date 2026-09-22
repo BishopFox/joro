@@ -98,7 +98,14 @@ func (s *APIServer) handleGetRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":           item.ID,
+		"id": item.ID,
+		// Seq is the handle every server-side feature addresses a capture by, and
+		// the client's RequestDetail has always been typed as carrying it — it
+		// extends RequestSummary, which the list endpoint does fill in. Omitting
+		// it here made that type a lie no compiler could catch: a caller reading
+		// detail.seq got undefined, which JSON-encodes to null and decodes in Go
+		// as 0, and the request was reported as evicted from the capture buffer.
+		"seq":          item.Seq,
 		"timestamp":    item.Timestamp.Format("2006-01-02T15:04:05.000Z"),
 		"method":       item.Method,
 		"url":          item.URL,

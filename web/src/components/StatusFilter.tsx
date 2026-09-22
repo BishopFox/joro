@@ -60,7 +60,7 @@ export default function StatusFilter({ classes, codes, onChange, label = 'Status
           </Tooltip>
         ))}
       </div>
-      <Tooltip content="Exact codes and inclusive ranges, comma-separated — OR'd with the class chips">
+      <Tooltip content="Exact codes and inclusive ranges, comma-separated - OR'd with the class chips">
         <input
           className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-28"
           placeholder="403,500-599"

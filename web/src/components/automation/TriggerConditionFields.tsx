@@ -199,7 +199,7 @@ export default function TriggerConditionFields({
               {/* A stored value the set does not carry is offered anyway, so opening an
                   older trigger does not silently rewrite it to the first option. */}
               {!spec!.values!.includes(node.value ?? '') && (
-                <option value={node.value ?? ''}>{node.value || '—'}</option>
+                <option value={node.value ?? ''}>{node.value || '-'}</option>
               )}
               {spec!.values!.map((v) => (
                 <option key={v} value={v}>

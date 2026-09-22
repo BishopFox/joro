@@ -283,12 +283,12 @@ export default function BudgetPanel({
             knowable: a script that loops forever, allocates without end, or calls the SDK ten
             thousand times stops at a number you chose, and a runaway costs a worker process
             rather than the proxy holding your captured traffic. It is also the leash on an agent
-            — without it, one <code className="font-mono">script_run</code> call could turn into an
+            - without it, one <code className="font-mono">script_run</code> call could turn into an
             open-ended sweep of a client&rsquo;s systems.
           </p>
           <p className="text-[11px] text-content-muted leading-relaxed">
-            Raise these when the defaults are too small for the work — a wider sweep, a longer
-            comparison — and lower them when an agent should be kept on a shorter leash than you
+            Raise these when the defaults are too small for the work - a wider sweep, a longer
+            comparison - and lower them when an agent should be kept on a shorter leash than you
             are.
           </p>
         </div>
@@ -323,7 +323,7 @@ export default function BudgetPanel({
         (sp) => maxPlaceholder(budget, sp),
         <>
           The <strong>default</strong> is what a run that asks for nothing gets. The{' '}
-          <strong>max</strong> is the most a run may ask for — an agent calling{' '}
+          <strong>max</strong> is the most a run may ask for - an agent calling{' '}
           <code className="font-mono">script_run</code> names its own figure, and anything above
           yours is trimmed to yours rather than refused. A blank box takes the greyed number
           beside it, which is Joro&rsquo;s own; type over it and your number stands, however much
@@ -344,7 +344,7 @@ export default function BudgetPanel({
         <>
           These belong to this Joro rather than to one run, so there is nothing for an automation
           or an agent to ask for: your number is the limit. The two agent figures are the
-          exception — they share {Math.round(budget.agentOutputCap / 1024)} KB of tool result
+          exception - they share {Math.round(budget.agentOutputCap / 1024)} KB of tool result
           between them, so their sum is checked as well as each one.
         </>
       )}
@@ -361,15 +361,15 @@ export default function BudgetPanel({
         setCmdMaxima,
         (sp) => cmdMaxPlaceholder(budget, sp),
         <>
-          What a local command automation is held to. A command is not sandboxed — it is a program
-          on this machine with your filesystem and your network — so these are the bounds that do
+          What a local command automation is held to. A command is not sandboxed - it is a program
+          on this machine with your filesystem and your network - so these are the bounds that do
           apply: how long it may run, and how much of what it produced Joro keeps. There is no
           memory figure, and that is not an omission: a command is its own process, so an
           allocation without bound costs the command rather than Joro.
         </>,
         !budget.command.enabled ? (
           <span className="text-[10px] text-semantic-warning normal-case">
-            not enabled — start Joro with{' '}
+            not enabled - start Joro with{' '}
             <code className="font-mono">--automation-commands</code>
           </span>
         ) : undefined

@@ -310,7 +310,7 @@ func FingerprintSeqs(store *proxy.Store, args FingerprintArgs) (string, error) {
 			fps = append(fps, Fingerprint{Seq: seq, Err: "no response was captured"})
 			continue
 		}
-		fps = append(fps, fingerprintResponse(seq, item.RespRaw, item.Duration.Milliseconds(), wantFull))
+		fps = append(fps, FingerprintResponse(seq, item.RespRaw, item.Duration.Milliseconds(), wantFull))
 	}
 	return renderFingerprints(fps, wantFull), nil
 }

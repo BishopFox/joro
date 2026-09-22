@@ -725,7 +725,7 @@ export default function Fuzz() {
           </span>
           {canStart && (
             <span className="text-[10px] text-content-secondary">
-              — Est. {formatNumber(estimatedTotal)} requests
+              - Est. {formatNumber(estimatedTotal)} requests
             </span>
           )}
         </div>
@@ -793,7 +793,7 @@ export default function Fuzz() {
             </div>
 
             {/* Horizontal drag handle */}
-            <div className="drag-handle-h" onMouseDown={hSplit.onMouseDown} />
+            <div className="drag-handle-h" {...hSplit.handleProps} />
 
             {/* Wordlist panel */}
             <div className="flex flex-col overflow-hidden min-h-0" style={{ flex: 1 - hSplit.fraction }}>
@@ -919,7 +919,7 @@ export default function Fuzz() {
         </div>
 
         {/* Vertical drag handle */}
-        <div className="drag-handle-v" onMouseDown={vSplit.onMouseDown} />
+        <div className="drag-handle-v" {...vSplit.handleProps} />
 
         {/* Bottom half: progress + config + results + detail */}
         <div className="flex flex-col overflow-hidden min-h-0" style={{ flex: 1 - vSplit.fraction }}>
@@ -940,7 +940,7 @@ export default function Fuzz() {
                 <span className="text-[10px] text-content-muted shrink-0">
                   {formatNumber(tab.completedPayloads)} / {formatNumber(tab.totalPayloads)}
                   {' '}({pct.toFixed(1)}%)
-                  {speed > 0 && isRunning && ` — ~${formatNumber(speed)} req/s`}
+                  {speed > 0 && isRunning && ` - ~${formatNumber(speed)} req/s`}
                 </span>
                 <span className={`text-[10px] font-semibold ${
                   tab.status === 'completed' ? 'text-semantic-success' :
@@ -1057,7 +1057,7 @@ export default function Fuzz() {
             {/* Detail panel (right side, shown when a result is selected) */}
             {hasDetail && (
               <>
-                <div className="drag-handle-h" onMouseDown={detailSplit.onMouseDown} />
+                <div className="drag-handle-h" {...detailSplit.handleProps} />
                 <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: 1 - detailSplit.fraction }}>
                   {tab.selectedDetailLoading ? (
                     <div className="flex-1 flex items-center justify-center text-content-muted text-xs">
@@ -1089,7 +1089,7 @@ export default function Fuzz() {
                           </div>
                         </div>
 
-                        <div className="drag-handle-h" onMouseDown={detailHSplit.onMouseDown} />
+                        <div className="drag-handle-h" {...detailHSplit.handleProps} />
 
                         {/* Response panel */}
                         <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: 1 - detailHSplit.fraction }}>

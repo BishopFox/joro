@@ -47,7 +47,7 @@ export default function FlowNodeInspector({
       return (
         <div className="space-y-1.5">
           <p className="text-[10px] text-content-muted leading-snug">
-            Wired anywhere, this reads <code className="font-mono">ctx.trigger</code> — what woke the
+            Wired anywhere, this reads <code className="font-mono">ctx.trigger</code> - what woke the
             run. Which triggers this automation declares is set in the options above.
           </p>
           {d.ref && onEditTrigger && (
@@ -95,9 +95,9 @@ export default function FlowNodeInspector({
       return (
         <div className="space-y-1.5">
           <select className={inputCls} value={d.path ?? 'input'} disabled={readOnly} onChange={(e) => set({ path: e.target.value as 'input' })}>
-            <option value="input">ctx.input — what was passed in</option>
-            <option value="trigger">ctx.trigger — why this ran</option>
-            <option value="run">ctx.run — this run&rsquo;s id and start</option>
+            <option value="input">ctx.input - what was passed in</option>
+            <option value="trigger">ctx.trigger - why this ran</option>
+            <option value="run">ctx.run - this run&rsquo;s id and start</option>
           </select>
           {hint}
         </div>
@@ -184,7 +184,7 @@ export default function FlowNodeInspector({
               className={`${inputCls} font-mono`}
               value={d.key ?? ''}
               disabled={readOnly}
-              placeholder="key — or wire one in"
+              placeholder="key - or wire one in"
               onChange={(e) => set({ key: e.target.value })}
             />
           )}
@@ -212,7 +212,7 @@ export default function FlowNodeInspector({
             {methods.map((m) => (
               <option key={m.js} value={m.js}>
                 {m.js}
-                {m.sendsTraffic ? ' — sends' : ''}
+                {m.sendsTraffic ? ' - sends' : ''}
               </option>
             ))}
           </select>

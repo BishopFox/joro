@@ -15,10 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BishopFox/joro/internal/apiscan"
 	"github.com/BishopFox/joro/internal/automation"
 	"github.com/BishopFox/joro/internal/callback"
 	"github.com/BishopFox/joro/internal/capability"
 	"github.com/BishopFox/joro/internal/cert"
+	"github.com/BishopFox/joro/internal/chain"
+	"github.com/BishopFox/joro/internal/chainrun"
 	"github.com/BishopFox/joro/internal/config"
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/detect"
@@ -98,6 +101,22 @@ type APIServer struct {
 
 	fuzzerStore   *fuzzer.Store
 	pluginManager *plugins.Manager
+
+	// SJ: parsed API description documents and the runs driven from them. Both
+	// are session state and neither reaches the project file — a document is
+	// re-fetchable from History because the fetch went through the proxy, and an
+	// auth profile holds a credential, which is why webhooks.json's secrets are
+	// kept out of a project file too. See handlers_spec.go.
+	specStore *apiscan.SpecStore
+	specRuns  *apiscan.Store
+
+	// Workflow chains and their sweeps. Unlike the two above, chains ARE project
+	// data: a chain describes one application's checkout and is useful to a
+	// teammate who opens the same project, and nothing installed references one,
+	// so trigger/store.go's machine-global rule does not apply. Runs are session
+	// state and are cleared on a project switch.
+	chainStore *chain.Store
+	chainRuns  *chainrun.Store
 
 	// Passive detection. All three are nil in listener and team-server mode; the
 	// detect routes are gated on proxy mode in registerRoutes, so only the shared
@@ -246,6 +265,10 @@ func New(
 		sliverClient:  sc,
 		mythicClient:  mc,
 		fuzzerStore:   fuzzer.NewStore(),
+		specStore:     apiscan.NewSpecStore(),
+		specRuns:      apiscan.NewStore(),
+		chainStore:    chain.NewStore(),
+		chainRuns:     chainrun.NewStore(),
 		pluginManager: pluginManager,
 
 		detectEngine:   detectEngine,

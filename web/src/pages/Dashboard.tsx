@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
+import { beginPointerDrag } from '../lib/pointerDrag'
 import {
   SlotChromeProvider,
   ROW_CHROME,
@@ -75,31 +76,28 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
 
   useDashboardPolling(needs, teamMode)
 
+  // A captured pointer drag, not mouse events on document: the bar is dragged
+  // upward across the main area, which may hold a dashboard plugin iframe, and
+  // an iframe swallows the events of the document it sits in. See pointerDrag.ts.
   const handleDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
+    (e: React.PointerEvent) => {
+      if (e.button !== 0 || !e.isPrimary) return
       const startY = e.clientY
       const startHeight = barHeight
       let latest = startHeight
 
-      const onMouseMove = (ev: MouseEvent) => {
-        latest = Math.min(MAX_BAR_HEIGHT, Math.max(MIN_BAR_HEIGHT, startHeight + (startY - ev.clientY)))
-        setDragHeight(latest)
-      }
-
-      const onMouseUp = () => {
-        document.removeEventListener('mousemove', onMouseMove)
-        document.removeEventListener('mouseup', onMouseUp)
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-        setDragHeight(null)
-        setBarHeight(latest)
-      }
-
-      document.body.style.cursor = 'row-resize'
-      document.body.style.userSelect = 'none'
-      document.addEventListener('mousemove', onMouseMove)
-      document.addEventListener('mouseup', onMouseUp)
+      beginPointerDrag(
+        e,
+        'row-resize',
+        (ev) => {
+          latest = Math.min(MAX_BAR_HEIGHT, Math.max(MIN_BAR_HEIGHT, startHeight + (startY - ev.clientY)))
+          setDragHeight(latest)
+        },
+        () => {
+          setDragHeight(null)
+          setBarHeight(latest)
+        }
+      )
     },
     [barHeight, setBarHeight]
   )
@@ -130,7 +128,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
       ) : (
         <div className="flex-1 min-h-0 flex items-center justify-center">
           <span className="text-content-muted text-xs">
-            No widgets in this layout —{' '}
+            No widgets in this layout -{' '}
             <Link
               to="/settings"
               state={{ category: 'appearance' }}
@@ -145,8 +143,8 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
       {showBar && (
         <>
           <div
-            onMouseDown={handleDragStart}
-            className="shrink-0 h-1.5 cursor-row-resize rounded-full bg-border hover:bg-accent-secondary transition-colors"
+            onPointerDown={handleDragStart}
+            className="shrink-0 h-1.5 touch-none cursor-row-resize rounded-full bg-border hover:bg-accent-secondary transition-colors"
           />
           <div
             className="shrink-0 flex bg-surface-terminal border border-border rounded"

@@ -207,7 +207,7 @@ export default function ProjectSettings() {
       {unknownPluginStatesNotice.length > 0 && (
         <div className="bg-surface-card rounded border border-border p-3 text-xs text-content-secondary">
           State preserved for: <span className="text-semantic-warning font-semibold">{unknownPluginStatesNotice.join(', ')}</span>
-          {' '}&mdash; these plugins aren't installed on this system. The blobs round-trip on re-save.
+          {' '}- these plugins aren't installed on this system. The blobs round-trip on re-save.
         </div>
       )}
 
@@ -223,7 +223,7 @@ export default function ProjectSettings() {
             <span className="text-content-secondary">{teamStatus(teamConn).label}</span>
             {teamConn === 'disconnected' && teamConnError && (
               <span className="text-content-muted truncate">
-                — <Redacted value={teamConnError} kind="url" />
+                - <Redacted value={teamConnError} kind="url" />
                 {teamConnHTTP ? ` (HTTP ${teamConnHTTP})` : ''}
               </span>
             )}

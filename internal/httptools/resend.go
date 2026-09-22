@@ -130,7 +130,7 @@ func Resend(ctx context.Context, d ResendDeps, args ResendArgs) (string, error) 
 		d.Contexts.Capture(d.TokenID, u, res.RespRaw)
 	}
 
-	fp := fingerprintResponse(res.Seq, res.RespRaw, res.Duration.Milliseconds(), false)
+	fp := FingerprintResponse(res.Seq, res.RespRaw, res.Duration.Milliseconds(), false)
 	return renderResend(args, res, fp, supplied), nil
 }
 

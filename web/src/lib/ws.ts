@@ -1,6 +1,10 @@
 import { useAutomationStore } from '../stores/automationStore'
 import { useCallbackStore, type CallbackInteraction } from '../stores/callbackStore'
 import { useDetectStore, type Finding, type DetectSummary } from '../stores/detectStore'
+import { useSJStore } from '../stores/sjStore'
+import type { SJResult, SJFoundSpec } from './sjTypes'
+import { useChainStore } from '../stores/chainStore'
+import type { ChainResult, ChainVerdict } from './chainTypes'
 import { useFuzzStore, type FuzzResult } from '../stores/fuzzStore'
 import { useToastStore } from '../stores/toastStore'
 import { useInterceptStore, type InterceptKind, type PendingItem } from '../stores/interceptStore'
@@ -55,6 +59,52 @@ function flushFuzzResultBuffer() {
   const store = useFuzzStore.getState()
   for (const [campaignId, results] of byCampaign) {
     store.addResultsToCampaign(campaignId, results)
+  }
+}
+
+// SJ run results share one buffer across scan, matrix and discovery: all three
+// arrive in bursts at the worker pool's rate, and each store write rebuilds a
+// result list, which is the same cost profile fuzzer.result has.
+let sjResultBuffer: { runId: string; result: SJResult }[] = []
+let sjRafScheduled = false
+
+function flushSJResultBuffer() {
+  sjRafScheduled = false
+  if (sjResultBuffer.length === 0) return
+  const batch = sjResultBuffer
+  sjResultBuffer = []
+  const byRun = new Map<string, SJResult[]>()
+  for (const item of batch) {
+    let arr = byRun.get(item.runId)
+    if (!arr) { arr = []; byRun.set(item.runId, arr) }
+    arr.push(item.result)
+  }
+  const store = useSJStore.getState()
+  for (const [runId, results] of byRun) {
+    store.addRunResults(runId, results)
+  }
+}
+
+// Chain sweep results are RAF-batched for the same reason SJ's are: each store
+// write rebuilds a result array and derives every counter from it, and a sweep
+// emits one per step across every variant.
+let chainResultBuffer: { runId: string; result: ChainResult }[] = []
+let chainRafScheduled = false
+
+function flushChainResultBuffer() {
+  chainRafScheduled = false
+  if (chainResultBuffer.length === 0) return
+  const batch = chainResultBuffer
+  chainResultBuffer = []
+  const byRun = new Map<string, ChainResult[]>()
+  for (const item of batch) {
+    let arr = byRun.get(item.runId)
+    if (!arr) { arr = []; byRun.set(item.runId, arr) }
+    arr.push(item.result)
+  }
+  const store = useChainStore.getState()
+  for (const [runId, results] of byRun) {
+    store.addRunResults(runId, results)
   }
 }
 
@@ -285,6 +335,67 @@ function handleMessage(msg: WSMessage) {
       useFuzzStore.getState().setCampaignStarted(d.campaignId, d.total)
       break
     }
+    case 'spec.run.result': {
+      const d = msg.data as { runId: string; result: SJResult }
+      sjResultBuffer.push({ runId: d.runId, result: d.result })
+      if (!sjRafScheduled) {
+        sjRafScheduled = true
+        requestAnimationFrame(flushSJResultBuffer)
+      }
+      break
+    }
+    case 'spec.run.started': {
+      const d = msg.data as { runId: string; total: number }
+      useSJStore.getState().setRunStarted(d.runId, d.total)
+      break
+    }
+    case 'spec.run.complete': {
+      const d = msg.data as { runId: string; status: string }
+      useSJStore.getState().setRunStatus(d.runId, d.status === 'stopped' ? 'stopped' : 'complete')
+      break
+    }
+    case 'spec.run.found': {
+      const d = msg.data as { runId: string } & SJFoundSpec
+      useSJStore.getState().addRunFound(d.runId, {
+        specId: d.specId, title: d.title, format: d.format,
+        operations: d.operations, sourceUrl: d.sourceUrl,
+      })
+      break
+    }
+    case 'spec.run.warning': {
+      const d = msg.data as { runId: string; detail: string }
+      useSJStore.getState().addRunWarning(d.runId, d.detail)
+      break
+    }
+    case 'chain.run.result': {
+      const d = msg.data as { runId: string; result: ChainResult }
+      chainResultBuffer.push({ runId: d.runId, result: d.result })
+      if (!chainRafScheduled) {
+        chainRafScheduled = true
+        requestAnimationFrame(flushChainResultBuffer)
+      }
+      break
+    }
+    case 'chain.run.started': {
+      const d = msg.data as { runId: string; total: number }
+      useChainStore.getState().updateRun(d.runId, { total: d.total, status: 'running' })
+      break
+    }
+    case 'chain.run.variant': {
+      const d = msg.data as { runId: string; verdict: ChainVerdict }
+      // Flush first: a verdict is computed from cells the server has already
+      // sent, so applying it before its own row lands would render a verdict
+      // beside empty cells.
+      flushChainResultBuffer()
+      useChainStore.getState().setRunVerdict(d.runId, d.verdict)
+      break
+    }
+    case 'chain.run.complete': {
+      const d = msg.data as { runId: string; status: string }
+      flushChainResultBuffer()
+      useChainStore.getState().setRunStatus(d.runId, d.status === 'stopped' ? 'stopped' : 'complete')
+      break
+    }
     case 'fuzzer.complete': {
       const d = msg.data as { campaignId: string; status: string }
       useFuzzStore.getState().setCampaignStatus(d.campaignId, d.status === 'stopped' ? 'stopped' : 'completed')
@@ -341,7 +452,7 @@ function handleMessage(msg: WSMessage) {
       useToastStore
         .getState()
         .addToast(
-          `Detection scan ${d.status} — ${d.findingsNew} new finding${d.findingsNew === 1 ? '' : 's'}`,
+          `Detection scan ${d.status} - ${d.findingsNew} new finding${d.findingsNew === 1 ? '' : 's'}`,
           'info'
         )
       // Per-finding events are suppressed during a rescan, so reload the table.
@@ -399,7 +510,7 @@ function handleMessage(msg: WSMessage) {
         useToastStore
           .getState()
           .addToast(
-            `${d.author ?? 'An automation token'} stored automation ${d.id ?? ''} — review it in Settings → Automation`,
+            `${d.author ?? 'An automation token'} stored automation ${d.id ?? ''} - review it in Settings → Automation`,
             'info'
           )
       }

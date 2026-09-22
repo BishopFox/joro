@@ -109,6 +109,64 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/fuzzer/campaigns/{id}", s.handleFuzzerDeleteCampaign)
 	mux.HandleFunc("POST /api/v1/fuzzer/wordlist", s.handleFuzzerUploadWordlist)
 
+	// API description documents (the SJ tab). Loads a Swagger/OpenAPI document,
+	// renders each operation to raw bytes, and drives scans, auth-profile
+	// matrices and document discovery — all through Joro's own proxy, so every
+	// request lands in History, Detect and the site map.
+	//
+	// UI-only, like the fuzzer: none of these are capabilities and none need an
+	// automation flag. "Send every operation in this document" is a large, loud
+	// send primitive, and capreg.Deps gaining a field is documented as the change
+	// that breaks the automation trust boundary.
+	mux.HandleFunc("POST /api/v1/spec/load", s.handleSpecLoad)
+	mux.HandleFunc("GET /api/v1/spec/specs", s.handleSpecList)
+	mux.HandleFunc("GET /api/v1/spec/specs/{id}", s.handleSpecGet)
+	mux.HandleFunc("GET /api/v1/spec/specs/{id}/source", s.handleSpecGetSource)
+	mux.HandleFunc("PUT /api/v1/spec/specs/{id}/placeholders", s.handleSpecSetPlaceholders)
+	mux.HandleFunc("DELETE /api/v1/spec/specs/{id}", s.handleSpecDelete)
+	mux.HandleFunc("POST /api/v1/spec/render", s.handleSpecRender)
+	mux.HandleFunc("POST /api/v1/spec/send", s.handleSpecSend)
+	mux.HandleFunc("GET /api/v1/spec/profiles", s.handleSpecListProfiles)
+	mux.HandleFunc("PUT /api/v1/spec/profiles", s.handleSpecSetProfiles)
+	mux.HandleFunc("POST /api/v1/spec/scan", s.handleSpecScanStart)
+	mux.HandleFunc("POST /api/v1/spec/discover", s.handleSpecDiscoverStart)
+	mux.HandleFunc("GET /api/v1/spec/runs", s.handleSpecListRuns)
+	mux.HandleFunc("GET /api/v1/spec/runs/{id}", s.handleSpecGetRun)
+	mux.HandleFunc("GET /api/v1/spec/runs/{id}/matrix", s.handleSpecGetMatrix)
+	mux.HandleFunc("GET /api/v1/spec/runs/{id}/results/{index}", s.handleSpecGetResult)
+	mux.HandleFunc("POST /api/v1/spec/runs/{id}/stop", s.handleSpecStopRun)
+	mux.HandleFunc("DELETE /api/v1/spec/runs/{id}", s.handleSpecDeleteRun)
+
+	// Multi-step workflows (the Chain tab). Records an ordered chain of captured
+	// requests plus the data dependencies between them, then replays it with a
+	// step omitted, repeated or moved to test whether the application enforces
+	// its own sequence.
+	//
+	// UI-only, for the reason the SJ block above gives, and more so: a sweep is
+	// every variant times every step of real, state-changing traffic — orders
+	// placed, mail sent — which is the loudest send primitive in the product and
+	// the last thing that should be reachable from a token.
+	mux.HandleFunc("GET /api/v1/chain/chains", s.handleChainListChains)
+	mux.HandleFunc("POST /api/v1/chain/chains", s.handleChainCreateChain)
+	mux.HandleFunc("GET /api/v1/chain/chains/{id}", s.handleChainGetChain)
+	mux.HandleFunc("PUT /api/v1/chain/chains/{id}", s.handleChainUpdateChain)
+	mux.HandleFunc("DELETE /api/v1/chain/chains/{id}", s.handleChainDeleteChain)
+	mux.HandleFunc("POST /api/v1/chain/chains/from-history", s.handleChainFromHistory)
+	mux.HandleFunc("POST /api/v1/chain/chains/{id}/correlate", s.handleChainCorrelate)
+	mux.HandleFunc("POST /api/v1/chain/chains/{id}/bind-preview", s.handleChainBindPreview)
+	mux.HandleFunc("GET /api/v1/chain/chains/{id}/steps/{stepId}/response", s.handleChainStepResponse)
+	mux.HandleFunc("POST /api/v1/chain/chains/{id}/preview", s.handleChainPreview)
+	mux.HandleFunc("GET /api/v1/chain/chains/{id}/plan", s.handleChainPlan)
+	mux.HandleFunc("POST /api/v1/chain/record/start", s.handleChainRecordStart)
+	mux.HandleFunc("POST /api/v1/chain/record/stop", s.handleChainRecordStop)
+	mux.HandleFunc("POST /api/v1/chain/runs", s.handleChainRunStart)
+	mux.HandleFunc("GET /api/v1/chain/runs", s.handleChainListRuns)
+	mux.HandleFunc("GET /api/v1/chain/runs/{id}", s.handleChainGetRun)
+	mux.HandleFunc("GET /api/v1/chain/runs/{id}/grid", s.handleChainGetGrid)
+	mux.HandleFunc("GET /api/v1/chain/runs/{id}/results/{index}", s.handleChainGetResult)
+	mux.HandleFunc("POST /api/v1/chain/runs/{id}/stop", s.handleChainStopRun)
+	mux.HandleFunc("DELETE /api/v1/chain/runs/{id}", s.handleChainDeleteRun)
+
 	// Passive detection. Unlike the other rule collections below, detect rules
 	// have a PUT (a rule's ID is referenced by every finding it produced) and a
 	// test endpoint.

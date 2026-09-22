@@ -12,6 +12,8 @@ export const NAV: NavEntry[] = [
   { to: '/intercept',  label: 'Intercept',  proxyOnly: true },
   { to: '/manipulate', label: 'Manipulate', proxyOnly: true },
   { to: '/fuzz',       label: 'Fuzz',       proxyOnly: true },
+  { to: '/sj',         label: 'SJ',         proxyOnly: true },
+  { to: '/chain',      label: 'Chain',      proxyOnly: true },
   { to: '/generator',  label: 'Generate',   proxyOnly: true },
   { to: '/executor',   label: 'Execute',    proxyOnly: true },
   { to: '/callbacks',  label: 'Interact' },

@@ -554,7 +554,7 @@ export default function ScriptEditor({
                 <>
                   The stored code is not what this canvas produces, so{' '}
                   <code className="font-mono">{manifest.entrypoint ?? 'index.js'}</code> was edited
-                  outside Joro. The file is what runs — the canvas is only showing something else.
+                  outside Joro. The file is what runs - the canvas is only showing something else.
                   Saving replaces the file with what the canvas produces; Detach, in the rail, keeps
                   the file and drops the canvas.
                 </>
@@ -736,7 +736,7 @@ export default function ScriptEditor({
             <p className="text-[10px] text-semantic-error leading-snug">
               This failed in the <strong>{NODE_SPECS[failedNode.type].label}</strong> box{' '}
               <code className="font-mono">{failedNode.id}</code>
-              {view === 'code' ? '.' : ' — it is marked on the canvas.'}
+              {view === 'code' ? '.' : ' - it is marked on the canvas.'}
             </p>
           </div>
         )}

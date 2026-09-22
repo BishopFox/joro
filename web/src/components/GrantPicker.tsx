@@ -333,7 +333,7 @@ function PrivilegedWarning({ caps }: { caps: Capability[] }) {
 
       <p>
         The token’s secret is a bearer credential: anything holding it can invoke this. Joro’s tokens scope and
-        record what an agent does — they are not a sandbox on the machine.
+        record what an agent does - they are not a sandbox on the machine.
       </p>
 
       {hasExec && (
@@ -344,17 +344,17 @@ function PrivilegedWarning({ caps }: { caps: Capability[] }) {
       )}
       {hasC2 && (
         <p className="text-semantic-warning">
-          Scope and the host whitelist do <strong>not</strong> bound the C2 capabilities — they describe web
+          Scope and the host whitelist do <strong>not</strong> bound the C2 capabilities - they describe web
           targets, not a C2 server. This grant is the only limit on what they reach.
         </p>
       )}
       {hasScript && (
         <p className="text-semantic-warning">
           <code className="font-mono">script_run</code> authorizes the <strong>whole standard automation SDK</strong>{' '}
-          for the code it runs, not just the capabilities ticked here — reading captured traffic, resending and
+          for the code it runs, not just the capabilities ticked here - reading captured traffic, resending and
           fuzzing, and writing findings and notes. That is what the grant means, not a loophole in it. This token’s
           own scope requirement, host whitelist and credential setting still apply to every request the code makes
-          — a script inherits this token’s reach, it does not widen it.
+          - a script inherits this token’s reach, it does not widen it.
         </p>
       )}
 

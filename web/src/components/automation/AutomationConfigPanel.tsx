@@ -145,7 +145,7 @@ export default function AutomationConfigPanel({
           )}
         </div>
         <p className="text-[10px] text-content-muted">
-          A grant change does not push to a connected client — this transport initiates no messages. The
+          A grant change does not push to a connected client - this transport initiates no messages. The
           client picks it up on its next tool listing, or on reconnect.
         </p>
       </div>
@@ -156,7 +156,7 @@ export default function AutomationConfigPanel({
           <ShieldAlert size={15} strokeWidth={2} className="text-semantic-warning shrink-0 mt-0.5" aria-hidden="true" />
           <p className="text-[11px] leading-snug">
             A token that can send traffic is active, but scope is off or has no rules. Those sends are being{' '}
-            <strong>refused</strong>, by design — set an include rule in Settings &rarr; Project &rarr; Filtering, or
+            <strong>refused</strong>, by design - set an include rule in Settings &rarr; Project &rarr; Filtering, or
             reissue the token with the scope requirement turned off.
           </p>
         </div>
@@ -306,7 +306,7 @@ export default function AutomationConfigPanel({
 
       <p className="text-[10px] text-content-muted leading-snug">
         Tokens limit what an automation client can do. They do not restrict other programs on this machine
-        — Joro&rsquo;s local API is open to local processes by design. Requests sent by automation go
+        - Joro&rsquo;s local API is open to local processes by design. Requests sent by automation go
         through Joro&rsquo;s proxy and appear in History, where Match &amp; Replace and Custom Data rules
         apply to them like any other request.
       </p>

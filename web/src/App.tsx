@@ -22,6 +22,8 @@ import Detect from './pages/Detect'
 import Intercept from './pages/Intercept'
 import Manipulate from './pages/Manipulate'
 import Fuzz from './pages/Fuzz'
+import SJ from './pages/SJ'
+import Chain from './pages/Chain'
 import DeadDrop from './pages/DeadDrop'
 import Generator from './pages/Generator'
 import Executor from './pages/Executor'
@@ -295,7 +297,7 @@ export default function App() {
             onClick={() => useStreamerStore.getState().toggle()}
             title={
               streamerOn
-                ? 'Streamer mode on — infrastructure and chrome are hidden. Captured traffic is not. (Ctrl/Cmd+Shift+.)'
+                ? 'Streamer mode on - infrastructure and chrome are hidden. Captured traffic is not. (Ctrl/Cmd+Shift+.)'
                 : 'Streamer mode off (Ctrl/Cmd+Shift+.)'
             }
             className={`w-6 h-6 flex items-center justify-center rounded-sm hover:bg-surface-hover ${
@@ -323,6 +325,8 @@ export default function App() {
           <Route path="/intercept" element={<Intercept />} />
           <Route path="/manipulate" element={<Manipulate />} />
           <Route path="/fuzz" element={<Fuzz />} />
+          <Route path="/sj" element={<SJ />} />
+          <Route path="/chain" element={<Chain />} />
           <Route path="/deaddrop" element={<DeadDrop />} />
           <Route path="/generator" element={<Generator />} />
           <Route path="/executor" element={<Executor />} />

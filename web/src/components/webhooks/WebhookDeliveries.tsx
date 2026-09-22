@@ -69,7 +69,7 @@ export default function WebhookDeliveries({ id }: { id: string }) {
                     d.error ? 'text-semantic-error' : 'text-semantic-success'
                   }`}
                 >
-                  {d.status || '—'}
+                  {d.status || '-'}
                 </td>
                 <td className="py-0.5 pr-2 text-content-muted whitespace-nowrap">{d.durationMs}ms</td>
                 <td className="py-0.5 pr-2 text-content-muted whitespace-nowrap">

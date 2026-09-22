@@ -271,7 +271,7 @@ export default function ScriptingPanel() {
                 ? 'Disable'
                 : s.paused
                   ? 'Enable (clears the pause)'
-                  : `Enable${declaredEvents(s.triggers).length ? ` — arms ${declaredEvents(s.triggers).join(', ')}` : ''}`
+                  : `Enable${declaredEvents(s.triggers).length ? ` - arms ${declaredEvents(s.triggers).join(', ')}` : ''}`
           }
         >
           {lens ? (
@@ -455,14 +455,14 @@ export default function ScriptingPanel() {
             <h3 className="text-sm font-semibold text-content-primary mb-2">Scripting</h3>
             <p className="text-[11px] text-content-muted leading-relaxed max-w-xl">
               Pick something from the rail, or start a new one. An automation is code Joro runs on your
-              behalf — by hand, on a trigger, or when an agent asks for it by id. A lens is an automation
+              behalf - by hand, on a trigger, or when an agent asks for it by id. A lens is an automation
               that renders a tab in the request viewer instead. A trigger is what wakes one: Joro&rsquo;s
               own events fire every time they happen, and a custom trigger adds conditions so it fires on
               some of them.
             </p>
             <p className="text-[10px] text-content-muted leading-relaxed max-w-xl mt-2">
               Code lives in <code className="font-mono">~/.joro/automations/</code> and never travels
-              inside a project config — what an automation stores with{' '}
+              inside a project config - what an automation stores with{' '}
               <code className="font-mono">joro.storage</code> does, because that describes one engagement.
               An automation is always installed disabled; enabling it is what arms its triggers.
             </p>

@@ -294,7 +294,7 @@ export default function Intercept() {
       </div>
 
       {/* Horizontal drag handle */}
-      <div className="drag-handle-h" onMouseDown={hSplit.onMouseDown} />
+      <div className="drag-handle-h" {...hSplit.handleProps} />
 
       {/* Right: editor + actions */}
       <div className="flex flex-col overflow-hidden" style={{ flex: 1 - hSplit.fraction }}>
@@ -312,7 +312,7 @@ export default function Intercept() {
                 onClick={drop}
                 disabled={!canResolve}
                 title={isResponse
-                  ? 'Discard this response — the request was already sent upstream'
+                  ? 'Discard this response - the request was already sent upstream'
                   : 'Discard this request without sending it'}
                 className="text-xs px-3 py-1 rounded-sm bg-semantic-error-bg hover:bg-semantic-error-hover text-content-primary font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >

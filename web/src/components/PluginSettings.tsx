@@ -201,7 +201,7 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
             <tbody>
               {plugins.map((p) => (
                 <tr key={p.filename} className="border-t border-border-subtle hover:bg-surface-hover">
-                  <td className="px-3 py-2 text-content-primary font-medium">{p.name || '—'}</td>
+                  <td className="px-3 py-2 text-content-primary font-medium">{p.name || '-'}</td>
                   <td className="px-3 py-2 text-content-secondary">{p.version}</td>
                   <td className="px-3 py-2">
                     {/* No `/20` opacity here: Tailwind can't apply an opacity
@@ -270,7 +270,7 @@ function ManagePanel({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh:
           message={
             confirmDelete.status === 'error'
               ? `Delete ${confirmDelete.filename}? This file never loaded, so nothing is running and no restart is needed. This cannot be undone.`
-              : `Delete ${confirmDelete.filename}? ${confirmDelete.name} keeps running until you restart Joro — its code, routes and hooks stay live. This cannot be undone.`
+              : `Delete ${confirmDelete.filename}? ${confirmDelete.name} keeps running until you restart Joro - its code, routes and hooks stay live. This cannot be undone.`
           }
           body={
             confirmDelete.name ? (

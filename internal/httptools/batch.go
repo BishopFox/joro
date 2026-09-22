@@ -111,7 +111,7 @@ func Batch(ctx context.Context, d ResendDeps, args BatchArgs) (string, error) {
 	// One claim set per batch, so two workers finishing at once cannot correlate
 	// their sends to the same history row.
 	sendDeps := d.Send
-	sendDeps.Claims = newClaimSet()
+	sendDeps.Claims = NewClaimSet()
 
 	// Results land in a pre-sized slice indexed by variant, not appended. Order
 	// matters more here than in the fuzzer, because the client correlates rows
@@ -173,7 +173,7 @@ func Batch(ctx context.Context, d ResendDeps, args BatchArgs) (string, error) {
 					continue
 				}
 				rows[idx].seq = res.Seq
-				rows[idx].fp = fingerprintResponse(res.Seq, res.RespRaw, res.Duration.Milliseconds(), false)
+				rows[idx].fp = FingerprintResponse(res.Seq, res.RespRaw, res.Duration.Milliseconds(), false)
 			}
 		}()
 	}

@@ -122,7 +122,7 @@ export default function SettingsPage() {
     setClearingCookies(true)
     try {
       await api.clearBrowserCookies()
-      addToast('Cleared testing browser cookies — relaunch it if open', 'info')
+      addToast('Cleared testing browser cookies - relaunch it if open', 'info')
     } catch (e) {
       addToast(`Clear cookies failed: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
@@ -428,7 +428,7 @@ export default function SettingsPage() {
                   }} />
                   {unknownPluginStatesNotice.length > 0 && (
                     <div className="mt-2 border-l-2 border-semantic-warning pl-2.5 py-1 text-[10px] text-content-secondary leading-relaxed">
-                      State preserved for <span className="text-semantic-warning font-semibold">{unknownPluginStatesNotice.join(', ')}</span> — not installed here; blobs round-trip on re-save.
+                      State preserved for <span className="text-semantic-warning font-semibold">{unknownPluginStatesNotice.join(', ')}</span> - not installed here; blobs round-trip on re-save.
                     </div>
                   )}
                 </Group>
@@ -474,7 +474,7 @@ export default function SettingsPage() {
                 <p className="text-[11px] text-semantic-warning mt-1.5">
                   Captured traffic is not covered: History, Site Map, Detect, the raw request and
                   response viewers, rendered responses, and plugin tabs keep real values. Guards
-                  against screen capture, not storage — exports and project files are unchanged.
+                  against screen capture, not storage - exports and project files are unchanged.
                 </p>
               </Group>
 

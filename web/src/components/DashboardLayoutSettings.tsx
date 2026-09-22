@@ -60,7 +60,7 @@ export default function DashboardLayoutSettings({
       {hiddenFromTeam && (
         <div className="border-l-2 border-semantic-warning pl-2.5 py-1 text-[10px] text-content-secondary leading-relaxed">
           Without the <span className="text-semantic-warning font-semibold">Team Chat</span> widget
-          you are hidden from the team roster — presence is only announced while chat is on your
+          you are hidden from the team roster - presence is only announced while chat is on your
           dashboard.
         </div>
       )}
@@ -68,7 +68,7 @@ export default function DashboardLayoutSettings({
       {dashboardPlugin && (
         <div className="border-l-2 border-semantic-warning pl-2.5 py-1 text-[10px] text-content-secondary leading-relaxed">
           The <span className="text-semantic-warning font-semibold">{dashboardPlugin}</span> plugin
-          replaces the built-in dashboard — these settings won't be visible until it's removed.
+          replaces the built-in dashboard - these settings won't be visible until it's removed.
         </div>
       )}
 
@@ -128,7 +128,7 @@ export default function DashboardLayoutSettings({
                 const reason = isAvailable(w, ctx) ? '' : unavailableReason(w, ctx)
                 return (
                   <option key={w.id} value={w.id} title={w.description}>
-                    {w.label}{reason ? ` — ${reason}` : ''}
+                    {w.label}{reason ? ` - ${reason}` : ''}
                   </option>
                 )
               })}

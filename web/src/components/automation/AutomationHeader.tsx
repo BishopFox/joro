@@ -163,7 +163,7 @@ export default function AutomationHeader({
                     ? 'Disable'
                     : paused
                       ? 'Enable (clears the pause)'
-                      : 'Enable — arms every trigger below'
+                      : 'Enable - arms every trigger below'
               }
             >
               {enabled ? <Power size={11} strokeWidth={2.2} /> : <PowerOff size={11} strokeWidth={2.2} />}
@@ -443,13 +443,13 @@ export function AutomationOptions({
                be examined would otherwise read an empty result as nothing having been found. */
             <p className="text-[10px] text-semantic-warning leading-snug">
               A command sees the most recent request, at most once per interval, and skips whatever
-              arrived in between — it samples traffic rather than examining all of it. Joro cannot tell
+              arrived in between - it samples traffic rather than examining all of it. Joro cannot tell
               whether a program sent anything, so it always assumes it did and moves past its own window.
             </p>
           ) : (
             <p className="text-[10px] text-semantic-warning leading-snug">
               A traffic-triggered automation that sends requests skips the traffic its own run produced,
-              so it cannot trigger itself — but it will also miss whatever else was captured during that
+              so it cannot trigger itself - but it will also miss whatever else was captured during that
               run.
             </p>
           ))}
@@ -501,7 +501,7 @@ export function AutomationOptions({
               {id && (
                 <label className="block">
                   <span className="block text-[10px] text-content-muted">
-                    Order in the strip — lower sits left
+                    Order in the strip - lower sits left
                   </span>
                   {/* An operator preference, not the author's: written to the sidecar through
                       the prefs endpoint, so updating the code cannot revert it. Hence the
@@ -521,8 +521,8 @@ export function AutomationOptions({
                    does not exist here. */
                 <p className="text-[10px] text-semantic-warning leading-snug">
                   Receives the bytes on screen on its standard input and its output becomes the tab. Unlike
-                  a script lens, this is not prevented from reaching the network — there are no
-                  capabilities to withhold from a program — so it runs every time you open a matching
+                  a script lens, this is not prevented from reaching the network - there are no
+                  capabilities to withhold from a program - so it runs every time you open a matching
                   request.
                 </p>
               ) : (

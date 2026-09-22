@@ -497,6 +497,18 @@ function FindingsView() {
         onClick: () => void withRaw(f, (d) => navigate('/fuzz', { state: { rawReq: d.reqRaw } })),
       },
       {
+        // The swagger-openapi-exposed rule fires on a captured document, whose
+        // response body is the document itself. No withRaw here: SJ takes the
+        // request id and fetches the bytes, rather than carrying megabytes
+        // through navigation state.
+        label: 'Send to SJ',
+        disabled: !f.requestId,
+        onClick: () =>
+          navigate('/sj', {
+            state: { source: 'detect', requestId: f.requestId, url: f.url, name: f.ruleName },
+          }),
+      },
+      {
         label: 'Copy as curl',
         disabled: !f.requestId,
         onClick: () =>
@@ -525,7 +537,7 @@ function FindingsView() {
         label: `Disable rule "${f.ruleName}"`,
         onClick: () => {
           useDetectStore.getState().setRuleEnabled(f.ruleId, false)
-          addToast(`Rule disabled — existing findings are kept`, 'info')
+          addToast(`Rule disabled - existing findings are kept`, 'info')
         },
       },
     ]
@@ -610,7 +622,7 @@ function FindingsView() {
               options={SEVERITY_OPTIONS}
               selected={filter.severities}
               onChange={(v) => setFilter({ severities: canonicalSeverities(v as Severity[]) })}
-              tooltip="Filter by severity — unchecked bands are hidden from the table"
+              tooltip="Filter by severity - unchecked bands are hidden from the table"
             />
             <MultiSelectDropdown
               label="Category"
@@ -755,7 +767,7 @@ function FindingsView() {
               content={
                 visible
                   ? `Hide ${sev} findings`
-                  : `${count} ${sev} finding${count === 1 ? '' : 's'} hidden — click to show`
+                  : `${count} ${sev} finding${count === 1 ? '' : 's'} hidden - click to show`
               }
             >
               <button
@@ -771,12 +783,12 @@ function FindingsView() {
           ))}
           {summary.falsePositives > 0 && <span>{summary.falsePositives} FP</span>}
           {summary.hiddenByDisabledRule > 0 && (
-            <Tooltip content="Findings whose rule is currently switched off. They are kept, not deleted — tick 'From disabled rules' to show them.">
+            <Tooltip content="Findings whose rule is currently switched off. They are kept, not deleted - tick 'From disabled rules' to show them.">
               <span>{summary.hiddenByDisabledRule} from disabled rules</span>
             </Tooltip>
           )}
           {(summary.skippedEncoded > 0 || summary.skippedBinary > 0) && (
-            <Tooltip content="Bodies that could not be read: compressed with an unsupported codec, or binary. Not a clean result — a blind spot.">
+            <Tooltip content="Bodies that could not be read: compressed with an unsupported codec, or binary. Not a clean result - a blind spot.">
               <span className="text-semantic-warning">
                 {summary.skippedEncoded + summary.skippedBinary} unreadable
               </span>
@@ -787,11 +799,11 @@ function FindingsView() {
               onClick={flushPending}
               className="text-[10px] text-accent-secondary hover:underline"
             >
-              {pending.length} new — load
+              {pending.length} new - load
             </button>
           )}
           {truncated && (
-            <span className="text-semantic-warning">display capped — narrow the filters</span>
+            <span className="text-semantic-warning">display capped - narrow the filters</span>
           )}
           <label className="flex items-center gap-1.5 ml-auto">
             <span className="text-content-muted">Limit</span>
@@ -831,7 +843,7 @@ function FindingsView() {
                 <tr>
                   <td colSpan={9} className="px-2 py-8 text-center text-content-muted text-xs">
                     {total === 0 && summary.total === 0
-                      ? 'No findings yet — browse through the proxy, or run a rescan over captured history.'
+                      ? 'No findings yet - browse through the proxy, or run a rescan over captured history.'
                       : 'No findings match the current filters.'}
                   </td>
                 </tr>
@@ -880,7 +892,7 @@ function FindingsView() {
         </div>
       </div>
 
-      <div className="drag-handle-v" onMouseDown={vSplit.onMouseDown} />
+      <div className="drag-handle-v" {...vSplit.handleProps} />
 
       {/* Bottom pane: detail + evidence in context */}
       <div
@@ -1030,7 +1042,7 @@ function FindingsView() {
               </div>
             </div>
 
-            <div className="drag-handle-h" onMouseDown={hSplit.onMouseDown} />
+            <div className="drag-handle-h" {...hSplit.handleProps} />
 
             {/* Evidence in context */}
             <div
@@ -1074,7 +1086,7 @@ function FindingsView() {
                 <div className="flex-1 flex items-center justify-center text-content-muted text-sm px-4 text-center">
                   <span className="flex items-center gap-2">
                     <ShieldAlert size={14} className={severityTextClass(selected.severity)} />
-                    Request no longer in history — the finding and its evidence are kept.
+                    Request no longer in history - the finding and its evidence are kept.
                   </span>
                 </div>
               ) : activeDetailTab === 'rendered' ? (

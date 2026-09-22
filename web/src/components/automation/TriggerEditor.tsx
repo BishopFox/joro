@@ -263,7 +263,7 @@ export default function TriggerEditor({
 
       {t.usedBy.length > 0 && (
         <p className="text-[10px] text-semantic-warning">
-          Used by {t.usedBy.join(', ')} &mdash; a change here changes all of them.
+          Used by {t.usedBy.join(', ')} - a change here changes all of them.
         </p>
       )}
       {t.problem && <p className="text-[10px] text-semantic-error">{t.problem}</p>}
@@ -358,7 +358,7 @@ function TestResult({ test }: { test: TriggerTest }) {
             {test.count === 0 && test.scanned > 0 && (
               <span className="text-semantic-warning">
                 {' '}
-                Nothing matched &mdash; note that a body condition never matches a binary or
+                Nothing matched - note that a body condition never matches a binary or
                 brotli-encoded response.
               </span>
             )}

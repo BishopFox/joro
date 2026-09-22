@@ -35,6 +35,38 @@ export interface ProjectMeta {
   active: boolean
 }
 import type { XSSProbe, XSSFire, PayloadVariant, CollectedPage, CollectedPageSummary, XSSConfig } from '../stores/xssHunterStore'
+import type {
+  SJSpec, SJSpecSummary, SJRenderBody, SJSendResult, SJProfileSummary, SJProfileInput,
+  SJScanBody, SJDiscoverBody, SJRunKind, SJRunSummary, SJRunDetail, SJMatrixView, SJResult,
+  SJPlaceholders,
+} from './sjTypes'
+import type {
+  Chain, ChainSummary, ChainProposal, ChainVariant, ChainPreviewStep, ChainPlan,
+  ChainRecordCandidate, ChainRunSummary, ChainRunDetail, ChainGridView, ChainResult,
+  ChainBinding, ChainEdit,
+  ChainBindPreviewInput,
+  ChainBindProposal,
+  ChainStepResponse,
+} from './chainTypes'
+
+// ChainInput is the write shape: raws travel base64 both ways, and a step's
+// id is assigned server-side on create.
+export interface ChainInput {
+  name: string
+  goalStepId?: string
+  steps: {
+    id?: string
+    label?: string
+    scheme: string
+    host: string
+    reqRaw: string
+    respRaw?: string
+    originSeq?: number
+    setup?: boolean
+    edits?: ChainEdit[]
+  }[]
+  bindings: ChainBinding[]
+}
 
 export interface VersionInfo {
   version: string
@@ -1006,7 +1038,12 @@ const UI_ORIGIN_HEADER = { 'X-Joro-Origin': '1' } as const
 export class ApiError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    /** The decoded error body, when there was one. Most callers want only the
+     *  message; an endpoint that answers a refusal with structured advice — the
+     *  paths to try after a URL turned out to serve a UI page rather than a
+     *  document, say — needs the rest of it. */
+    readonly body?: unknown
   ) {
     super(message)
     this.name = 'ApiError'
@@ -1027,7 +1064,7 @@ async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: 
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new ApiError((err as { error: string }).error || res.statusText, res.status)
+      throw new ApiError((err as { error: string }).error || res.statusText, res.status, err)
     }
     return res.json() as Promise<T>
   } finally {
@@ -1045,7 +1082,7 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new ApiError((err as { error: string }).error || res.statusText, res.status)
+    throw new ApiError((err as { error: string }).error || res.statusText, res.status, err)
   }
   return res.json() as Promise<T>
 }
@@ -1149,6 +1186,111 @@ export const api = {
     form.append('file', file)
     return upload<{ lines: string[]; count: number }>('/fuzzer/wordlist', form)
   },
+
+  // SJ — API description documents.
+  // A document is loaded from exactly one source. `url` is fetched server-side
+  // through Joro's own proxy, so the retrieval is captured into History like any
+  // other traffic; the browser never fetches a target directly.
+  sjLoad: (body: { raw?: string; text?: string; url?: string; name?: string }) =>
+    req<{ spec: SJSpec }>('POST', '/spec/load', body),
+  sjListSpecs: () => req<{ specs: SJSpecSummary[] }>('GET', '/spec/specs'),
+  sjGetSpec: (id: string) => req<{ spec: SJSpec }>('GET', `/spec/specs/${id}`),
+  sjGetSpecSource: (id: string) => req<{ source: string }>('GET', `/spec/specs/${id}/source`),
+  sjDeleteSpec: (id: string) => req<unknown>('DELETE', `/spec/specs/${id}`),
+  // Re-parses the stored document, so it returns a whole Spec: a placeholder is
+  // baked into every generated default and body at parse time, not substituted
+  // per request. The id is a hash of the source, so profiles survive.
+  sjSetPlaceholders: (id: string, placeholders: Partial<SJPlaceholders>) =>
+    req<{ spec: SJSpec }>('PUT', `/spec/specs/${id}/placeholders`, { placeholders }),
+
+  sjRender: (body: SJRenderBody) =>
+    req<{ raw: string; scheme: string; host: string; path: string }>('POST', '/spec/render', body),
+  // Send re-renders server-side unless `raw` is supplied, so a stale or
+  // in-flight preview can never become the request that goes out.
+  sjSend: (body: SJRenderBody & { raw?: string }) => req<SJSendResult>('POST', '/spec/send', body),
+
+  sjGetProfiles: (specId: string) =>
+    req<{ profiles: SJProfileSummary[] }>('GET', `/spec/profiles?specId=${encodeURIComponent(specId)}`),
+  sjSetProfiles: (specId: string, profiles: SJProfileInput[]) =>
+    req<{ count: number }>('PUT', '/spec/profiles', { specId, profiles }),
+
+  sjScan: (body: SJScanBody) =>
+    req<{ runId: string; kind: SJRunKind; total: number; warnings?: string[] }>('POST', '/spec/scan', body),
+  sjDiscover: (body: SJDiscoverBody) =>
+    req<{ runId: string; kind: SJRunKind; total: number; warnings?: string[] }>('POST', '/spec/discover', body),
+  sjListRuns: () => req<{ runs: SJRunSummary[] }>('GET', '/spec/runs'),
+  sjGetRun: (id: string, opts: { offset?: number; limit?: number } = {}) => {
+    const qs = new URLSearchParams()
+    if (opts.offset) qs.set('offset', String(opts.offset))
+    if (opts.limit) qs.set('limit', String(opts.limit))
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return req<SJRunDetail>('GET', `/spec/runs/${id}${suffix}`)
+  },
+  sjGetMatrix: (id: string) => req<SJMatrixView>('GET', `/spec/runs/${id}/matrix`),
+  sjGetResult: (id: string, index: number) =>
+    req<{ result: SJResult; reqRaw: string; respRaw: string }>('GET', `/spec/runs/${id}/results/${index}`),
+  sjStopRun: (id: string) => req<unknown>('POST', `/spec/runs/${id}/stop`),
+  sjDeleteRun: (id: string) => req<unknown>('DELETE', `/spec/runs/${id}`),
+
+  // Chain — multi-step workflow chains and the sweeps driven from them.
+  chainList: () => req<{ chains: ChainSummary[] }>('GET', '/chain/chains'),
+  chainGet: (id: string) => req<Chain>('GET', `/chain/chains/${id}`),
+  chainCreate: (body: ChainInput) => req<Chain>('POST', '/chain/chains', body),
+  chainUpdate: (id: string, body: ChainInput) =>
+    req<Chain>('PUT', `/chain/chains/${id}`, body),
+  chainDelete: (id: string) => req<unknown>('DELETE', `/chain/chains/${id}`),
+  // Rows are addressed by seq, never by raw bytes: a selection survives
+  // history.pushState's structured clone, and the server still has the capture.
+  // With a chainId the steps are appended to that chain and correlation re-runs
+  // over the extended chain; without one a new chain is created.
+  chainFromHistory: (seqs: number[], name?: string, chainId?: string) =>
+    req<Chain>('POST', '/chain/chains/from-history', { seqs, name, chainId }),
+  // Correlation proposes and persists nothing; the operator accepts each one.
+  chainCorrelate: (id: string) =>
+    req<{ proposed: ChainProposal[] }>('POST', `/chain/chains/${id}/correlate`, {}),
+
+  // Proposes bindings for one hand-picked value, and persists nothing. The
+  // inference is server-side so there is one definition of what a source can
+  // read; see internal/chain/bind.go.
+  chainBindPreview: (id: string, body: ChainBindPreviewInput) =>
+    req<ChainBindProposal>('POST', `/chain/chains/${id}/bind-preview`, body),
+  chainStepResponse: (id: string, stepId: string) =>
+    req<ChainStepResponse>('GET', `/chain/chains/${id}/steps/${stepId}/response`),
+  chainPreview: (id: string, variantId: string, kinds: string[]) =>
+    req<{ variant: ChainVariant; steps: ChainPreviewStep[] }>(
+      'POST', `/chain/chains/${id}/preview`, { variantId, kinds }),
+  chainPlan: (id: string, kinds: string[]) =>
+    req<ChainPlan>('GET', `/chain/chains/${id}/plan?kinds=${encodeURIComponent(kinds.join(','))}`),
+
+  chainRecordStart: () => req<{ cursor: number }>('POST', '/chain/record/start', {}),
+  chainRecordStop: (cursor: number, opts: { host?: string; scopeOnly?: boolean } = {}) =>
+    req<{ candidates: ChainRecordCandidate[]; cursor: number }>(
+      'POST', '/chain/record/stop', { cursor, ...opts }),
+
+  chainStartRun: (body: {
+    chainId: string
+    kinds: string[]
+    variantIds?: string[]
+    allowStateChanging: boolean
+    delayMs?: number
+    timeoutMs?: number
+  }) =>
+    req<{ runId: string; total: number; variants: number; warnings: string[] }>(
+      'POST', '/chain/runs', body),
+  chainListRuns: () => req<{ runs: ChainRunSummary[] }>('GET', '/chain/runs'),
+  chainGetRun: (id: string, opts: { offset?: number; limit?: number } = {}) => {
+    const qs = new URLSearchParams()
+    if (opts.offset) qs.set('offset', String(opts.offset))
+    if (opts.limit) qs.set('limit', String(opts.limit))
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return req<ChainRunDetail>('GET', `/chain/runs/${id}${suffix}`)
+  },
+  chainGetGrid: (id: string) => req<ChainGridView>('GET', `/chain/runs/${id}/grid`),
+  chainGetResult: (id: string, index: number) =>
+    req<{ result: ChainResult; reqRaw: string; respRaw: string }>(
+      'GET', `/chain/runs/${id}/results/${index}`),
+  chainStopRun: (id: string) => req<unknown>('POST', `/chain/runs/${id}/stop`),
+  chainDeleteRun: (id: string) => req<unknown>('DELETE', `/chain/runs/${id}`),
 
   // Generate
   generate: (format: string, mode?: string, implantUrl?: string, binaryName?: string, inMemory?: boolean) =>

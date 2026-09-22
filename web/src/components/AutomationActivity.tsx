@@ -122,7 +122,7 @@ export default function AutomationActivity() {
                     )}
                     {e.outputBytes > 0 ? `${e.outputBytes}B ` : ''}
                     {e.durationMs}ms
-                    {e.errMsg ? <> — <Redacted value={e.errMsg} kind="text" /></> : ''}
+                    {e.errMsg ? <> - <Redacted value={e.errMsg} kind="text" /></> : ''}
                   </span>
                 </div>
               ))}

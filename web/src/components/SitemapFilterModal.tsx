@@ -84,7 +84,7 @@ export default function SitemapFilterModal({ filter, onChange, onClose, onClear 
             options={HTTP_METHOD_OPTIONS}
             selected={filter.methods}
             onChange={(methods) => onChange({ methods })}
-            tooltip="Filter by HTTP method — select any number"
+            tooltip="Filter by HTTP method - select any number"
           />
         </div>
         <div className="flex flex-wrap items-center gap-3">

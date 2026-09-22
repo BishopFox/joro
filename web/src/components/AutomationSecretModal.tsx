@@ -50,12 +50,12 @@ export default function AutomationSecretModal({ secret, tokenName, endpoint, onC
           Token for <Redacted value={tokenName} kind="identity" />
         </h3>
         <p className="text-[11px] text-content-muted">
-          This is the only time this secret is shown. Joro stores a hash of it, not the value — if you lose it,
+          This is the only time this secret is shown. Joro stores a hash of it, not the value - if you lose it,
           rotate the token to issue a new one.
         </p>
         {streamerOn && (
           <p className="text-[11px] text-semantic-warning">
-            Streamer mode is hiding the value. Copy still yields the real secret — copy it before closing, or
+            Streamer mode is hiding the value. Copy still yields the real secret - copy it before closing, or
             turn streamer mode off to read it.
           </p>
         )}

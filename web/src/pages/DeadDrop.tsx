@@ -139,7 +139,7 @@ export default function DeadDrop() {
       <div className="px-4 py-3 border-b border-border shrink-0">
         <p className="text-xs text-content-muted">
           Stage requests from History, order them, and export a portable{' '}
-          <code className="text-content-secondary">.jord</code> file to share — no team server required.
+          <code className="text-content-secondary">.jord</code> file to share - no team server required.
         </p>
       </div>
 

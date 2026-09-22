@@ -17,12 +17,12 @@ interface LocalChatMessage {
 
 const SLASH_HELP = [
   'Available slash commands:',
-  '/me <text> — send an action message',
-  '/slap <user> — slap someone with a large trout',
-  '/nick <name> — change your nickname',
-  '/flag <seq> [note] — flag a captured request (seq from History)',
-  '/collab <note> — request collaboration (share scope / M&R / custom data)',
-  '/help — show this help',
+  '/me <text> - send an action message',
+  '/slap <user> - slap someone with a large trout',
+  '/nick <name> - change your nickname',
+  '/flag <seq> [note] - flag a captured request (seq from History)',
+  '/collab <note> - request collaboration (share scope / M&R / custom data)',
+  '/help - show this help',
 ].join('\n')
 
 export default function TeamChatWidget() {

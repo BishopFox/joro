@@ -542,7 +542,7 @@ export function FlowRail({
         {!active ? (
           <p className="text-[10px] text-content-muted leading-snug">
             Click a box to edit it. Drag from a port to wire two together, and drag a box to move it
-            {derived ? '.' : ' — where you leave it is saved.'}
+            {derived ? '.' : ' - where you leave it is saved.'}
           </p>
         ) : (
           <div className="space-y-2">
@@ -709,7 +709,7 @@ function portHelp(node: FlowNode, port: FlowPort, side: 'target' | 'source'): st
   if (side === 'source') {
     if (node.type === 'trigger') {
       return (
-        'Carries ctx.trigger — why this run happened, including which trigger fired. ' +
+        'Carries ctx.trigger - why this run happened, including which trigger fired. ' +
         'Drop it on Read field to pull one property out, or on any argument of an SDK call.'
       )
     }
@@ -724,13 +724,13 @@ function portHelp(node: FlowNode, port: FlowPort, side: 'target' | 'source'): st
     }
     return port.kind === 'bool'
       ? 'Carries a true or false. Only AND, OR, NOT, Choose and Stop unless accept one.'
-      : 'Carries a value. Drop it on any input port — Read field, Text, Compare, or an argument of an SDK call.'
+      : 'Carries a value. Drop it on any input port - Read field, Text, Compare, or an argument of an SDK call.'
   }
 
   const many = port.many ? ' Takes more than one wire.' : ' Takes one wire.'
   const req = port.required ? ' Required.' : ''
   return port.kind === 'bool'
-    ? `Accepts a true or false — from Compare, AND, OR or NOT.${many}${req}`
+    ? `Accepts a true or false - from Compare, AND, OR or NOT.${many}${req}`
     : `Accepts any value.${many}${req}`
 }
 

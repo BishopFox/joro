@@ -21,10 +21,16 @@ import (
 )
 
 const (
-	// maxProxyRespBody bounds what a single automation send will read. The fuzzer
-	// uses 10 MB; we need only enough to fingerprint, and a fifty-item batch at
-	// 10 MB each would be half a gigabyte of transient allocation.
-	maxProxyRespBody = 2 << 20
+	// MaxProxyRespBody bounds what a single send will read. The fuzzer uses
+	// 10 MB; we need only enough to fingerprint, and a fifty-item batch at 10 MB
+	// each would be half a gigabyte of transient allocation.
+	//
+	// Exported because a caller that reads the body for its own purposes, rather
+	// than fingerprinting it, has to be able to tell a truncated response from a
+	// complete one. A spec fetch that silently loses its tail fails later with a
+	// parse error about the document, which sends the operator looking in
+	// entirely the wrong place.
+	MaxProxyRespBody = 2 << 20
 
 	// correlateWindow is how long to wait for the capture to appear in the store
 	// after the response arrives. Capture happens on the proxy's goroutine, so it
@@ -37,7 +43,10 @@ const (
 type ProxySendResult struct {
 	// Seq is the history sequence number of the resulting capture, or 0 when the
 	// request could not be correlated — see SendViaProxy for when that happens.
+	// RequestID addresses the same capture for GET /api/v1/requests/{id}, which
+	// is the only route that resolves one; it is empty exactly when Seq is 0.
 	Seq        int
+	RequestID  string
 	SeqNote    string
 	RespRaw    []byte
 	StatusCode int
@@ -57,7 +66,17 @@ type SendDeps struct {
 	// Claims is optional and only needed where sends run concurrently: it stops
 	// two batch workers correlating to the same history row. A single send passes
 	// nil, for which claim is a no-op.
-	Claims *claimSet
+	Claims *ClaimSet
+
+	// MaxRespBytes overrides MaxProxyRespBody for this send. Zero keeps the
+	// default.
+	//
+	// The default is sized against fifty-item batches that only need enough body
+	// to fingerprint. A caller that reads the body for its own purposes — fetching
+	// an API description document, which is routinely megabytes — needs a larger
+	// one, and raising the shared constant would multiply every batch's transient
+	// allocation to buy it.
+	MaxRespBytes int
 }
 
 // SendViaProxy writes raw request bytes through Joro's own proxy listener.
@@ -112,7 +131,11 @@ func SendViaProxy(ctx context.Context, raw []byte, scheme, host string, d SendDe
 		resp.Body.Close()
 		return nil, fmt.Errorf("dumping response: %w", err)
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxProxyRespBody))
+	limit := d.MaxRespBytes
+	if limit <= 0 {
+		limit = MaxProxyRespBody
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, int64(limit)))
 	resp.Body.Close()
 	respRaw = append(respRaw, body...)
 
@@ -124,7 +147,7 @@ func SendViaProxy(ctx context.Context, raw []byte, scheme, host string, d SendDe
 		Method:     method,
 		URL:        scheme + "://" + urlHost(hostPort, scheme) + target,
 	}
-	res.Seq, res.SeqNote = correlate(d.Store, lo, res, body, d.Claims)
+	res.Seq, res.RequestID, res.SeqNote = correlate(d.Store, lo, res, body, d.Claims)
 	return res, nil
 }
 
@@ -267,17 +290,27 @@ func toAbsoluteForm(raw []byte, hostPort string) []byte {
 	return out.Bytes()
 }
 
-// claimSet tracks capture sequence numbers already handed to a send, so two
-// concurrent batch workers cannot correlate to the same history row.
-type claimSet struct {
+// ClaimSet tracks capture sequence numbers already handed to a send, so two
+// concurrent workers cannot correlate to the same history row.
+//
+// Any caller running SendViaProxy concurrently needs one, including callers in
+// other packages — hence the export. Leaving SendDeps.Claims nil is correct only
+// for a single send: with concurrency, two responses that happen to be
+// byte-identical fall through correlate's disambiguation to claim order, and
+// without a claim set both take the same row. Sends that vary only an
+// Authorization header make that the common case, not the rare one.
+type ClaimSet struct {
 	mu sync.Mutex
 	m  map[int]struct{}
 }
 
-func newClaimSet() *claimSet { return &claimSet{m: map[int]struct{}{}} }
+// NewClaimSet returns a claim set for one batch of concurrent sends. Scope it to
+// the batch: sharing one across unrelated runs would let an earlier run's claim
+// block a later one from correlating at all.
+func NewClaimSet() *ClaimSet { return &ClaimSet{m: map[int]struct{}{}} }
 
 // claim takes seq if it is unclaimed, reporting whether it succeeded.
-func (c *claimSet) claim(seq int) bool {
+func (c *ClaimSet) claim(seq int) bool {
 	if c == nil {
 		return true
 	}
@@ -315,9 +348,13 @@ func (c *claimSet) claim(seq int) bool {
 // tunneled with no capture anywhere, and a host outside the proxy's own capture
 // scope is forwarded without one. The note says so rather than leaving a client to
 // guess why a seq it was given does not resolve.
-func correlate(store *proxy.Store, lo int, res *ProxySendResult, body []byte, claims *claimSet) (int, string) {
+// The capture's ID is returned alongside its Seq because they address different
+// things: Seq is the watermark this function matches on, but GET
+// /api/v1/requests/{id} is the only route that resolves a capture, so a client
+// given only a seq cannot open the row it names.
+func correlate(store *proxy.Store, lo int, res *ProxySendResult, body []byte, claims *ClaimSet) (seq int, id, note string) {
 	if store == nil {
-		return 0, "no capture store"
+		return 0, "", "no capture store"
 	}
 	deadline := time.Now().Add(correlateWindow)
 	for {
@@ -328,7 +365,7 @@ func correlate(store *proxy.Store, lo int, res *ProxySendResult, body []byte, cl
 			}
 			if len(body) > 0 && bytes.HasSuffix(c.RespRaw, body) {
 				if claims.claim(c.Seq) {
-					return c.Seq, ""
+					return c.Seq, c.ID, ""
 				}
 				continue
 			}
@@ -337,10 +374,10 @@ func correlate(store *proxy.Store, lo int, res *ProxySendResult, body []byte, cl
 			}
 		}
 		if fallback != nil && claims.claim(fallback.Seq) {
-			return fallback.Seq, ""
+			return fallback.Seq, fallback.ID, ""
 		}
 		if time.Now().After(deadline) {
-			return 0, "not captured (host may be noise-filtered or outside the proxy's capture scope)"
+			return 0, "", "not captured (host may be noise-filtered or outside the proxy's capture scope)"
 		}
 		time.Sleep(correlatePoll)
 	}

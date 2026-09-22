@@ -2,6 +2,8 @@ import { api } from './api'
 import { useDetectStore } from '../stores/detectStore'
 import { useRequestStore } from '../stores/requestStore'
 import { useSettingsStore, type Settings } from '../stores/settingsStore'
+import { useSJStore } from '../stores/sjStore'
+import { useChainStore } from '../stores/chainStore'
 
 // applyProjectResp propagates a project load/switch response to global live
 // state: it invalidates cached request history, refreshes settings into the
@@ -14,6 +16,15 @@ export function applyProjectResp(_resp: unknown): void {
   // project's findings.
   useDetectStore.getState().clearAll()
   useDetectStore.getState().invalidate()
+  // SJ holds the previous engagement's documents, targets and — crucially —
+  // auth profiles, whose credentials are session state that must not follow the
+  // operator into the next project.
+  useSJStore.getState().clearAll()
+  // Chains themselves travel in the project file and are refetched when the Chain
+  // page mounts. Their runs do not: a run's rows reference History from the
+  // previous engagement, and its verdicts were computed against a baseline
+  // measured there.
+  useChainStore.getState().clearAll()
   api
     .getSettings()
     .then((s) => useSettingsStore.getState().setSettings(s as Settings))

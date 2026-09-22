@@ -20,9 +20,9 @@ function plural(n: number, noun: string): string {
 }
 
 function formatWhen(iso: string): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   const d = new Date(iso)
-  if (isNaN(d.getTime())) return '—'
+  if (isNaN(d.getTime())) return '-'
   return d.toLocaleString()
 }
 
@@ -262,7 +262,7 @@ export default function ProjectBrowser() {
           title="Delete project"
           message={
             confirmDelete.active
-              ? `Delete ${redactNow(confirmDelete.name, 'identity')}? Its project file and testing-browser profile are removed. Your session stays loaded as an unnamed Scratch session — save it under a new name to keep it. This cannot be undone.`
+              ? `Delete ${redactNow(confirmDelete.name, 'identity')}? Its project file and testing-browser profile are removed. Your session stays loaded as an unnamed Scratch session - save it under a new name to keep it. This cannot be undone.`
               : `Delete ${redactNow(confirmDelete.name, 'identity')}? Its project file and testing-browser profile are removed. This cannot be undone.`
           }
           body={

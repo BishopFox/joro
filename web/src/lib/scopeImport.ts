@@ -39,7 +39,7 @@ export async function readScopeFile(file: File): Promise<ScopeImportBundle> {
 
   const buf = new Uint8Array(await file.arrayBuffer())
   if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
-    throw new Error('That looks like a gzipped project file — use Settings → Project → Import instead')
+    throw new Error('That looks like a gzipped project file - use Settings → Project → Import instead')
   }
 
   let parsed: unknown

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BishopFox/joro/internal/browser"
+	"github.com/BishopFox/joro/internal/chain"
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/proxy"
@@ -206,6 +207,16 @@ type projectConfigFile struct {
 	// belongs here; the automations themselves are code and live on disk, because a
 	// project config is published to teammates. Added in schema v7.
 	AutomationStates map[string]string `json:"automationStates,omitempty"`
+
+	// Chains are the Chain tab's workflow chains (schema v8).
+	//
+	// Stored as the live type rather than a trimmed DTO, unlike every field
+	// above. There is nothing to trim: a chain is already exactly the recorded
+	// bytes plus the bindings over them, its json tags are explicit, and a
+	// parallel struct here would be a second definition of the same shape with
+	// no field to leave out. The raws ride as base64 because that is what
+	// encoding/json does with []byte.
+	Chains []*chain.Chain `json:"chains,omitempty"`
 }
 
 // encodePluginStates base64-encodes each blob for transport inside a JSON
@@ -337,10 +348,11 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 	dEnabled, dCfg, dDisabled, dOverrides, dRules, dFindings := s.detectStateForProject()
 
 	return projectConfigFile{
-		// v7 added AutomationStates. No normalizeProjectConfig gate: an absent map
-		// decodes to nil, which is the correct default — a backfill exists only where
-		// the zero value would be wrong, as it was for autoSave and detectEnabled.
-		Version:           7,
+		// v8 added Chains; v7 added AutomationStates. Neither needs a
+		// normalizeProjectConfig gate: both decode to nil when absent, which is the
+		// correct default — a backfill exists only where the zero value would be
+		// wrong, as it was for autoSave and detectEnabled.
+		Version:           8,
 		AutoSave:          autoSave,
 		SaveHistory:       saveHistory,
 		ListenerURL:       listenerURL,
@@ -371,6 +383,8 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		// and dropping its bookkeeping would lose the operator who does have it their
 		// state the first time anyone else saves.
 		AutomationStates: encodePluginStates(mergePluginStates(automationGhost, automationFresh)),
+
+		Chains: s.chainStore.List(),
 	}
 }
 
@@ -547,10 +561,18 @@ func (s *APIServer) liveStateSignature() string {
 	s.mu.RLock()
 	hlCount := len(s.highlights)
 	s.mu.RUnlock()
-	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%s/rp%d/cd%d/no%d",
+	// Chains contribute a revision as well as a count, for the reason
+	// automationSignature does: editing a chain's bindings leaves the number of
+	// chains identical, and a count alone would let that edit go unsaved.
+	var chainCount int
+	var chainRev uint64
+	if s.chainStore != nil {
+		chainCount, chainRev = s.chainStore.Count(), s.chainStore.Revision()
+	}
+	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%s/rp%d/cd%d/no%d/lc%d.%d",
 		reqCount, lastSeq, noteCount, maxNoteUpdate, hlCount,
 		scopeSignature(s.scope.Rules()), len(s.replace.Rules()),
-		len(s.customData.Items()), len(s.noise.Patterns())) +
+		len(s.customData.Items()), len(s.noise.Patterns()), chainCount, chainRev) +
 		s.detectSignature() + s.automationSignature()
 }
 
@@ -622,6 +644,26 @@ func (s *APIServer) resetLiveProjectState() {
 	s.resetDetectLiveState()
 	// An automation session belongs to the engagement it authenticated against.
 	s.capContexts.ResetAll()
+
+	// So do the loaded API description documents: their source bytes are the
+	// previous target's, and their auth profiles hold credentials the operator
+	// typed. The client drops its own SJ state on a project change; without this
+	// the server kept both, keyed by ids nothing referenced any more.
+	if s.specStore != nil {
+		s.specStore.Clear()
+	}
+
+	// And so do the workflow chains. A chain holds recorded request and response
+	// bytes from the previous target, so carrying one into an empty project would
+	// bring that engagement's traffic with it — the thing clearing the capture
+	// store above exists to prevent. Unlike a project switch, which loads the
+	// incoming project's chains over these, there is nothing to load here.
+	if s.chainStore != nil {
+		s.chainStore.Clear()
+	}
+	if s.chainRuns != nil {
+		s.chainRuns.Clear()
+	}
 
 	// An automation's key/value state describes the engagement it was gathered in.
 	if s.automationStorage != nil {
@@ -702,6 +744,27 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	// An automation session belongs to the engagement it authenticated against, so
 	// it does not survive into a different project.
 	s.capContexts.ResetAll()
+
+	// Nor do the loaded API description documents: their source bytes describe
+	// the previous target, and their auth profiles hold credentials the operator
+	// typed. The client clears its own SJ state on a project change; this is the
+	// server half, without which both sat in memory keyed by ids nothing
+	// referenced — and unreadable, since the profile endpoint reports only that a
+	// credential exists, never its value.
+	if s.specStore != nil {
+		s.specStore.Clear()
+	}
+
+	// Chains themselves DO travel with the project, so they are loaded below
+	// rather than cleared. Their runs do not: a run's results reference History
+	// rows from the previous engagement, and its verdicts were computed against
+	// a baseline measured there.
+	if s.chainRuns != nil {
+		s.chainRuns.Clear()
+	}
+	if s.chainStore != nil {
+		s.chainStore.ReplaceAll(cfg.Chains)
+	}
 
 	// Apply team server settings.
 	s.mu.Lock()

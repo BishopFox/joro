@@ -58,7 +58,7 @@ export const OP_LABEL: Record<string, string> = {
 export const OP_HINT: Record<string, string> = {
   status: '4xx, 403, 500-599, none',
   in: 'GET, POST',
-  matches: 'RE2 — no lookahead or backreferences',
+  matches: 'RE2 - no lookahead or backreferences',
   glob: '*.target.com',
 }
 

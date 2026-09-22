@@ -245,7 +245,7 @@ export default function Map() {
           <span className="text-xs font-semibold uppercase tracking-wide text-content-muted shrink-0">Site Map</span>
           <input
             className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border flex-1 min-w-0"
-            placeholder={filter.contentRegex ? 'Search (regex) — URL, headers, bodies…' : 'Search — URL, headers, bodies…'}
+            placeholder={filter.contentRegex ? 'Search (regex) - URL, headers, bodies…' : 'Search - URL, headers, bodies…'}
             value={filter.content}
             onChange={(e) => patchFilter({ content: e.target.value })}
           />
@@ -412,7 +412,7 @@ export default function Map() {
       </div>
 
       {/* Drag handle */}
-      <div className="drag-handle-h" onMouseDown={mainSplit.onMouseDown} />
+      <div className="drag-handle-h" {...mainSplit.handleProps} />
 
       {/* Right: Detail panel */}
       <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: 1 - mainSplit.fraction }}>
@@ -458,7 +458,7 @@ export default function Map() {
             </div>
 
             {/* Drag handle */}
-            <div className="drag-handle-h" onMouseDown={detailSplit.onMouseDown} />
+            <div className="drag-handle-h" {...detailSplit.handleProps} />
 
             {/* Response panel */}
             <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: 1 - detailSplit.fraction }}>

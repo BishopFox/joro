@@ -61,6 +61,46 @@ func parseMessage(raw []byte, decode bool) *message {
 	return m
 }
 
+// UpdateContentLength re-frames a raw request after its body has been rewritten.
+//
+// A pass-through to proxy.UpdateContentLength, exported here because this is the
+// package that owns raw-request editing and every ApplyEdits caller has to follow
+// with it — a body op that does not re-frame produces a request the origin reads
+// as truncated, which looks exactly like the server rejecting it. Having it
+// beside ApplyEdits is also what lets internal/chain render a step without
+// importing internal/proxy, and so without acquiring a send path.
+func UpdateContentLength(raw []byte) []byte { return proxy.UpdateContentLength(raw) }
+
+// Response is a parsed, decoded response.
+type Response struct {
+	Status int
+	Header http.Header
+	Body   []byte
+
+	// Decoded names the content encoding that was unwrapped, or "" if none. It
+	// carries the same "(not decoded)" suffix parseMessage uses for br and zstd.
+	Decoded string
+}
+
+// ReadResponse parses and decompresses raw response bytes.
+//
+// Exported for the same reason FingerprintResponse is: a caller outside this
+// package that needs to read a value out of a response would otherwise write a
+// third copy of split-headers-then-maybe-gunzip, and the decode half is not
+// obvious — TransportConfig sets DisableCompression and the proxy leaves
+// Content-Encoding in place, so a captured body is whatever the origin sent.
+// internal/chain uses this to resolve a chain's data dependencies, which is also
+// how it stays free of any import that could open a socket.
+func ReadResponse(raw []byte) Response {
+	m := parseMessage(raw, true)
+	return Response{
+		Status:  m.Status,
+		Header:  m.Header,
+		Body:    m.Body,
+		Decoded: m.Decoded,
+	}
+}
+
 // contentType returns the message's Content-Type keyword.
 func (m *message) contentType() string {
 	if m == nil || m.Header == nil {

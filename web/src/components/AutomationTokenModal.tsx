@@ -184,7 +184,7 @@ export default function AutomationTokenModal({
             <Unlock size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden="true" />
             <span>
               This token can add scope rules. Scope is what decides which hosts Joro intercepts, so it can make Joro
-              terminate TLS for and record hosts you have not scoped — and it can already read all captured traffic.
+              terminate TLS for and record hosts you have not scoped - and it can already read all captured traffic.
               It can only add include rules and enable scope; it cannot exclude, remove, or disable.
             </span>
           </p>
@@ -195,7 +195,7 @@ export default function AutomationTokenModal({
             <KeyRound size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden="true" />
             <span>
               This token can run commands: {privileged.map((c) => c.toolName).join(', ')}. Scope and the host whitelist
-              do not bound the C2 capabilities — they describe web targets, not a team server — so this grant is the
+              do not bound the C2 capabilities - they describe web targets, not a team server - so this grant is the
               only limit on what they reach.
             </span>
           </p>

@@ -68,7 +68,7 @@ export default function DetectRuleModal({
   // Cancel.
   const guardedClose = useCallback(() => {
     if (draft && dirty) {
-      addToast('Unsaved rule changes — use Cancel to discard', 'info')
+      addToast('Unsaved rule changes - use Cancel to discard', 'info')
       return
     }
     onClose()
@@ -542,7 +542,7 @@ function RuleForm({
           <div className="text-semantic-error text-[10px]">{localRegexError}</div>
         )}
         <div className="text-[10px] text-content-muted mt-0.5">
-          Client-side preview only — the backend uses Go RE2, which rejects lookahead,
+          Client-side preview only - the backend uses Go RE2, which rejects lookahead,
           lookbehind, and backreferences. Save or Test to validate for real.
         </div>
       </div>

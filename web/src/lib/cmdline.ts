@@ -147,7 +147,7 @@ function tokenize(line: string): { tokens: Token[] } | CommandLineError {
     if (ch === "'") {
       const end = line.indexOf("'", i + 1)
       if (end < 0) {
-        return { error: "unclosed ' — a single-quoted argument needs a closing quote" }
+        return { error: "unclosed ' - a single-quoted argument needs a closing quote" }
       }
       cur += line.slice(i + 1, end)
       started = true
@@ -175,7 +175,7 @@ function tokenize(line: string): { tokens: Token[] } | CommandLineError {
         i++
       }
       if (!closed) {
-        return { error: 'unclosed " — a double-quoted argument needs a closing quote' }
+        return { error: 'unclosed " - a double-quoted argument needs a closing quote' }
       }
       started = true
       quoted = true
@@ -203,7 +203,7 @@ export function parseCommandLine(text: string): ParseResult {
 
   let tokens = t.tokens
   if (tokens.length === 0) {
-    return { error: 'no command — name a program to run' }
+    return { error: 'no command - name a program to run' }
   }
 
   let stdinPipe = false
@@ -217,7 +217,7 @@ export function parseCommandLine(text: string): ParseResult {
     return {
       error:
         `Joro is not a shell, so ${idiom.program} does not run and its output is not piped. ` +
-        `Write ${INPUT_TOKEN} | at the head instead — Joro feeds the input source straight ` +
+        `Write ${INPUT_TOKEN} | at the head instead - Joro feeds the input source straight ` +
         `to the program's standard input.`,
       fix: idiom.fix,
     }
@@ -228,7 +228,7 @@ export function parseCommandLine(text: string): ParseResult {
     stdinPipe = true
     tokens = tokens.slice(2)
     if (tokens.length === 0) {
-      return { error: `nothing after ${INPUT_TOKEN} | — name a program to receive the input` }
+      return { error: `nothing after ${INPUT_TOKEN} | - name a program to receive the input` }
     }
   }
 

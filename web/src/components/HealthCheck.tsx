@@ -93,7 +93,7 @@ export default function HealthCheck({ onFinish }: Props) {
         <div className="flex-1">
           <p className="text-xs font-semibold text-content-primary">Open the testing browser</p>
           <p className="text-xs text-content-muted mt-0.5">
-            Opens a browser routed through the proxy with the CA trusted for this project — no cert install needed.
+            Opens a browser routed through the proxy with the CA trusted for this project - no cert install needed.
           </p>
           <div className="flex flex-wrap items-center gap-2 mt-2">
             <button
@@ -125,7 +125,7 @@ export default function HealthCheck({ onFinish }: Props) {
         <div className="flex-1">
           <p className="text-xs font-semibold text-content-primary">Verify capture</p>
           {captured ? (
-            <p className="text-xs text-semantic-success mt-0.5">Traffic captured — you're all set.</p>
+            <p className="text-xs text-semantic-success mt-0.5">Traffic captured - you're all set.</p>
           ) : (
             <p className="text-xs text-content-muted mt-0.5">
               Browse to any HTTPS site in the testing browser; the first captured request appears here.

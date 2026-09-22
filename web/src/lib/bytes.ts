@@ -102,3 +102,29 @@ export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
+
+/** b64DecodeUTF8 decodes base64 to a string, honoring UTF-8.
+ *
+ *  Bare atob maps each byte to one code unit, so any multi-byte character — a
+ *  curly quote in a description, a non-Latin title — comes back mangled. The
+ *  SJ views each had their own copy of this; it lives here so there is one. */
+export function b64DecodeUTF8(s: string): string {
+  try {
+    return new TextDecoder().decode(b64ToBytes(s))
+  } catch {
+    try {
+      return atob(s)
+    } catch {
+      return s
+    }
+  }
+}
+
+/** b64EncodeUTF8 is its inverse. */
+export function b64EncodeUTF8(s: string): string {
+  try {
+    return bytesToB64(new TextEncoder().encode(s))
+  } catch {
+    return s
+  }
+}

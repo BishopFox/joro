@@ -308,7 +308,7 @@ function Canvas({
           {!active && (
             <p className="text-[10px] text-content-muted leading-snug">
               Click a box to edit it. Drag from a port to wire two together, and drag a box to
-              move it &mdash; where you leave it is saved.
+              move it - where you leave it is saved.
             </p>
           )}
           {active?.type === 'condition' && (

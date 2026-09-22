@@ -136,8 +136,14 @@ var (
 	spaceRunRe = regexp.MustCompile(`\s+`)
 )
 
-// fingerprintResponse computes a Fingerprint from raw response bytes.
-func fingerprintResponse(seq int, raw []byte, durationMs int64, wantFull bool) Fingerprint {
+// FingerprintResponse computes a Fingerprint from raw response bytes.
+//
+// Exported for callers outside this package that compare responses to each
+// other rather than reading them. StructHash is the reason: comparing status
+// and length misses "same page, different nonce" in both directions — two
+// renderings of one page differ in length, and two different pages can share
+// one. Any such caller wants this, not its own comparison.
+func FingerprintResponse(seq int, raw []byte, durationMs int64, wantFull bool) Fingerprint {
 	m := parseMessage(raw, true)
 
 	bodySum := sha256.Sum256(m.Body)

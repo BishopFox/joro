@@ -24,7 +24,7 @@ const SOURCE_LABELS: Record<string, { label: string; hint: string }> = {
   both: { label: 'Request + response', hint: 'Both, separated by a blank line.' },
   trigger: {
     label: 'Trigger event (JSON)',
-    hint: 'The event payload. The only input a finding or a finished campaign has — neither carries a transaction.',
+    hint: 'The event payload. The only input a finding or a finished campaign has - neither carries a transaction.',
   },
 }
 
@@ -285,7 +285,7 @@ function CommandBox({
     <>
       <Section
         label="Command"
-        hint="Split into a program and a list of arguments when you save. There is no shell — quotes group words, and every other character is literal."
+        hint="Split into a program and a list of arguments when you save. There is no shell - quotes group words, and every other character is literal."
         action={
           <button
             onClick={onUseRows}
@@ -357,8 +357,8 @@ function CommandBox({
       {usesInline && (
         <p className="text-[10px] text-semantic-warning leading-snug -mt-2">
           These bytes become part of the program's command line, which other processes on this
-          machine can read. Piping them instead — <code className="font-mono">{INPUT_TOKEN} |</code>{' '}
-          at the head — keeps them off it and has no size limit. Turn on credential masking under
+          machine can read. Piping them instead - <code className="font-mono">{INPUT_TOKEN} |</code>{' '}
+          at the head - keeps them off it and has no size limit. Turn on credential masking under
           Advanced for anything that sends them on.
         </p>
       )}
@@ -562,7 +562,7 @@ function RowsEditor({
     <>
       <Section
         label="Program"
-        hint="Resolved through PATH when you save, and stored as an absolute path — so the binary you review is the one that runs."
+        hint="Resolved through PATH when you save, and stored as an absolute path - so the binary you review is the one that runs."
         action={
           mustUseRows ? undefined : (
             <button
@@ -584,7 +584,7 @@ function RowsEditor({
 
       <Section
         label="Arguments"
-        hint="One per row, passed as a list. There is no shell, so nothing here is split, expanded or interpreted — an argument containing a space or a semicolon reaches the program as one argument."
+        hint="One per row, passed as a list. There is no shell, so nothing here is split, expanded or interpreted - an argument containing a space or a semicolon reaches the program as one argument."
       >
         <div className="space-y-1">
           {args.map((a, i) => (
@@ -680,7 +680,7 @@ function Advanced({
         <div className="space-y-4 mt-3">
           <Section
             label="Input files"
-            hint="Writes a part of the transaction into the working directory before the program starts. The key is the placeholder that resolves to its path — for a tool that wants a file rather than a pipe."
+            hint="Writes a part of the transaction into the working directory before the program starts. The key is the placeholder that resolves to its path - for a tool that wants a file rather than a pipe."
           >
             <PairRows
               pairs={spec.files ?? {}}
@@ -716,7 +716,7 @@ function Advanced({
             />
             <label className="block mt-2">
               <span className="block text-[10px] text-content-muted mb-0.5">
-                Inherit from Joro's environment — names, comma-separated
+                Inherit from Joro's environment - names, comma-separated
               </span>
               <input
                 className={`${inputCls} font-mono`}

@@ -119,7 +119,7 @@ export default function CollabSwapModal({ collabId, onClose, onApplied }: Props)
             <p className="text-xs text-content-secondary mt-1">
               <span className="text-accent-secondary font-medium">{req.requestor}</span>
               {req.project && <> on <span className="text-content-primary">{req.project}</span></>}
-              {req.note && <> — “{req.note}”</>}
+              {req.note && <> - “{req.note}”</>}
             </p>
           )}
         </div>

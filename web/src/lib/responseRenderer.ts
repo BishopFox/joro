@@ -55,7 +55,7 @@ function ohttpSummary(mime: string, bytes: Uint8Array): { title: string; rows: s
         ['KDF', kdfName(r.kdfId)],
         ['AEAD', aeadName(r.aeadId)],
         ['enc', `${r.encLength} bytes`],
-        ['Ciphertext', `${r.ciphertextLength} bytes — encrypted to the gateway, not readable here`],
+        ['Ciphertext', `${r.ciphertextLength} bytes - encrypted to the gateway, not readable here`],
       ],
     }
   }
@@ -67,8 +67,8 @@ function ohttpSummary(mime: string, bytes: Uint8Array): { title: string; rows: s
       title: 'OHTTP encapsulated response',
       rows: [
         ['Body', `${r.totalLength} bytes`],
-        ['Nonce', `leading max(Nn, Nk) bytes — ${r.nonceNote}`],
-        ['Ciphertext', 'the remainder — encrypted to the gateway, not readable here'],
+        ['Nonce', `leading max(Nn, Nk) bytes - ${r.nonceNote}`],
+        ['Ciphertext', 'the remainder - encrypted to the gateway, not readable here'],
       ],
     }
   }

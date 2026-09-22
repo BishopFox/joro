@@ -247,7 +247,7 @@ export default function Callbacks() {
         kind: 'xss',
         hex: f.probeToken,
         sourceIp: f.sourceIp,
-        detail: f.pageTitle ? `${f.url} — ${f.pageTitle}` : f.url,
+        detail: f.pageTitle ? `${f.url} - ${f.pageTitle}` : f.url,
         timestamp: f.firedAt,
         fire: f,
       })

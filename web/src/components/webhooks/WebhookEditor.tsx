@@ -245,7 +245,7 @@ export default function WebhookEditor({
             disabled={busy || creating || dirty}
             title={
               creating
-                ? 'Save this webhook first — a test sends a real request to the endpoint'
+                ? 'Save this webhook first - a test sends a real request to the endpoint'
                 : dirty
                   ? 'Save first: a test sends what is stored, not what is on screen'
                   : 'Send a sample event to this endpoint for real'
@@ -294,7 +294,7 @@ export default function WebhookEditor({
         <Section title="Fires on">
           <p className="text-[10px] text-content-muted mb-1.5 leading-relaxed">
             Joro&rsquo;s own events fire every time they happen; a custom trigger adds conditions
-            so it fires on some of them. A trigger that is deleted or unreadable never fires —
+            so it fires on some of them. A trigger that is deleted or unreadable never fires -
             it never means &ldquo;no filter&rdquo;.
           </p>
           <div className="flex flex-wrap gap-1">
@@ -304,7 +304,7 @@ export default function WebhookEditor({
                 <button
                   key={t.id}
                   onClick={() => toggleTrigger(t.id)}
-                  title={t.builtin ? `Every ${t.on}` : `${t.on} — ${t.description || t.name}`}
+                  title={t.builtin ? `Every ${t.on}` : `${t.on} - ${t.description || t.name}`}
                   className={`text-[10px] px-2 py-0.5 rounded-sm border ${
                     on
                       ? 'border-accent-secondary bg-surface-input text-content-primary'
@@ -364,7 +364,7 @@ export default function WebhookEditor({
                   type="password"
                   className={inputCls}
                   value={h.auth.token ?? ''}
-                  placeholder={h.hasAuthSecret ? 'stored — leave blank to keep' : 'secret'}
+                  placeholder={h.hasAuthSecret ? 'stored - leave blank to keep' : 'secret'}
                   onChange={(e) => patch({ auth: { ...h.auth, token: e.target.value } })}
                 />
               )}
@@ -392,7 +392,7 @@ export default function WebhookEditor({
                     type="password"
                     className={inputCls}
                     value={h.signing.secret ?? ''}
-                    placeholder={h.hasSigningSecret ? 'stored — leave blank to keep' : 'shared secret'}
+                    placeholder={h.hasSigningSecret ? 'stored - leave blank to keep' : 'shared secret'}
                     onChange={(e) => patch({ signing: { ...h.signing, secret: e.target.value } })}
                   />
                 </>
@@ -428,7 +428,7 @@ export default function WebhookEditor({
                     className={inputCls}
                     value={hd.value}
                     placeholder={
-                      h.secretHeaders.includes(hd.name) ? 'stored — leave blank to keep' : 'value'
+                      h.secretHeaders.includes(hd.name) ? 'stored - leave blank to keep' : 'value'
                     }
                     onChange={(e) => setHeader(i, { value: e.target.value })}
                   />
@@ -504,7 +504,7 @@ export default function WebhookEditor({
             {h.format === 'slack' && 'Slack’s shape: {"text": "…"} carrying the one-line summary.'}
             {h.format === 'discord' && 'Discord’s shape: {"content": "…"} carrying the one-line summary.'}
             {h.format === 'template' &&
-              'A JSON document you write. Placeholders are substituted into string values only, so what you write here is the finished shape — a value off the wire cannot add a key or break out of a string.'}
+              'A JSON document you write. Placeholders are substituted into string values only, so what you write here is the finished shape - a value off the wire cannot add a key or break out of a string.'}
           </p>
 
           {h.format === 'template' && (
@@ -567,7 +567,7 @@ export default function WebhookEditor({
           </div>
           <p className="text-[10px] text-content-muted mt-1.5 leading-relaxed">
             Retries back off, doubling from half a second, and only for a timeout, a connection
-            failure, a 429 or a 5xx — a 4xx is the receiver saying the request is wrong, and
+            failure, a 429 or a 5xx - a 4xx is the receiver saying the request is wrong, and
             repeating it will not make it right. Events that arrive faster than the interval queue
             up; past the queue&rsquo;s bound the oldest are dropped, and the count travels in the
             next delivery so the receiver knows it was told less than everything.
@@ -598,7 +598,7 @@ export default function WebhookEditor({
           <p className="text-[10px] text-content-muted leading-relaxed">
             An automation calls <code className="font-mono">joro.webhook.send</code> with this
             webhook&rsquo;s id and a one-line message. It cannot see or choose the destination, and
-            the body stays the shape set above — the message fills{' '}
+            the body stays the shape set above - the message fills{' '}
             <code className="font-mono">{'{{MESSAGE}}'}</code> and stands in for the summary. This
             tick is the whole gate: without it no automation can reach this endpoint, and none can
             tell it apart from one that does not exist.
@@ -690,11 +690,11 @@ function TestOutcome({ test }: { test: WebhookTest }) {
       <div className="text-[11px]">
         {ok ? (
           <span className="text-semantic-success font-semibold">
-            Delivered — {test.status} in {test.durationMs}ms
+            Delivered - {test.status} in {test.durationMs}ms
           </span>
         ) : (
           <span className="text-semantic-error font-semibold">
-            {test.status > 0 ? `${test.status} — ` : ''}
+            {test.status > 0 ? `${test.status} - ` : ''}
             {test.error || 'no response'}
           </span>
         )}

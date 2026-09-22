@@ -169,7 +169,7 @@ export default function WebhookSettings() {
                         ? 'Disable'
                         : h.paused
                           ? 'Enable (clears the pause)'
-                          : 'Enable — starts delivering on its triggers'
+                          : 'Enable - starts delivering on its triggers'
                     }
                   >
                     {h.enabled ? <Power size={12} strokeWidth={2} /> : <PowerOff size={12} strokeWidth={2} />}
@@ -215,7 +215,7 @@ export default function WebhookSettings() {
               Configuration lives in <code className="font-mono">~/.joro/webhooks.json</code>, which
               holds secrets and never travels inside a project config. Deliveries go straight out
               rather than through Joro&rsquo;s own proxy, so they are never captured, scanned or
-              rewritten &mdash; and a webhook watching traffic cannot feed itself.
+              rewritten - and a webhook watching traffic cannot feed itself.
             </p>
             <p className="text-[10px] text-content-muted leading-relaxed max-w-xl mt-2">
               An automation can fire one by name, but only one you have ticked open to it. It

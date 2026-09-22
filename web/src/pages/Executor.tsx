@@ -636,7 +636,7 @@ export default function Executor() {
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="text-xs text-content-muted block mb-1">API Token <span className="text-content-muted">(optional — used instead of username/password)</span></label>
+                    <label className="text-xs text-content-muted block mb-1">API Token <span className="text-content-muted">(optional - used instead of username/password)</span></label>
                     <input
                       value={mythicApiToken}
                       onChange={(e) => setMythicApiToken(e.target.value)}

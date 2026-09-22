@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { Flag, WrapText, ChevronUp, ChevronDown } from 'lucide-react'
 import type { CapturedWSMessage } from '../lib/api'
 import CodeMirror from '@uiw/react-codemirror'
@@ -24,6 +24,7 @@ import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
+import { useChainStore } from '../stores/chainStore'
 import { CONTENT_TYPE_OPTIONS } from '../lib/contentTypes'
 import { HTTP_METHOD_OPTIONS, buildStatusExpr } from '../lib/requestFilters'
 import MultiSelectDropdown from '../components/MultiSelectDropdown'
@@ -265,7 +266,7 @@ function WSHistory() {
         </div>
       </div>
 
-      <div className="drag-handle-v" onMouseDown={vSplit.onMouseDown} />
+      <div className="drag-handle-v" {...vSplit.handleProps} />
 
       {/* Bottom: messages */}
       <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: 1 - vSplit.fraction }}>
@@ -525,6 +526,48 @@ function HTTPHistory() {
     navigate('/manipulate', { state: { scheme, host, rawReq: selectedDetail.reqRaw } })
   }
 
+  // The response body is the document, so SJ is handed the request id and
+  // fetches the bytes itself — a multi-megabyte document passed through
+  // location.state would ride in history.pushState's structured clone on every
+  // later navigation.
+  function sendToSJ() {
+    if (!selectedDetail) return
+    navigate('/sj', {
+      state: {
+        source: 'history',
+        requestId: selectedDetail.id,
+        url: selectedDetail.url,
+        name: specNameFromURL(selectedDetail.url),
+      },
+    })
+  }
+
+  // A chain is built one step at a time, because History selects one row at a
+  // time. The seq goes over, never the bytes: the server still holds the capture,
+  // and it appends and re-correlates server-side so the new step is wired to
+  // values the earlier ones already produce.
+  //
+  // The seq is a parameter rather than read off some object in here, because the
+  // two context menus have different things in hand — the row menu has a
+  // RequestSummary, the detail menu a RequestDetail — and having each reach for
+  // its own handle is how this shipped broken the first time.
+  async function sendToChain(seq: number) {
+    const { active: open, activeDirty } = useChainStore.getState()
+    // The append runs server-side against the saved chain and comes back whole,
+    // so accepting it would silently discard unsaved inspector edits.
+    if (open && activeDirty) {
+      addToast('Save the open chain first - appending a step reloads it and would discard your unsaved edits', 'error')
+      return
+    }
+    try {
+      const chain = await api.chainFromHistory([seq], open ? undefined : 'chain', open?.id)
+      useChainStore.getState().setActive(chain)
+      navigate('/chain')
+    } catch (e) {
+      addToast(String((e as Error).message ?? e), 'error')
+    }
+  }
+
   async function flagToTeam() {
     if (!selectedDetail) return
     try {
@@ -625,6 +668,21 @@ function HTTPHistory() {
 
   useEffect(() => { load() }, [filter, reloadCounter]) // eslint-disable-line
 
+  // Inbound deep-link: SJ, and anything else holding a request id, can open a
+  // capture directly. Detail-only on purpose — it must not disturb the
+  // operator's filters or page, and the row is frequently thousands of captures
+  // back where no amount of scrolling would reach it.
+  const deepLinkLocation = useLocation()
+  useEffect(() => {
+    const st = deepLinkLocation.state as { focusRequestId?: string } | null
+    if (!st?.focusRequestId) return
+    api
+      .getRequest(st.focusRequestId)
+      .then((d) => setSelectedDetail(d as RequestDetail))
+      .catch(() => addToast('Request no longer in history', 'error'))
+    navigate('/history', { replace: true })
+  }, [deepLinkLocation.state]) // eslint-disable-line
+
   async function selectRequest(item: RequestSummary) {
     const detail = await api.getRequest(item.id)
     setSelectedDetail(detail as RequestDetail)
@@ -633,6 +691,13 @@ function HTTPHistory() {
   function clearAll() {
     setConfirmClearAll(true)
   }
+
+  // The right-clicked row's capture sequence. Taken from the summary the table
+  // already holds rather than from the loaded detail, because the row menu can
+  // open on a row that is not the selected one.
+  const rowSeq = rowMenu
+    ? sortedItems.find((i) => i.id === rowMenu.itemId)?.seq
+    : undefined
 
   return (
     <div className="flex flex-col flex-1 min-h-0" ref={vSplit.containerRef}>
@@ -661,7 +726,7 @@ function HTTPHistory() {
               options={HTTP_METHOD_OPTIONS}
               selected={filter.methods}
               onChange={(methods) => setFilter({ methods })}
-              tooltip="Filter by HTTP method — select any number"
+              tooltip="Filter by HTTP method - select any number"
             />
             <StatusFilter
               classes={filter.statusClasses}
@@ -894,7 +959,7 @@ function HTTPHistory() {
       </div>
 
       {/* Vertical drag handle */}
-      <div className="drag-handle-v" onMouseDown={vSplit.onMouseDown} />
+      <div className="drag-handle-v" {...vSplit.handleProps} />
 
       {/* Bottom: detail panels side by side */}
       <div
@@ -967,7 +1032,7 @@ function HTTPHistory() {
             </div>
 
             {/* Horizontal drag handle */}
-            <div className="drag-handle-h" onMouseDown={hSplit.onMouseDown} />
+            <div className="drag-handle-h" {...hSplit.handleProps} />
 
             {/* Response panel */}
             <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: 1 - hSplit.fraction }}>
@@ -1068,6 +1133,9 @@ function HTTPHistory() {
               ? [{ label: 'Clear Highlight', onClick: () => removeHighlight(rowMenu.itemId) }]
               : []),
             ...runMenuItems(sortedItems.find((i) => i.id === rowMenu.itemId) ?? null),
+            ...(rowSeq !== undefined
+              ? [{ label: 'Add to Chain', onClick: () => sendToChain(rowSeq) }]
+              : []),
             { label: 'Stage for Dead Drop', onClick: () => stageForDeadDrop(rowMenu.itemId) },
           ]}
         />
@@ -1084,6 +1152,8 @@ function HTTPHistory() {
             ...runMenuItems(selectedDetail),
             { label: 'Manipulate', onClick: sendToManipulate },
             { label: 'Fuzz', onClick: sendToFuzz },
+            { label: 'SJ', onClick: sendToSJ },
+            { label: 'Add to Chain', onClick: () => sendToChain(selectedDetail.seq) },
             { label: 'Stage for Dead Drop', onClick: () => stageDetailForDeadDrop(selectedDetail) },
             ...(teamMode ? [{ label: 'Flag to team', icon: <Flag size={13} />, onClick: flagToTeam }] : []),
             { label: 'Copy URL', onClick: copyUrl },
@@ -1119,4 +1189,14 @@ function HTTPHistory() {
       )}
     </div>
   )
+}
+
+/** specNameFromURL names an SJ tab after the document's own path. */
+function specNameFromURL(raw: string): string {
+  try {
+    const parts = new URL(raw).pathname.split('/').filter(Boolean)
+    return parts[parts.length - 1] || new URL(raw).host
+  } catch {
+    return 'document'
+  }
 }
