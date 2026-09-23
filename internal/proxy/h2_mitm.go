@@ -197,14 +197,48 @@ func (h *Handler) h2Stream(w http.ResponseWriter, r *http.Request, hostname, hos
 	h.emit(eventRequestCaptured(captured))
 }
 
+// writeHeaderLines writes h as canonical-cased "Name: value" CRLF lines in
+// alphabetical order, skipping any name in skip. h2 hands net/http a map, so a
+// dump that walks it directly reshuffles every run; these bytes are what Detect
+// rules, triggers and response match-replace match against. h1 sorts the same
+// way via net/http's Header.WriteSubset. Values within a name keep wire order.
+func writeHeaderLines(buf *bytes.Buffer, h http.Header, skip ...string) {
+	drop := make(map[string]struct{}, len(skip))
+	for _, s := range skip {
+		drop[http.CanonicalHeaderKey(s)] = struct{}{}
+	}
+
+	names := make([]string, 0, len(h))
+	for k := range h {
+		if strings.HasPrefix(k, ":") { // defensive: pseudo-headers should be filtered by net/http2
+			continue
+		}
+		canonical := http.CanonicalHeaderKey(k)
+		if _, skipped := drop[canonical]; skipped {
+			continue
+		}
+		names = append(names, canonical)
+	}
+	sort.Strings(names)
+
+	for i, name := range names {
+		if i > 0 && name == names[i-1] {
+			// Two map keys canonicalized to one name; Values resolves to the
+			// canonical entry, so emitting again would only duplicate it.
+			continue
+		}
+		for _, v := range h.Values(name) {
+			fmt.Fprintf(buf, "%s: %s\r\n", name, v)
+		}
+	}
+}
+
 // dumpH2Request serializes an h2 *http.Request as HTTP/1-syntax text with
 // "HTTP/2" in the request line. This is the synthetic representation operators
 // see in the History/Intercept/Manipulate UIs.
 //
-// Headers are emitted in canonical case and alphabetical order so the same
-// request renders identically across views. Content-Length is always written
-// based on the actual body length so that re-parsing the synthesized bytes via
-// http.ReadRequest preserves the body.
+// Content-Length is always written based on the actual body length so that
+// re-parsing the synthesized bytes via http.ReadRequest preserves the body.
 func dumpH2Request(r *http.Request, body []byte) []byte {
 	var buf bytes.Buffer
 	target := r.URL.RequestURI()
@@ -216,24 +250,7 @@ func dumpH2Request(r *http.Request, body []byte) []byte {
 		fmt.Fprintf(&buf, "Host: %s\r\n", r.Host)
 	}
 
-	keys := make([]string, 0, len(r.Header))
-	for k := range r.Header {
-		canonical := http.CanonicalHeaderKey(k)
-		switch canonical {
-		case "Host", "Content-Length":
-			continue
-		}
-		if strings.HasPrefix(k, ":") { // defensive: pseudo-headers should be filtered by net/http2
-			continue
-		}
-		keys = append(keys, canonical)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		for _, v := range r.Header.Values(k) {
-			fmt.Fprintf(&buf, "%s: %s\r\n", k, v)
-		}
-	}
+	writeHeaderLines(&buf, r.Header, "Host", "Content-Length")
 
 	if len(body) > 0 || requestMethodHasBody(r.Method) {
 		fmt.Fprintf(&buf, "Content-Length: %d\r\n", len(body))
@@ -253,8 +270,9 @@ func requestMethodHasBody(method string) bool {
 	return false
 }
 
-// dumpH2Response synthesizes an HTTP/2-tagged response dump. h2 has no textual
-// status line on the wire; this output is for display only.
+// dumpH2Response synthesizes an HTTP/2-tagged response dump. h2 carries neither
+// a textual status line nor a recoverable header order on the wire, so both are
+// supplied here; writeHeaderLines is what makes the result reproducible.
 func dumpH2Response(resp *http.Response, body []byte) []byte {
 	var buf bytes.Buffer
 	statusText := resp.Status
@@ -262,11 +280,7 @@ func dumpH2Response(resp *http.Response, body []byte) []byte {
 		statusText = strconv.Itoa(resp.StatusCode) + " " + http.StatusText(resp.StatusCode)
 	}
 	fmt.Fprintf(&buf, "HTTP/2 %s\r\n", statusText)
-	for k, vs := range resp.Header {
-		for _, v := range vs {
-			fmt.Fprintf(&buf, "%s: %s\r\n", k, v)
-		}
-	}
+	writeHeaderLines(&buf, resp.Header)
 	buf.WriteString("\r\n")
 	buf.Write(body)
 	return buf.Bytes()
@@ -299,11 +313,7 @@ func applyRequestReplaceRaw(mr *MatchReplace, raw []byte) []byte {
 func applyResponseReplaceRaw(mr *MatchReplace, headers http.Header, body []byte) (http.Header, []byte) {
 	// Render headers, run header rules, parse back.
 	var hbuf bytes.Buffer
-	for k, vs := range headers {
-		for _, v := range vs {
-			fmt.Fprintf(&hbuf, "%s: %s\r\n", k, v)
-		}
-	}
+	writeHeaderLines(&hbuf, headers)
 	rendered := mr.Apply("response_header", hbuf.Bytes())
 	parsed := parseHeaderBlock(rendered)
 	newBody := mr.Apply("response_body", body)
