@@ -1397,6 +1397,7 @@ function RulesView() {
               ['scanRequests', 'Scan requests as well as responses'],
               ['persistFindings', 'Save findings in the project file'],
               ['clearFindingsWithHistory', 'Clear findings when history is cleared'],
+              ['anomalyEnabled', 'Flag endpoints unlike others on the same host (anomalies)'],
             ] as const
           ).map(([key, label]) => (
             <label key={key} className="flex items-center gap-1.5 text-xs text-content-muted">
@@ -1409,6 +1410,20 @@ function RulesView() {
               {label}
             </label>
           ))}
+          {config.anomalyEnabled && (
+            <label className="flex items-center gap-1.5 text-xs text-content-muted">
+              <span className="w-32">Anomaly sensitivity</span>
+              <select
+                value={config.anomalySensitivity || 'medium'}
+                onChange={(e) => void patchConfig({ anomalySensitivity: e.target.value })}
+                className="bg-surface-input text-xs px-2 py-1 rounded-sm border border-border"
+              >
+                <option value="low">Low - only stark outliers</option>
+                <option value="medium">Medium</option>
+                <option value="high">High - more, noisier</option>
+              </select>
+            </label>
+          )}
           <label className="flex items-center gap-1.5 text-xs text-content-muted">
             <span className="w-32">Max body bytes</span>
             <input

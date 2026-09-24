@@ -115,19 +115,23 @@ const (
 	CategoryDisclosure  Category = "disclosure"
 	CategoryHeaders     Category = "headers"
 	CategoryCookies     Category = "cookies"
+	// CategoryAnomaly holds outlier findings — an endpoint unlike its siblings on
+	// the same host. These come from internal/anomaly, not the rule engine, and
+	// are advisory triage aids rather than vulnerability claims.
+	CategoryAnomaly Category = "anomaly"
 )
 
 // Categories lists every category. See Severities.
 var Categories = []Category{
 	CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
-	CategoryDisclosure, CategoryHeaders, CategoryCookies,
+	CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
 }
 
 // Valid reports whether c is a known category.
 func (c Category) Valid() bool {
 	switch c {
 	case CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
-		CategoryDisclosure, CategoryHeaders, CategoryCookies:
+		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly:
 		return true
 	}
 	return false
@@ -137,7 +141,7 @@ func (c Category) Valid() bool {
 func AllCategories() []Category {
 	return []Category{
 		CategorySecrets, CategoryCredentials, CategoryPII, CategoryAccess,
-		CategoryDisclosure, CategoryHeaders, CategoryCookies,
+		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
 	}
 }
 
@@ -389,6 +393,15 @@ type Config struct {
 	// ExcludeHosts suppresses findings whose host contains any of these
 	// substrings.
 	ExcludeHosts []string `json:"excludeHosts"`
+
+	// AnomalyEnabled turns on per-host outlier detection (internal/anomaly),
+	// which writes anomaly-category findings into this same store. Off by default:
+	// it needs a baseline of traffic before it is useful.
+	AnomalyEnabled bool `json:"anomalyEnabled"`
+	// AnomalySensitivity tunes the outlier thresholds: "low" (only stark
+	// outliers), "medium" (default), or "high" (more, noisier). An empty or
+	// unknown value normalizes to "medium".
+	AnomalySensitivity string `json:"anomalySensitivity"`
 }
 
 // DefaultOHTTPContentTypes are the Oblivious HTTP media types never scanned.
@@ -418,7 +431,9 @@ func DefaultConfig() Config {
 			".mp4", ".webm", ".mp3", ".wav", ".ogg", ".avi", ".mov",
 			".zip", ".gz", ".bz2", ".7z", ".rar", ".pdf", ".wasm",
 		},
-		ExcludeHosts: []string{},
+		ExcludeHosts:       []string{},
+		AnomalyEnabled:     false,
+		AnomalySensitivity: "medium",
 	}
 }
 
@@ -440,6 +455,11 @@ func (c *Config) normalize() {
 	}
 	if c.ExcludeHosts == nil {
 		c.ExcludeHosts = []string{}
+	}
+	switch c.AnomalySensitivity {
+	case "low", "medium", "high":
+	default:
+		c.AnomalySensitivity = "medium"
 	}
 }
 

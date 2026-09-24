@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BishopFox/joro/internal/anomaly"
 	"github.com/BishopFox/joro/internal/apiscan"
 	"github.com/BishopFox/joro/internal/automation"
 	"github.com/BishopFox/joro/internal/callback"
@@ -124,6 +125,7 @@ type APIServer struct {
 	detectEngine   *detect.Engine
 	detectFindings *detect.Store
 	detectScanner  *detect.Scanner
+	anomalyEngine  *anomaly.Engine
 	// detectCtx is the server-lifetime context, so a rescan job can outlive the
 	// HTTP request that started it. Guarded by mu.
 	detectCtx context.Context
@@ -294,6 +296,12 @@ func New(
 			DisableUpdateChecks: cfg.DisableUpdateChecks,
 		},
 	}
+	// Anomaly analysis writes into the same findings store as detect, but computes
+	// per-host baselines the detect engine's stateless scan path cannot. Built here
+	// so it can read the live detect config every cycle and push the shared summary.
+	s.anomalyEngine = anomaly.NewEngine(
+		store, scope, detectFindings,
+		detectEngine.Config, hub.Broadcast(), s.broadcastDetectSummary)
 	// Both stores are built here rather than in SetAutomation, because both outlive
 	// automation: a webhook references a trigger, and neither needs an agent to be useful.
 	// See initTriggers for why the trigger store moved out of newScriptManager.

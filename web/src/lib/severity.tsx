@@ -102,10 +102,11 @@ export const CATEGORY_LABEL: Record<string, string> = {
   disclosure: 'Disclosure',
   headers: 'Headers',
   cookies: 'Cookies',
+  anomaly: 'Anomaly',
 }
 
-// categoryPill renders a category as one neutral pill. The seven categories are
-// not colour-coded: four of the seven semantic tokens are already spoken for.
+// categoryPill renders a category as one neutral pill. The categories are
+// not colour-coded: four of the semantic tokens are already spoken for.
 export function categoryPill(cat: string): ReactNode {
   return (
     <span

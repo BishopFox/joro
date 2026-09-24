@@ -453,6 +453,7 @@ func runProxyMode(ctx context.Context, cfg config.Config) {
 	// Periodically save the active project when auto-save is enabled.
 	apiSrv.StartAutoSaveLoop(ctx)
 	apiSrv.StartDetectLoop(ctx)
+	apiSrv.StartAnomalyLoop(ctx)
 
 	// Start proxy server.
 	proxyDone := make(chan struct{})

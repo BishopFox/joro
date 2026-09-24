@@ -93,6 +93,8 @@ type detectConfigPatch struct {
 	SkipContentTypes         *[]string `json:"skipContentTypes"`
 	SkipExtensions           *[]string `json:"skipExtensions"`
 	ExcludeHosts             *[]string `json:"excludeHosts"`
+	AnomalyEnabled           *bool     `json:"anomalyEnabled"`
+	AnomalySensitivity       *string   `json:"anomalySensitivity"`
 }
 
 // handleSetDetectConfig applies a partial configuration update.
@@ -132,6 +134,12 @@ func (s *APIServer) handleSetDetectConfig(w http.ResponseWriter, r *http.Request
 	}
 	if patch.ExcludeHosts != nil {
 		cfg.ExcludeHosts = *patch.ExcludeHosts
+	}
+	if patch.AnomalyEnabled != nil {
+		cfg.AnomalyEnabled = *patch.AnomalyEnabled
+	}
+	if patch.AnomalySensitivity != nil {
+		cfg.AnomalySensitivity = *patch.AnomalySensitivity
 	}
 	s.detectEngine.SetConfig(cfg)
 	writeJSON(w, http.StatusOK, s.detectEngine.Config())

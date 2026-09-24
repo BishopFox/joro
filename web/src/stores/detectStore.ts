@@ -84,6 +84,8 @@ export interface DetectConfig {
   skipContentTypes: string[]
   skipExtensions: string[]
   excludeHosts: string[]
+  anomalyEnabled: boolean
+  anomalySensitivity: string
 }
 
 export interface DetectSummary {

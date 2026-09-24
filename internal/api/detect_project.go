@@ -39,6 +39,8 @@ func (s *APIServer) detectStateForProject() (
 		SkipContentTypes:         c.SkipContentTypes,
 		SkipExtensions:           c.SkipExtensions,
 		ExcludeHosts:             c.ExcludeHosts,
+		AnomalyEnabled:           c.AnomalyEnabled,
+		AnomalySensitivity:       c.AnomalySensitivity,
 	}
 
 	// Sorted so a project file is stable across saves and diffs cleanly.
@@ -150,6 +152,8 @@ func (s *APIServer) applyDetectProjectConfig(cfg *projectConfigFile) map[string]
 			SkipContentTypes:         p.SkipContentTypes,
 			SkipExtensions:           p.SkipExtensions,
 			ExcludeHosts:             p.ExcludeHosts,
+			AnomalyEnabled:           p.AnomalyEnabled,
+			AnomalySensitivity:       p.AnomalySensitivity,
 		}
 	}
 	s.detectEngine.SetConfig(dc)

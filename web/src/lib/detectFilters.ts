@@ -15,6 +15,7 @@ export const CATEGORY_OPTIONS = [
   { key: 'disclosure', label: 'Disclosure', title: 'Stack traces, versions, internal paths, exposed files' },
   { key: 'headers', label: 'Headers', title: 'Security header and CORS issues' },
   { key: 'cookies', label: 'Cookies', title: 'Cookie flag issues' },
+  { key: 'anomaly', label: 'Anomaly', title: 'Endpoints unlike their siblings on the same host' },
 ]
 
 export const TARGET_OPTIONS = [

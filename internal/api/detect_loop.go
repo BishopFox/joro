@@ -31,6 +31,11 @@ func (s *APIServer) detectBackgroundCtx() context.Context {
 // proxy.Store rewrites its sequence numbering (Clear zeroes nextSeq, LoadItems
 // rewrites it); a stale high cursor stops detection for the session.
 func (s *APIServer) resetDetectCursor(seq int) {
+	// The anomaly engine's record cache is keyed on the same sequence numbering,
+	// so it must reset wherever detection's cursor does.
+	if s.anomalyEngine != nil {
+		s.anomalyEngine.ResetCursor(seq)
+	}
 	if s.detectScanner == nil {
 		return
 	}

@@ -102,6 +102,8 @@ type projectDetectConfig struct {
 	SkipContentTypes         []string `json:"skipContentTypes,omitempty"`
 	SkipExtensions           []string `json:"skipExtensions,omitempty"`
 	ExcludeHosts             []string `json:"excludeHosts,omitempty"`
+	AnomalyEnabled           bool     `json:"anomalyEnabled,omitempty"`
+	AnomalySensitivity       string   `json:"anomalySensitivity,omitempty"`
 }
 
 // projectDetectRule is a custom detection rule as persisted. Unlike the scope,
