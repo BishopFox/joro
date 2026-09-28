@@ -119,19 +119,26 @@ const (
 	// the same host. These come from internal/anomaly, not the rule engine, and
 	// are advisory triage aids rather than vulnerability claims.
 	CategoryAnomaly Category = "anomaly"
+	// CategoryReflection holds input that reaches the response in a position it
+	// can leave. These come from internal/echo, not the rule engine; a
+	// reflection that cannot escape its context is mapped there and never filed
+	// here.
+	CategoryReflection Category = "reflection"
 )
 
 // Categories lists every category. See Severities.
 var Categories = []Category{
 	CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
 	CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
+	CategoryReflection,
 }
 
 // Valid reports whether c is a known category.
 func (c Category) Valid() bool {
 	switch c {
 	case CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
-		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly:
+		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
+		CategoryReflection:
 		return true
 	}
 	return false
@@ -142,6 +149,7 @@ func AllCategories() []Category {
 	return []Category{
 		CategorySecrets, CategoryCredentials, CategoryPII, CategoryAccess,
 		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
+		CategoryReflection,
 	}
 }
 

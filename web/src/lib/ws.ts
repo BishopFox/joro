@@ -1,6 +1,8 @@
 import { useAutomationStore } from '../stores/automationStore'
 import { useCallbackStore, type CallbackInteraction } from '../stores/callbackStore'
 import { useDetectStore, type Finding, type DetectSummary } from '../stores/detectStore'
+import { useEchoStore } from '../stores/echoStore'
+import type { EchoSummary } from './echoTypes'
 import { useSJStore } from '../stores/sjStore'
 import type { SJResult, SJFoundSpec } from './sjTypes'
 import { useChainStore } from '../stores/chainStore'
@@ -168,6 +170,18 @@ export function connectWS() {
   }
 
   ws.onerror = () => ws?.close()
+}
+
+// Echo rows are server-side aggregates, so a live reflection can only ask for a
+// reload. One per frame keeps a rescan from issuing a request per response.
+let echoReloadScheduled = false
+function scheduleEchoReload() {
+  if (echoReloadScheduled) return
+  echoReloadScheduled = true
+  requestAnimationFrame(() => {
+    echoReloadScheduled = false
+    useEchoStore.getState().invalidate()
+  })
 }
 
 function handleMessage(msg: WSMessage) {
@@ -466,6 +480,50 @@ function handleMessage(msg: WSMessage) {
     case 'detect.rules.changed': {
       // Force the rules view to refetch on next mount.
       useDetectStore.setState({ rulesLoaded: false })
+      break
+    }
+    case 'echo.summary': {
+      useEchoStore.getState().setSummary(msg.data as EchoSummary)
+      break
+    }
+    case 'echo.reflection': {
+      // The payload carries counts, not a row: a map row is an aggregate over
+      // every message that carried the parameter, so it cannot be merged
+      // client-side. Coalesce into one reload per frame instead.
+      scheduleEchoReload()
+      break
+    }
+    case 'echo.scan.started': {
+      const d = msg.data as { jobId: string; total: number }
+      useEchoStore.getState().setScan({
+        running: true,
+        jobId: d.jobId,
+        scanned: 0,
+        total: d.total,
+        status: 'running',
+      })
+      break
+    }
+    case 'echo.scan.progress': {
+      const d = msg.data as { jobId: string; scanned: number; total: number }
+      useEchoStore.getState().setScan({
+        running: true,
+        jobId: d.jobId,
+        scanned: d.scanned,
+        total: d.total,
+        status: 'running',
+      })
+      break
+    }
+    case 'echo.scan.complete': {
+      const d = msg.data as { status: string; scanned: number }
+      useEchoStore.getState().setScan({
+        running: false,
+        scanned: d.scanned,
+        total: d.scanned,
+        status: d.status,
+      })
+      useEchoStore.getState().invalidate()
       break
     }
     case 'automation.script.state': {

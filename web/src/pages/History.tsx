@@ -11,6 +11,8 @@ import LensOutput from '../components/LensOutput'
 import TabButton from '../components/TabButton'
 import RunOutput from '../components/automation/RunOutput'
 import { useLenses } from '../lib/lenses'
+import { EchoRequestPane } from '../components/echo/EchoRequestPane'
+import { RequestParams } from '../components/echo/RequestParams'
 import { useAutomationStore } from '../stores/automationStore'
 import { rawToCurl } from '../lib/httpTransform'
 import { RequestDetail, RequestSummary, SortColumn, useRequestStore } from '../stores/requestStore'
@@ -470,7 +472,8 @@ function HTTPHistory() {
   // A tab whose lens was hidden or uninstalled falls back rather than rendering nothing.
   const tabOr = (tab: string, lenses: { id: string }[], base: string[]) =>
     base.includes(tab) || lenses.some((l) => l.id === tab) ? tab : 'raw'
-  const activeRespTab = tabOr(respTab, respLenses, ['raw', 'render'])
+  const activeRespTab = tabOr(respTab, respLenses, ['raw', 'render', 'echo'])
+  const activeReqTab = tabOr(reqTab, reqLenses, ['raw', 'params'])
 
   const tableRef = useRef<HTMLDivElement>(null)
   const selectedRowRef = useRef<HTMLTableRowElement>(null)
@@ -979,37 +982,40 @@ function HTTPHistory() {
             <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: hSplit.fraction }}>
               <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-card shrink-0">
                 <span className="text-xs font-semibold text-content-primary">Request</span>
-                {reqLenses.length > 0 && (
-                  <div className="flex items-center gap-0.5 ml-2">
-                    <TabButton active={tabOr(reqTab, reqLenses, ['raw']) === 'raw'} onClick={() => setReqTab('raw')}>
-                      Raw
-                    </TabButton>
-                    {reqLenses.map((l) => (
-                      <TabButton
-                        key={l.id}
-                        active={tabOr(reqTab, reqLenses, ['raw']) === l.id}
-                        onClick={() => setReqTab(l.id)}
-                      >
-                        {l.lens!.label}
-                      </TabButton>
-                    ))}
-                  </div>
-                )}
-                <div className="flex items-center gap-1 ml-auto">
-                  <Tooltip content="Line wrapping">
-                    <button
-                      onClick={() => setWrapReq(w => !w)}
-                      className={`w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
-                        wrapReq ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
-                      }`}
+                <div className="flex items-center gap-0.5 ml-2">
+                  <TabButton active={activeReqTab === 'raw'} onClick={() => setReqTab('raw')}>
+                    Raw
+                  </TabButton>
+                  <TabButton active={activeReqTab === 'params'} onClick={() => setReqTab('params')}>
+                    Parameters
+                  </TabButton>
+                  {reqLenses.map((l) => (
+                    <TabButton
+                      key={l.id}
+                      active={activeReqTab === l.id}
+                      onClick={() => setReqTab(l.id)}
                     >
-                      <WrapText size={12} />
-                    </button>
-                  </Tooltip>
+                      {l.lens!.label}
+                    </TabButton>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1 ml-auto">
+                  {activeReqTab === 'raw' && (
+                    <Tooltip content="Line wrapping">
+                      <button
+                        onClick={() => setWrapReq(w => !w)}
+                        className={`w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
+                          wrapReq ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
+                        }`}
+                      >
+                        <WrapText size={12} />
+                      </button>
+                    </Tooltip>
+                  )}
                 </div>
               </div>
               <div className="flex-1 relative min-h-0">
-                {tabOr(reqTab, reqLenses, ['raw']) === 'raw' ? (
+                {activeReqTab === 'raw' ? (
                   <div className="absolute inset-0 overflow-hidden">
                     <CodeMirror
                       value={b64Decode(selectedDetail.reqRaw)}
@@ -1020,9 +1026,11 @@ function HTTPHistory() {
                       basicSetup={{ lineNumbers: true, foldGutter: false }}
                     />
                   </div>
+                ) : activeReqTab === 'params' ? (
+                  <RequestParams requestId={selectedDetail.id} />
                 ) : (
                   <LensOutput
-                    scriptId={tabOr(reqTab, reqLenses, ['raw'])}
+                    scriptId={activeReqTab}
                     part="request"
                     raw={b64Decode(selectedDetail.reqRaw)}
                     meta={{ host: selectedDetail.host, url: selectedDetail.url }}
@@ -1044,6 +1052,9 @@ function HTTPHistory() {
                   </TabButton>
                   <TabButton active={activeRespTab === 'render'} onClick={() => setRespTab('render')}>
                     Render
+                  </TabButton>
+                  <TabButton active={activeRespTab === 'echo'} onClick={() => setRespTab('echo')}>
+                    Reflections
                   </TabButton>
                   {respLenses.map((l) => (
                     <TabButton key={l.id} active={activeRespTab === l.id} onClick={() => setRespTab(l.id)}>
@@ -1089,6 +1100,8 @@ function HTTPHistory() {
                       basicSetup={{ lineNumbers: true, foldGutter: false }}
                     />
                   </div>
+                ) : activeRespTab === 'echo' ? (
+                  <EchoRequestPane requestId={selectedDetail.id} />
                 ) : !selectedDetail.respRaw ? null : activeRespTab === 'render' ? (
                   <ResponseRender raw={b64Decode(selectedDetail.respRaw)} prettyJson={prettyJson} />
                 ) : (

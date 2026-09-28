@@ -17,6 +17,7 @@ import (
 	"github.com/BishopFox/joro/internal/chain"
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/detect"
+	"github.com/BishopFox/joro/internal/echo"
 	"github.com/BishopFox/joro/internal/proxy"
 	"github.com/hashicorp/go-uuid"
 )
@@ -219,6 +220,12 @@ type projectConfigFile struct {
 	// no field to leave out. The raws ride as base64 because that is what
 	// encoding/json does with []byte.
 	Chains []*chain.Chain `json:"chains,omitempty"`
+
+	// EchoConfig is the reflection mapper's settings (schema v9). Only the
+	// settings travel: the map itself is derived from history and a rescan
+	// rebuilds it, so persisting it would store a second copy of captured
+	// traffic that a project load could not keep in step with the first.
+	EchoConfig *echo.Config `json:"echoConfig,omitempty"`
 }
 
 // encodePluginStates base64-encodes each blob for transport inside a JSON
@@ -349,12 +356,18 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 
 	dEnabled, dCfg, dDisabled, dOverrides, dRules, dFindings := s.detectStateForProject()
 
+	var echoCfg *echo.Config
+	if s.echoEngine != nil {
+		c := s.echoEngine.Config()
+		echoCfg = &c
+	}
+
 	return projectConfigFile{
-		// v8 added Chains; v7 added AutomationStates. Neither needs a
-		// normalizeProjectConfig gate: both decode to nil when absent, which is the
-		// correct default — a backfill exists only where the zero value would be
-		// wrong, as it was for autoSave and detectEnabled.
-		Version:           8,
+		// v9 added EchoConfig; v8 added Chains; v7 added AutomationStates. None
+		// needs a normalizeProjectConfig gate: all decode to nil when absent, which
+		// is the correct default — a backfill exists only where the zero value would
+		// be wrong, as it was for autoSave and detectEnabled.
+		Version:           9,
 		AutoSave:          autoSave,
 		SaveHistory:       saveHistory,
 		ListenerURL:       listenerURL,
@@ -386,7 +399,8 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		// state the first time anyone else saves.
 		AutomationStates: encodePluginStates(mergePluginStates(automationGhost, automationFresh)),
 
-		Chains: s.chainStore.List(),
+		Chains:     s.chainStore.List(),
+		EchoConfig: echoCfg,
 	}
 }
 
@@ -571,11 +585,20 @@ func (s *APIServer) liveStateSignature() string {
 	if s.chainStore != nil {
 		chainCount, chainRev = s.chainStore.Count(), s.chainStore.Revision()
 	}
+	// Only the reflection settings are saved, so only they are fingerprinted:
+	// the map's own revision changes on every analyzed response and would force
+	// a project save every tick while proxying.
+	echoSig := ""
+	if s.echoEngine != nil {
+		c := s.echoEngine.Config()
+		echoSig = fmt.Sprintf("/ec%v.%d.%d.%d", c.Enabled, c.MinValueLen,
+			c.TransformDepth, c.MaxBodyScanBytes)
+	}
 	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%s/rp%d/cd%d/no%d/lc%d.%d",
 		reqCount, lastSeq, noteCount, maxNoteUpdate, hlCount,
 		scopeSignature(s.scope.Rules()), len(s.replace.Rules()),
 		len(s.customData.Items()), len(s.noise.Patterns()), chainCount, chainRev) +
-		s.detectSignature() + s.automationSignature()
+		s.detectSignature() + s.automationSignature() + echoSig
 }
 
 // saveProject snapshots live state to the named project's .joro (respecting its
@@ -665,6 +688,12 @@ func (s *APIServer) resetLiveProjectState() {
 	}
 	if s.chainRuns != nil {
 		s.chainRuns.Clear()
+	}
+	// The reflection map describes the previous engagement's traffic, so it goes
+	// with it; the settings return to their defaults alongside.
+	if s.echoEngine != nil {
+		s.echoStore.Clear()
+		s.echoEngine.SetConfig(echo.DefaultConfig())
 	}
 
 	// An automation's key/value state describes the engagement it was gathered in.
@@ -766,6 +795,18 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	}
 	if s.chainStore != nil {
 		s.chainStore.ReplaceAll(cfg.Chains)
+	}
+
+	// The reflection map is derived from the history being replaced, so it is
+	// cleared rather than loaded; its settings are project data and are applied.
+	// An older file carries none, and the defaults are the right answer there.
+	if s.echoEngine != nil {
+		s.echoStore.Clear()
+		if cfg.EchoConfig != nil {
+			s.echoEngine.SetConfig(*cfg.EchoConfig)
+		} else {
+			s.echoEngine.SetConfig(echo.DefaultConfig())
+		}
 	}
 
 	// Apply team server settings.

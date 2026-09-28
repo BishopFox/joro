@@ -36,6 +36,14 @@ func (s *APIServer) resetDetectCursor(seq int) {
 	if s.anomalyEngine != nil {
 		s.anomalyEngine.ResetCursor(seq)
 	}
+	// Reflection mapping walks the same sequence numbering, so it resets here
+	// too: this one function is what every reset path calls.
+	if s.echoEngine != nil {
+		s.echoEngine.ResetCursor(seq)
+		if seq == 0 && s.echoStore != nil {
+			s.echoStore.Clear()
+		}
+	}
 	if s.detectScanner == nil {
 		return
 	}
@@ -52,4 +60,13 @@ func (s *APIServer) clearDetectFindingsWithHistory() {
 		s.detectFindings.Clear()
 		s.broadcastDetectSummary()
 	}
+}
+
+// StartEchoLoop launches the reflection mapper. It runs unconditionally and
+// no-ops per tick while disabled, so a live toggle needs no restart.
+func (s *APIServer) StartEchoLoop(ctx context.Context) {
+	if s.echoEngine == nil {
+		return
+	}
+	go s.echoEngine.Run(ctx)
 }

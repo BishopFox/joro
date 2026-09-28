@@ -26,6 +26,7 @@ import (
 	"github.com/BishopFox/joro/internal/config"
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/detect"
+	"github.com/BishopFox/joro/internal/echo"
 	"github.com/BishopFox/joro/internal/event"
 	"github.com/BishopFox/joro/internal/fuzzer"
 	"github.com/BishopFox/joro/internal/httptools"
@@ -126,6 +127,14 @@ type APIServer struct {
 	detectFindings *detect.Store
 	detectScanner  *detect.Scanner
 	anomalyEngine  *anomaly.Engine
+
+	// Reflection mapping (the Echo tab). The map is session state and is
+	// rebuilt by a rescan, for the reason SJ's stores are: it is derived from
+	// history and holds no triage of its own. Only its config travels with the
+	// project, and only a breakout reaches detectFindings. See internal/echo.
+	echoEngine *echo.Engine
+	echoStore  *echo.Store
+
 	// detectCtx is the server-lifetime context, so a rescan job can outlive the
 	// HTTP request that started it. Guarded by mu.
 	detectCtx context.Context
@@ -302,6 +311,12 @@ func New(
 	s.anomalyEngine = anomaly.NewEngine(
 		store, scope, detectFindings,
 		detectEngine.Config, hub.Broadcast(), s.broadcastDetectSummary)
+	// Reflection mapping writes into the same findings store, and for the same
+	// reason is built here: it needs the shared summary push.
+	s.echoStore = echo.NewStore(0)
+	s.echoEngine = echo.NewEngine(
+		s.echoStore, store, scope, detectFindings,
+		hub.Broadcast(), s.broadcastDetectSummary)
 	// Both stores are built here rather than in SetAutomation, because both outlive
 	// automation: a webhook references a trigger, and neither needs an agent to be useful.
 	// See initTriggers for why the trigger store moved out of newScriptManager.

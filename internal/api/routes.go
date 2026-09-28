@@ -80,10 +80,14 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	// Sitemap
 	mux.HandleFunc("GET /api/v1/sitemap", s.handleGetSitemap)
 	mux.HandleFunc("DELETE /api/v1/sitemap", s.handleDeleteSitemap)
+	// The parameter inventory behind a node. UI-only for the reason stated on the
+	// echo block below: a row names a parameter and an example of its value.
+	mux.HandleFunc("GET /api/v1/sitemap/params", s.handleGetSitemapParams)
 
 	// HTTP history
 	mux.HandleFunc("GET /api/v1/requests", s.handleListRequests)
 	mux.HandleFunc("GET /api/v1/requests/{id}", s.handleGetRequest)
+	mux.HandleFunc("GET /api/v1/requests/{id}/params", s.handleGetRequestParams)
 	mux.HandleFunc("DELETE /api/v1/requests", s.handleClearRequests)
 
 	// Intercept
@@ -190,6 +194,27 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/detect/scan", s.handleStartDetectScan)
 	mux.HandleFunc("GET /api/v1/detect/scan", s.handleGetDetectScan)
 	mux.HandleFunc("POST /api/v1/detect/scan/cancel", s.handleCancelDetectScan)
+
+	// Reflection mapping (the Echo tab). Records every value a request sent and
+	// every place it comes back in the response, with the transform it came back
+	// through and the context it landed in.
+	//
+	// UI-only, like the blocks above, though it sends nothing at all: the map is
+	// a read of captured traffic. It stays off the capability surface because a
+	// row names a parameter and its value, which is where an application puts
+	// session tokens and personal data, and a token that could enumerate the map
+	// would be reading every credential that crossed the proxy.
+	mux.HandleFunc("GET /api/v1/echo", s.handleGetEcho)
+	mux.HandleFunc("PUT /api/v1/echo/enabled", s.handleSetEchoEnabled)
+	mux.HandleFunc("GET /api/v1/echo/config", s.handleGetEchoConfig)
+	mux.HandleFunc("PUT /api/v1/echo/config", s.handleSetEchoConfig)
+	mux.HandleFunc("GET /api/v1/echo/params", s.handleListEchoParams)
+	mux.HandleFunc("GET /api/v1/echo/params/{id}", s.handleGetEchoParam)
+	mux.HandleFunc("GET /api/v1/echo/requests/{requestId}", s.handleGetEchoRequest)
+	mux.HandleFunc("DELETE /api/v1/echo/data", s.handleClearEcho)
+	mux.HandleFunc("POST /api/v1/echo/scan", s.handleStartEchoScan)
+	mux.HandleFunc("GET /api/v1/echo/scan", s.handleGetEchoScan)
+	mux.HandleFunc("POST /api/v1/echo/scan/cancel", s.handleCancelEchoScan)
 
 	// Web shell generator
 	mux.HandleFunc("POST /api/v1/generate", s.handleGenerate)

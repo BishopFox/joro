@@ -1,4 +1,13 @@
 import type { CallbackInteraction, CallbackToken } from '../stores/callbackStore'
+import type {
+  EchoConfig,
+  EchoEntry,
+  EchoInventory,
+  EchoReport,
+  EchoRequestParams,
+  EchoScanStatus,
+  EchoState,
+} from './echoTypes'
 import type { InterceptKind, PendingItem } from '../stores/interceptStore'
 import type { ChatMessage, ActiveUser } from '../stores/teamStore'
 import type { FlaggedSummary, FlaggedRequest } from '../stores/teamFlaggedStore'
@@ -1104,6 +1113,22 @@ export const api = {
     if (path !== undefined) qs.set('path', path)
     return req<{ deleted: number }>('DELETE', `/sitemap?${qs.toString()}`)
   },
+  // Every parameter the node's requests carried. The node is 'origin', not 'host'
+  // as deleteSitemapNode names it: this endpoint also takes the tree's filters,
+  // where 'host' means a substring of the captured Host header. Filters must match
+  // the ones the tree was built with, or the counts disagree with it.
+  sitemapParams: (
+    origin: string,
+    path?: string,
+    filters: Record<string, string | number> = {}
+  ) => {
+    const qs = new URLSearchParams({ origin })
+    if (path !== undefined) qs.set('path', path)
+    for (const [k, v] of Object.entries(filters)) {
+      if (v !== '' && v !== 0) qs.set(k, String(v))
+    }
+    return req<EchoInventory>('GET', `/sitemap/params?${qs.toString()}`)
+  },
 
   // History
   listRequests: (params: Record<string, string | number>) => {
@@ -1117,6 +1142,8 @@ export const api = {
     )
   },
   getRequest: (id: string) => req<unknown>('GET', `/requests/${id}`),
+  // Every input this one request carried, across every source.
+  requestParams: (id: string) => req<EchoRequestParams>('GET', `/requests/${id}/params`),
   clearRequests: () => req<unknown>('DELETE', '/requests'),
 
   // Intercept
@@ -1291,6 +1318,37 @@ export const api = {
       'GET', `/chain/runs/${id}/results/${index}`),
   chainStopRun: (id: string) => req<unknown>('POST', `/chain/runs/${id}/stop`),
   chainDeleteRun: (id: string) => req<unknown>('DELETE', `/chain/runs/${id}`),
+
+  // Echo — the reflection map: which values sent in a request come back, and how.
+  echoState: () => req<EchoState>('GET', '/echo'),
+  echoSetEnabled: (enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', '/echo/enabled', { enabled }),
+  echoGetConfig: () => req<EchoConfig>('GET', '/echo/config'),
+  // A patch: every field is optional server-side, so a partial object is valid.
+  echoSetConfig: (body: Partial<EchoConfig>) =>
+    req<EchoConfig>('PUT', '/echo/config', body),
+  echoListParams: (params: Record<string, string | number>) => {
+    const qs = new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v !== '' && v !== 0)
+        .map(([k, v]) => [k, String(v)])
+    ).toString()
+    return req<{ items: EchoEntry[]; total: number; offset: number; limit: number }>(
+      'GET', `/echo/params${qs ? `?${qs}` : ''}`)
+  },
+  echoGetParam: (id: string) => req<EchoEntry>('GET', `/echo/params/${id}`),
+  // analyzed:false means the message predates the mapper being switched on, not
+  // that it holds no reflections.
+  echoGetRequest: (requestId: string) =>
+    req<{ requestId: string; analyzed: boolean; report?: EchoReport }>(
+      'GET', `/echo/requests/${requestId}`),
+  echoClear: () => req<unknown>('DELETE', '/echo/data'),
+  // Backfills the map from captured history — the usual path, since the mapper
+  // is switched on once the interesting traffic is already captured.
+  echoStartScan: (body?: { scope?: string; host?: string; clear?: boolean }) =>
+    req<EchoScanStatus>('POST', '/echo/scan', body ?? {}),
+  echoGetScan: () => req<EchoScanStatus>('GET', '/echo/scan'),
+  echoCancelScan: () => req<EchoScanStatus>('POST', '/echo/scan/cancel', {}),
 
   // Generate
   generate: (format: string, mode?: string, implantUrl?: string, binaryName?: string, inMemory?: boolean) =>

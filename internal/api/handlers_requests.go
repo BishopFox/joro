@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/BishopFox/joro/internal/echo"
 	"github.com/BishopFox/joro/internal/proxy"
 )
 
@@ -117,6 +118,35 @@ func (s *APIServer) handleGetRequest(w http.ResponseWriter, r *http.Request) {
 		"responseSize": item.ResponseSize,
 		"reqRaw":       base64.StdEncoding.EncodeToString(item.ReqRaw),
 		"respRaw":      base64.StdEncoding.EncodeToString(item.RespRaw),
+	})
+}
+
+// handleGetRequestParams lists every input one captured request carried — query,
+// path segment, form field, JSON leaf, multipart field, cookie and header — as
+// the one walker in the repo enumerates them. It is the per-request half of the
+// site-map inventory and, like it, runs on demand and needs nothing from the
+// reflection engine.
+func (s *APIServer) handleGetRequestParams(w http.ResponseWriter, r *http.Request) {
+	item := s.store.Get(r.PathValue("id"))
+	if item == nil {
+		writeError(w, http.StatusNotFound, "request not found")
+		return
+	}
+
+	cfg := echo.DefaultConfig()
+	if s.echoEngine != nil {
+		cfg = s.echoEngine.Config()
+	}
+	cfg.Normalize()
+	params := echo.RequestParams(item, cfg)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"requestId": item.ID,
+		"params":    params,
+		// The walker stops at MaxValuesPerRequest without saying it did, so a full
+		// slice is the only signal available. A request carrying exactly the cap
+		// reports truncated, which is the safe direction to be wrong in.
+		"truncated": len(params) >= cfg.MaxValuesPerRequest,
 	})
 }
 

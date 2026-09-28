@@ -16,7 +16,10 @@ import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
 import ConfirmModal from '../components/ConfirmModal'
 import { Tooltip } from '../components/Tooltip'
-import { Filter, ChevronRight, X, WrapText } from 'lucide-react'
+import { Filter, ChevronRight, X, WrapText, SlidersHorizontal } from 'lucide-react'
+import { EchoRequestPane } from '../components/echo/EchoRequestPane'
+import { ParamInventory } from '../components/echo/ParamInventory'
+import { RequestParams } from '../components/echo/RequestParams'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { copyText } from '../lib/clipboard'
 import SitemapFilterModal, { emptySitemapFilter, hasModalFilters } from '../components/SitemapFilterModal'
@@ -57,11 +60,20 @@ export default function Map() {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [wrapReq, setWrapReq] = useState(true)
   const [wrapResp, setWrapResp] = useState(true)
-  // 'raw' | 'render' | a lens automation id.
+  // The selected node, when the operator asked for its parameters rather than a
+  // request. A variant selection and a node selection are exclusive: each clears
+  // the other, so the right pane never has to decide which one it is showing.
+  // path undefined means the whole host.
+  const [selectedNode, setSelectedNode] = useState<{ origin: string; path?: string } | null>(null)
+  // 'raw' | 'params'.
+  const [reqTab, setReqTab] = useState('raw')
+  // 'raw' | 'render' | 'echo' | a lens automation id.
   const [respTab, setRespTab] = useState('raw')
   const respLenses = useLenses('response')
   const activeRespTab =
-    respTab === 'raw' || respTab === 'render' || respLenses.some((l) => l.id === respTab) ? respTab : 'raw'
+    respTab === 'raw' || respTab === 'render' || respTab === 'echo' || respLenses.some((l) => l.id === respTab)
+      ? respTab
+      : 'raw'
   const [prettyJson, setPrettyJson] = usePrettyJson()
   const [detailMenu, setDetailMenu] = useState<{ x: number; y: number } | null>(null)
 
@@ -141,7 +153,17 @@ export default function Map() {
     })
   }
 
+  // Show a node's parameter inventory. Clears the request selection: the pane it
+  // replaces is the request/response split.
+  function selectNode(origin: string, path?: string) {
+    setSelectedNode({ origin, path })
+    setSelectedKey(null)
+    setSelectedDetail(null)
+    setDetailError(null)
+  }
+
   async function selectVariant(variant: SitemapVariant, key: string) {
+    setSelectedNode(null)
     setSelectedKey(key)
     setLoadingDetail(true)
     setDetailError(null)
@@ -179,6 +201,13 @@ export default function Map() {
     // Variant keys are `${origin}${path}:${index}`; the trailing ':' on the
     // endpoint prefix keeps /api from matching /apiv2.
     const prefix = kind === 'endpoint' ? `${origin}${path ?? ''}:` : origin
+    if (
+      selectedNode &&
+      selectedNode.origin === origin &&
+      (kind === 'host' || selectedNode.path === path)
+    ) {
+      setSelectedNode(null)
+    }
     if (selectedKey && selectedKey.startsWith(prefix)) {
       setSelectedDetail(null)
       setSelectedKey(null)
@@ -315,6 +344,19 @@ export default function Map() {
                       <span className="text-[10px] text-content-muted ml-1">({host.count})</span>
                       <span className="text-[10px] text-content-muted ml-auto">{host.endpoints.length} {host.endpoints.length === 1 ? 'endpoint' : 'endpoints'}</span>
                     </button>
+                    <Tooltip content="Parameters">
+                      <button
+                        onClick={() => selectNode(host.origin)}
+                        aria-label="Host parameters"
+                        className={`px-2 py-1.5 text-xs leading-none shrink-0 inline-flex items-center ${
+                          selectedNode?.origin === host.origin && selectedNode.path === undefined
+                            ? 'text-accent-secondary'
+                            : 'text-content-muted hover:text-accent-secondary'
+                        }`}
+                      >
+                        <SlidersHorizontal size={13} />
+                      </button>
+                    </Tooltip>
                     <Tooltip content="Delete host">
                       <button
                         onClick={() => setConfirmDelete({ kind: 'host', origin: host.origin })}
@@ -358,6 +400,19 @@ export default function Map() {
                                 </span>
                                 <span className="text-[10px] text-content-muted ml-auto">({ep.count})</span>
                               </button>
+                              <Tooltip content="Parameters">
+                                <button
+                                  onClick={() => selectNode(host.origin, ep.path)}
+                                  aria-label="Endpoint parameters"
+                                  className={`px-2 py-1 text-xs leading-none shrink-0 inline-flex items-center ${
+                                    selectedNode?.origin === host.origin && selectedNode.path === ep.path
+                                      ? 'text-accent-secondary'
+                                      : 'text-content-muted hover:text-accent-secondary'
+                                  }`}
+                                >
+                                  <SlidersHorizontal size={13} />
+                                </button>
+                              </Tooltip>
                               <Tooltip content="Delete endpoint">
                                 <button
                                   onClick={() => setConfirmDelete({ kind: 'endpoint', origin: host.origin, path: ep.path })}
@@ -416,7 +471,14 @@ export default function Map() {
 
       {/* Right: Detail panel */}
       <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: 1 - mainSplit.fraction }}>
-        {selectedDetail ? (
+        {selectedNode ? (
+          <ParamInventory
+            key={`${selectedNode.origin}${selectedNode.path ?? ''}`}
+            origin={selectedNode.origin}
+            path={selectedNode.path}
+            filters={params}
+          />
+        ) : selectedDetail ? (
           <div
             className="flex flex-1 min-h-0"
             ref={detailSplit.containerRef}
@@ -430,30 +492,44 @@ export default function Map() {
             <div className="flex flex-col min-h-0 overflow-hidden" style={{ flex: detailSplit.fraction }}>
               <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-card shrink-0">
                 <span className="text-xs font-semibold text-content-primary">Request</span>
+                <div className="flex items-center gap-0.5 ml-2">
+                  <TabButton active={reqTab === 'raw'} onClick={() => setReqTab('raw')}>
+                    Raw
+                  </TabButton>
+                  <TabButton active={reqTab === 'params'} onClick={() => setReqTab('params')}>
+                    Parameters
+                  </TabButton>
+                </div>
                 <div className="flex items-center gap-1 ml-auto">
-                  <Tooltip content="Line wrapping">
-                    <button
-                      onClick={() => setWrapReq(w => !w)}
-                      className={`w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
-                        wrapReq ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
-                      }`}
-                    >
-                      <WrapText size={12} />
-                    </button>
-                  </Tooltip>
+                  {reqTab === 'raw' && (
+                    <Tooltip content="Line wrapping">
+                      <button
+                        onClick={() => setWrapReq(w => !w)}
+                        className={`w-6 h-5 flex items-center justify-center rounded-sm leading-none ${
+                          wrapReq ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
+                        }`}
+                      >
+                        <WrapText size={12} />
+                      </button>
+                    </Tooltip>
+                  )}
                 </div>
               </div>
               <div className="flex-1 relative min-h-0">
-                <div className="absolute inset-0 overflow-hidden">
-                  <CodeMirror
-                    value={b64Decode(selectedDetail.reqRaw)}
-                    theme={oneDark}
-                    readOnly={true}
-                    height="100%"
-                    extensions={wrapReq ? [EditorView.lineWrapping] : []}
-                    basicSetup={{ lineNumbers: true, foldGutter: false }}
-                  />
-                </div>
+                {reqTab === 'params' ? (
+                  <RequestParams requestId={selectedDetail.id} />
+                ) : (
+                  <div className="absolute inset-0 overflow-hidden">
+                    <CodeMirror
+                      value={b64Decode(selectedDetail.reqRaw)}
+                      theme={oneDark}
+                      readOnly={true}
+                      height="100%"
+                      extensions={wrapReq ? [EditorView.lineWrapping] : []}
+                      basicSetup={{ lineNumbers: true, foldGutter: false }}
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -470,6 +546,9 @@ export default function Map() {
                   </TabButton>
                   <TabButton active={activeRespTab === 'render'} onClick={() => setRespTab('render')}>
                     Render
+                  </TabButton>
+                  <TabButton active={activeRespTab === 'echo'} onClick={() => setRespTab('echo')}>
+                    Reflections
                   </TabButton>
                   {respLenses.map((l) => (
                     <TabButton key={l.id} active={activeRespTab === l.id} onClick={() => setRespTab(l.id)}>
@@ -515,6 +594,10 @@ export default function Map() {
                       basicSetup={{ lineNumbers: true, foldGutter: false }}
                     />
                   </div>
+                ) : activeRespTab === 'echo' ? (
+                  // Before the respRaw guard: a message with no response body
+                  // still has an answer, and it is not a blank pane.
+                  <EchoRequestPane requestId={selectedDetail.id} />
                 ) : !selectedDetail.respRaw ? null : activeRespTab === 'render' ? (
                   <ResponseRender raw={b64Decode(selectedDetail.respRaw)} prettyJson={prettyJson} />
                 ) : (
@@ -535,7 +618,11 @@ export default function Map() {
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-content-muted text-sm">
-            {loadingDetail ? 'Loading...' : detailError ? detailError : 'Select an endpoint to view request details'}
+            {loadingDetail
+              ? 'Loading...'
+              : detailError
+                ? detailError
+                : 'Select an endpoint for request details, or its sliders icon for parameters'}
           </div>
         )}
       </div>

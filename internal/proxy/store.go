@@ -438,8 +438,12 @@ type SitemapVariant struct {
 
 // SitemapEndpoint represents a unique path within a host.
 type SitemapEndpoint struct {
-	Path     string           `json:"path"`
-	Methods  []string         `json:"methods"`
+	Path    string   `json:"path"`
+	Methods []string `json:"methods"`
+	// Params is the union of the variant keys below: query-string names only,
+	// with no values. It is what distinguishes one variant from another, not an
+	// inventory of the endpoint's inputs — a body, cookie or header parameter
+	// never appears here. The inventory is echo.Inventory, over NodeRequests.
 	Params   []string         `json:"params"`
 	Variants []SitemapVariant `json:"variants"`
 	Count    int              `json:"count"`
@@ -591,6 +595,44 @@ func (s *Store) Sitemap(f RequestFilter) []SitemapHost {
 	}
 
 	return hosts
+}
+
+// NodeRequests returns the captured requests behind a site-map node, newest
+// first. origin is required and is compared using the same derivation as Sitemap
+// and DeleteSitemapNode (u.Scheme + "://" + u.Host); when matchPath is true only
+// requests whose URL path == path are returned (endpoint-level), otherwise every
+// request for the origin is (host-level).
+//
+// The filter and the 404 skip are Sitemap's, not DeleteSitemapNode's: a caller
+// inventorying a node is answering a question about the tree the operator is
+// looking at, so it must see exactly the requests that built that tree. Deletion
+// takes the opposite side for its own stated reason.
+//
+// Returned pointers alias the stored records, which are never mutated after Add,
+// so a caller may read them without holding the lock. Requests whose URL cannot
+// be parsed are skipped.
+func (s *Store) NodeRequests(origin, path string, matchPath bool, f RequestFilter) []*CapturedRequest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	matcher := newRequestMatcher(f)
+
+	var out []*CapturedRequest
+	for i := len(s.items) - 1; i >= 0; i-- {
+		r := s.items[i]
+		if r.StatusCode == 404 || !matcher.match(r) {
+			continue
+		}
+		u, err := url.Parse(r.URL)
+		if err != nil {
+			continue
+		}
+		if u.Scheme+"://"+u.Host != origin || (matchPath && u.Path != path) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // DeleteSitemapNode removes all captured requests belonging to a site-map node.
