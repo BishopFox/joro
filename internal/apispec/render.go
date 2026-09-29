@@ -57,9 +57,10 @@ type Auth struct {
 
 // RenderOptions tunes one render.
 type RenderOptions struct {
-	// UserAgent is sent as-is. Empty means DefaultUserAgent, and a User-Agent
-	// the operator named through an auth profile or an "in: header" parameter
-	// outranks both — the request carries exactly one either way.
+	// UserAgent is one rung of the ladder Render resolves, most specific first:
+	// an auth profile, a value the operator typed for a declared "in: header"
+	// parameter, this, the document's generated placeholder, DefaultUserAgent.
+	// The request carries exactly one whatever happens.
 	UserAgent string
 
 	// Accept defaults to a permissive value when empty.
@@ -93,6 +94,9 @@ const defaultAccept = "application/json, text/plain, */*"
 // advertises a Go program to the target while showing the operator nothing,
 // which is the one combination worth ruling out: a rendered request is only
 // trustworthy if it is what leaves the machine.
+//
+// So a named User-Agent that writeHeader would drop, or that net/http would
+// strip as blank, does not count as named — see usableUA.
 const DefaultUserAgent = "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/40.0.2214.85 Safari/537.36"
 
 // UserAgentOr returns ua when it is usable as a header value and
@@ -103,10 +107,62 @@ const DefaultUserAgent = "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/5
 // Routing an operator-supplied value through here is what keeps a newline in one
 // from splitting the header block.
 func UserAgentOr(ua string) string {
-	if ua != "" && validHeaderValue(ua) {
-		return ua
+	if v := usableUA(ua); v != "" {
+		return v
 	}
 	return DefaultUserAgent
+}
+
+// isUserAgent reports whether name is the User-Agent header, however spelled.
+// A document chooses that spelling, not Joro, so this is case- and
+// space-insensitive.
+func isUserAgent(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), "User-Agent")
+}
+
+// usableUA returns value when it will survive both writeHeader and net/http's
+// own serialization, and "" otherwise.
+//
+// Blank and invalid are as good as unnamed: treating either as named suppresses
+// DefaultUserAgent, and the request then reaches the target carrying no
+// User-Agent at all or net/http's own.
+func usableUA(value string) string {
+	if strings.TrimSpace(value) == "" || !validHeaderValue(value) {
+		return ""
+	}
+	return value
+}
+
+// firstUsableUA picks the first candidate that will reach the wire intact,
+// which is how the rungs of the ladder fall through to one another, and
+// DefaultUserAgent is the floor none of them can drop past.
+func firstUsableUA(candidates ...string) string {
+	for _, c := range candidates {
+		if v := usableUA(c); v != "" {
+			return v
+		}
+	}
+	return DefaultUserAgent
+}
+
+// authUserAgent returns the usable User-Agent a profile names, or "". The two
+// loops are in applyAuth's order, so last-wins agrees with dedupeHeaders.
+func authUserAgent(auth Auth) string {
+	ua := ""
+	for _, c := range auth.Credentials {
+		if c.Kind != AuthAPIKey || c.In == InQuery || c.In == InCookie {
+			continue
+		}
+		if c.Name != "" && c.Value != "" && isUserAgent(c.Name) && validHeaderName(c.Name) {
+			ua = usableUA(c.Value)
+		}
+	}
+	for _, h := range auth.Headers {
+		if isUserAgent(h.Name) && validHeaderName(h.Name) {
+			ua = usableUA(h.Value)
+		}
+	}
+	return ua
 }
 
 // Render builds the raw HTTP/1.1 bytes for one operation.
@@ -143,6 +199,11 @@ func Render(op *Operation, srv Server, vals Values, auth Auth, opts RenderOption
 	queryPairs := make([]string, 0, len(op.Params))
 	headers := make([]Header, 0, len(op.Params)+8)
 	cookies := make([]Cookie, 0, 4)
+
+	// The two document-side rungs of the User-Agent ladder, filled below: what
+	// the operator typed for a declared parameter, and the placeholder the
+	// parser generated for one.
+	var typedUA, docUA string
 
 	// Exploded object properties are regrouped so the style can be honored: the
 	// three forms below are three different requests, and which one the server
@@ -188,7 +249,15 @@ func Render(op *Operation, srv Server, vals Values, auth Auth, opts RenderOption
 			}
 			queryPairs = append(queryPairs, renderScalarQuery(prm, raw, key, mark)...)
 		case InHeader:
-			headers = append(headers, Header{Name: prm.Name, Value: mark(key, raw)})
+			value := mark(key, raw)
+			if isUserAgent(prm.Name) && validHeaderName(prm.Name) {
+				if overridden {
+					typedUA = usableUA(value)
+				} else {
+					docUA = usableUA(value)
+				}
+			}
+			headers = append(headers, Header{Name: prm.Name, Value: value})
 		case InCookie:
 			cookies = append(cookies, Cookie{Name: prm.Name, Value: mark(key, raw)})
 		}
@@ -203,6 +272,10 @@ func Render(op *Operation, srv Server, vals Values, auth Auth, opts RenderOption
 	// Auth is applied after spec parameters so a profile wins over a generated
 	// placeholder for the same name.
 	headers, queryPairs, cookies = applyAuth(auth, headers, queryPairs, cookies)
+
+	// Resolved here rather than at the write site so there is one answer, and
+	// one place to read the precedence off.
+	userAgent := firstUsableUA(authUserAgent(auth), typedUA, opts.UserAgent, docUA)
 
 	target := path
 	if len(queryPairs) > 0 {
@@ -225,9 +298,7 @@ func Render(op *Operation, srv Server, vals Values, auth Auth, opts RenderOption
 	buf.WriteString(op.Method + " " + target + " HTTP/1.1\r\n")
 
 	writeHeader(&buf, "Host", host)
-	if !hasUserAgent(headers) {
-		writeHeader(&buf, "User-Agent", UserAgentOr(opts.UserAgent))
-	}
+	writeHeader(&buf, "User-Agent", userAgent)
 	accept := opts.Accept
 	if accept == "" {
 		accept = defaultAccept
@@ -235,7 +306,9 @@ func Render(op *Operation, srv Server, vals Values, auth Auth, opts RenderOption
 	writeHeader(&buf, "Accept", accept)
 
 	for _, h := range headers {
-		if reservedHeader(h.Name) {
+		// User-Agent is skipped because it was resolved and written above; a
+		// second line here is what the ladder exists to prevent.
+		if reservedHeader(h.Name) || isUserAgent(h.Name) {
 			continue
 		}
 		writeHeader(&buf, h.Name, h.Value)
@@ -662,22 +735,6 @@ func validHeaderValue(v string) bool {
 		}
 	}
 	return true
-}
-
-// hasUserAgent reports whether the operator already named one, through an auth
-// profile's extra headers or a document's own "in: header" parameter.
-//
-// Both land in the same slice, which applyAuth appends to without deduping and
-// writeHeader emits without case-folding — so this check is what makes a named
-// User-Agent an override rather than a second header line. It is deliberately
-// case- and space-insensitive: a document chooses that spelling, not Joro.
-func hasUserAgent(headers []Header) bool {
-	for _, h := range headers {
-		if strings.EqualFold(strings.TrimSpace(h.Name), "User-Agent") {
-			return true
-		}
-	}
-	return false
 }
 
 // buildCookieHeader folds every cookie into one header.

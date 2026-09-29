@@ -21,6 +21,11 @@ type specLoadRequest struct {
 	Text string `json:"text"` // the document verbatim
 	URL  string `json:"url"`  // fetched through Joro's proxy
 	Name string `json:"name"`
+
+	// UserAgent is the tab's, when a tab is doing the loading — a discovery
+	// sweep probes with it, so the fetch of what it found uses it too. Empty on
+	// a first load, where no tab exists yet.
+	UserAgent string `json:"userAgent,omitempty"`
 }
 
 // handleSpecLoad parses a document and stores it.
@@ -51,7 +56,7 @@ func (s *APIServer) handleSpecLoad(w http.ResponseWriter, r *http.Request) {
 		data = []byte(req.Text)
 		sourceURL = req.URL
 	case req.URL != "":
-		fetched, ct, err := s.fetchSpecViaProxy(r, req.URL)
+		fetched, ct, err := s.fetchSpecViaProxy(r, req.URL, req.UserAgent)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
@@ -87,7 +92,7 @@ func (s *APIServer) handleSpecLoad(w http.ResponseWriter, r *http.Request) {
 // is captured into History, filtered by scope and routed through SOCKS exactly
 // as browser traffic is — and so the document is recoverable later from History
 // without re-fetching it.
-func (s *APIServer) fetchSpecViaProxy(r *http.Request, rawURL string) ([]byte, string, error) {
+func (s *APIServer) fetchSpecViaProxy(r *http.Request, rawURL, userAgent string) ([]byte, string, error) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || u.Host == "" {
 		return nil, "", fmt.Errorf("could not parse %q as a URL", rawURL)
@@ -97,10 +102,10 @@ func (s *APIServer) fetchSpecViaProxy(r *http.Request, rawURL string) ([]byte, s
 	}
 
 	target := u.RequestURI()
-	// The default rather than an operator value: a load carries no profile and
-	// no tab exists yet to have set one.
+	// A load carries no profile, so the tab's User-Agent is the only operator
+	// value there is; UserAgentOr falls back for the first load, which has none.
 	raw := "GET " + target + " HTTP/1.1\r\nHost: " + u.Host + "\r\n" +
-		"User-Agent: " + apispec.DefaultUserAgent + "\r\n" +
+		"User-Agent: " + apispec.UserAgentOr(userAgent) + "\r\n" +
 		"Accept: application/json, text/yaml, application/yaml, */*\r\n\r\n"
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)

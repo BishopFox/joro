@@ -134,7 +134,8 @@ export default function SJDocumentBar({
             className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-28"
           />
           {/* Reaches every sub-tab from here, so a run and a single send agree.
-              A User-Agent set on an auth profile outranks it. */}
+              Outranked only by an auth profile and by a value typed for a
+              User-Agent the document itself declares as a parameter. */}
           <input
             value={tab.userAgent}
             onChange={(e) => store.updateTab(tab.id, { userAgent: e.target.value })}

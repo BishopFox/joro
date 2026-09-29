@@ -196,8 +196,8 @@ export interface SJTab {
   concurrency: number
   ratePerSec: number
   /** Empty means the server's default, which is a browser value rather than no
-   *  header — see apispec.DefaultUserAgent. Held per tab because it describes
-   *  the document's target, not one sub-tab's run. */
+   *  header — see apispec.DefaultUserAgent for the precedence ladder. Held per
+   *  tab because it describes the document's target, not one sub-tab's run. */
   userAgent: string
   allowDestructive: boolean
   /** Brute runs hotter than Automate — unauthenticated GETs against one host —

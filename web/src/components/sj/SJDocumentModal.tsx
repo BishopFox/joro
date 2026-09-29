@@ -68,7 +68,9 @@ export default function SJDocumentModal({
     store.updateTab(tab.id, { loading: true, loadError: '', htmlHint: null })
     try {
       const body =
-        source === 'url' ? { url: url.trim() } : { text, name: fileName || undefined }
+        source === 'url'
+          ? { url: url.trim(), userAgent: tab.userAgent || undefined }
+          : { text, name: fileName || undefined }
       const res = await api.sjLoad(body)
       store.setSpec(tab.id, res.spec)
       setSpecSource('')

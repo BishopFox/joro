@@ -1218,7 +1218,7 @@ export const api = {
   // A document is loaded from exactly one source. `url` is fetched server-side
   // through Joro's own proxy, so the retrieval is captured into History like any
   // other traffic; the browser never fetches a target directly.
-  sjLoad: (body: { raw?: string; text?: string; url?: string; name?: string }) =>
+  sjLoad: (body: { raw?: string; text?: string; url?: string; name?: string; userAgent?: string }) =>
     req<{ spec: SJSpec }>('POST', '/spec/load', body),
   sjListSpecs: () => req<{ specs: SJSpecSummary[] }>('GET', '/spec/specs'),
   sjGetSpec: (id: string) => req<{ spec: SJSpec }>('GET', `/spec/specs/${id}`),

@@ -68,7 +68,7 @@ export default function SJBruteView({
     // never classified as a document and the operator is trying by hand.
     const already = run?.found.find((f) => f.sourceUrl === url)
     try {
-      const res = already ? await api.sjGetSpec(already.specId) : await api.sjLoad({ url })
+      const res = already ? await api.sjGetSpec(already.specId) : await api.sjLoad({ url, userAgent: tab.userAgent || undefined })
       store.setSpec(id, res.spec)
     } catch (e) {
       onFailure(id, e)
