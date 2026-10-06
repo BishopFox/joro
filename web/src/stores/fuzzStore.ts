@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
+import type { PayloadSource } from '../lib/fuzzSources'
 
 export interface FuzzResult {
   index: number
@@ -50,6 +51,9 @@ export interface PositionWordlist {
   position: string
   wordlist: string
   wordlistFileName: string
+  // A built-in list or generator, resolved server-side. Undefined = manual
+  // (use the wordlist text above). source.kind distinguishes built-in vs generator.
+  source?: PayloadSource
 }
 
 export interface FuzzTab {
@@ -64,6 +68,8 @@ export interface FuzzTab {
   // Wordlist (single-position)
   wordlist: string
   wordlistFileName: string
+  // Single-position / spray payload source. Undefined = manual (use wordlist text).
+  source?: PayloadSource
 
   // Multi-position wordlists
   positionWordlists: PositionWordlist[]
@@ -126,6 +132,8 @@ interface FuzzState {
   setRawReq: (v: string) => void
   setWordlist: (v: string, fileName?: string) => void
   setPositionWordlist: (position: string, wordlist: string, fileName?: string) => void
+  setSource: (source: PayloadSource | undefined) => void
+  setPositionSource: (position: string, source: PayloadSource | undefined) => void
   setAttackMode: (mode: AttackMode) => void
   setSelectedPositionTab: (tab: string) => void
   syncPositionWordlists: (positions: string[]) => void
@@ -276,6 +284,16 @@ export const useFuzzStore = create<FuzzState>((set) => ({
     return updateActiveTab(s, {
       positionWordlists: tab.positionWordlists.map((pw) =>
         pw.position === position ? { ...pw, wordlist, wordlistFileName: fileName || '' } : pw
+      ),
+    })
+  }),
+  setSource: (source) => set((s) => updateActiveTab(s, { source })),
+  setPositionSource: (position, source) => set((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    if (!tab) return s
+    return updateActiveTab(s, {
+      positionWordlists: tab.positionWordlists.map((pw) =>
+        pw.position === position ? { ...pw, source } : pw
       ),
     })
   }),

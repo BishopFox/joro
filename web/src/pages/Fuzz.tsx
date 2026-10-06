@@ -17,6 +17,8 @@ import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
 import LensOutput from '../components/LensOutput'
 import TabButton from '../components/TabButton'
 import { useLenses } from '../lib/lenses'
+import PayloadSourcePanel from '../components/fuzz/PayloadSourcePanel'
+import { sourceCount, type WordlistCatalog } from '../lib/fuzzSources'
 
 function b64Encode(s: string) { try { return btoa(s) } catch { return s } }
 function b64Decode(s: string) { try { return atob(s) } catch { return s } }
@@ -169,9 +171,13 @@ export default function Fuzz() {
   const { tabs, activeTabId, addTab, removeTab, renameTab, setActiveTab, ...store } = useFuzzStore()
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const posFileInputRef = useRef<HTMLInputElement>(null)
   const editorViewRef = useRef<EditorView | null>(null)
+
+  // Built-in list + generator catalog, fetched once.
+  const [catalog, setCatalog] = useState<WordlistCatalog | null>(null)
+  useEffect(() => {
+    api.fuzzListWordlists().then(setCatalog).catch(() => setCatalog(null))
+  }, [])
 
   // Tab rename state
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
@@ -268,35 +274,39 @@ export default function Fuzz() {
     return tab.wordlist.split('\n').filter(l => l.trim() !== '')
   }, [tab.wordlist])
 
+  // Payload count for a position, honoring its source (built-in/generator) over
+  // the manual textarea. A source with an invalid/incomplete spec counts as 0.
+  const singleCount = tab.source ? Math.max(0, sourceCount(tab.source, catalog)) : wordlistLines.length
+  const positionCount = useCallback((pw: { wordlist: string; source?: Parameters<typeof sourceCount>[0] }) => {
+    if (pw.source) return Math.max(0, sourceCount(pw.source, catalog))
+    return pw.wordlist.split('\n').filter(l => l.trim() !== '').length
+  }, [catalog])
+
   // Determine if we can start based on wordlist state
   const canStart = useMemo(() => {
     if (detectedPositions.length === 0) return false
-    if (!isMultiPosition) return wordlistLines.length > 0
-    if (tab.attackMode === 'spray') return wordlistLines.length > 0
-    // split/yolo: all position wordlists must have content
-    return tab.positionWordlists.every(pw => pw.wordlist.split('\n').some(l => l.trim() !== ''))
-  }, [detectedPositions, isMultiPosition, wordlistLines, tab.attackMode, tab.positionWordlists])
+    if (!isMultiPosition) return singleCount > 0
+    if (tab.attackMode === 'spray') return singleCount > 0
+    // split/yolo: every position must have content
+    return tab.positionWordlists.every(pw => positionCount(pw) > 0)
+  }, [detectedPositions, isMultiPosition, singleCount, tab.attackMode, tab.positionWordlists, positionCount])
 
   // Estimated total for display
   const estimatedTotal = useMemo(() => {
     if (!canStart) return 0
-    if (!isMultiPosition) return wordlistLines.length
+    if (!isMultiPosition) return singleCount
     switch (tab.attackMode) {
       case 'spray':
-        return wordlistLines.length
-      case 'split': {
-        const lengths = tab.positionWordlists.map(pw => pw.wordlist.split('\n').filter(l => l.trim()).length)
-        return Math.min(...lengths)
-      }
+        return singleCount
+      case 'split':
+        return Math.min(...tab.positionWordlists.map(positionCount))
       case 'yolo': {
         let product = 1
-        for (const pw of tab.positionWordlists) {
-          product *= pw.wordlist.split('\n').filter(l => l.trim()).length
-        }
+        for (const pw of tab.positionWordlists) product *= positionCount(pw)
         return product
       }
     }
-  }, [canStart, isMultiPosition, wordlistLines, tab.attackMode, tab.positionWordlists])
+  }, [canStart, isMultiPosition, singleCount, tab.attackMode, tab.positionWordlists, positionCount])
 
   // Compute speed
   const speedRef = useRef({ times: [] as number[] })
@@ -387,28 +397,31 @@ export default function Fuzz() {
 
       let res: { campaignId: string; total: number }
       if (!isMultiPosition) {
-        // Single-position
+        // Single-position: a source resolves server-side, else send the manual lines.
         res = await api.fuzzStart({
           ...baseParams,
-          wordlist: wordlistLines,
+          ...(tab.source ? { source: tab.source } : { wordlist: wordlistLines }),
           fuzzKeyword: tab.fuzzKeyword || 'FUZZ',
         })
       } else if (tab.attackMode === 'spray') {
-        // Multi-position spray: same wordlist for all
+        // Multi-position spray: one source/wordlist used for all positions.
         res = await api.fuzzStart({
           ...baseParams,
-          wordlist: wordlistLines,
+          ...(tab.source ? { source: tab.source } : { wordlist: wordlistLines }),
           attackMode: 'spray',
         })
       } else {
-        // Multi-position split/yolo: per-position wordlists
+        // Multi-position split/yolo: each position sends a source or inline lines.
         const wordlists: Record<string, string[]> = {}
+        const sources: Record<string, NonNullable<typeof tab.source>> = {}
         for (const pw of tab.positionWordlists) {
-          wordlists[pw.position] = pw.wordlist.split('\n').filter(l => l.trim() !== '')
+          if (pw.source) sources[pw.position] = pw.source
+          else wordlists[pw.position] = pw.wordlist.split('\n').filter(l => l.trim() !== '')
         }
         res = await api.fuzzStart({
           ...baseParams,
-          wordlists,
+          ...(Object.keys(wordlists).length ? { wordlists } : {}),
+          ...(Object.keys(sources).length ? { sources } : {}),
           attackMode: tab.attackMode,
         })
       }
@@ -426,24 +439,6 @@ export default function Fuzz() {
         await api.fuzzStop(tab.campaignId)
       } catch { /* ignore */ }
     }
-  }
-
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => store.setWordlist(reader.result as string, file.name)
-    reader.readAsText(file)
-    e.target.value = ''
-  }
-
-  function handlePositionFileUpload(position: string, e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => store.setPositionWordlist(position, reader.result as string, file.name)
-    reader.readAsText(file)
-    e.target.value = ''
   }
 
   function addFuzzLocation() {
@@ -798,119 +793,53 @@ export default function Fuzz() {
             {/* Wordlist panel */}
             <div className="flex flex-col overflow-hidden min-h-0" style={{ flex: 1 - hSplit.fraction }}>
               {showSingleWordlist ? (
-                <>
-                  {/* Single wordlist header */}
-                  <div className="flex items-center gap-1 px-2 py-1 bg-surface-card border-b border-border shrink-0">
-                    <span className="text-xs text-content-muted">
-                      Wordlist ({formatNumber(wordlistLines.length)} payloads)
-                    </span>
-                    {tab.wordlistFileName && (
-                      <span className="text-xs text-content-secondary ml-1 truncate max-w-32">{tab.wordlistFileName}</span>
-                    )}
-                    <div className="flex items-center gap-1 ml-auto">
-                      <label className="text-xs px-2 py-0.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary cursor-pointer">
-                        Upload
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept=".txt,.lst,.list,.wordlist,text/*"
-                          onChange={handleFileUpload}
-                          className="hidden"
-                          disabled={isRunning}
-                        />
-                      </label>
-                      {tab.wordlist && (
-                        <Tooltip content="Clear wordlist">
-                          <button
-                            onClick={() => store.setWordlist('')}
-                            className="text-xs text-content-muted hover:text-semantic-error px-1 inline-flex items-center"
-                            disabled={isRunning}
-                          >
-                            <X size={12} />
-                          </button>
-                        </Tooltip>
-                      )}
-                    </div>
-                  </div>
-                  <textarea
-                    value={tab.wordlist}
-                    onChange={(e) => store.setWordlist(e.target.value)}
-                    className="flex-1 bg-surface-input text-xs font-mono px-2 py-1 resize-none outline-none text-content-primary"
-                    placeholder="Paste wordlist here (one payload per line) or upload a file..."
-                    readOnly={isRunning}
-                    spellCheck={false}
-                  />
-                </>
+                <PayloadSourcePanel
+                  label="Wordlist"
+                  placeholder="Paste wordlist here (one payload per line) or upload a file..."
+                  wordlist={tab.wordlist}
+                  wordlistFileName={tab.wordlistFileName}
+                  source={tab.source}
+                  catalog={catalog}
+                  disabled={isRunning}
+                  onWordlistChange={(v, fn) => store.setWordlist(v, fn)}
+                  onSourceChange={(src) => store.setSource(src)}
+                />
               ) : (
                 <>
                   {/* Multi-position wordlist tabs */}
                   <div className="flex items-center bg-surface-card border-b border-border shrink-0 overflow-x-auto">
-                    {tab.positionWordlists.map((pw, idx) => {
-                      const lines = pw.wordlist.split('\n').filter(l => l.trim()).length
-                      return (
-                        <button
-                          key={pw.position}
-                          onClick={() => store.setSelectedPositionTab(pw.position)}
-                          className={`flex items-center gap-1 px-3 py-1 text-xs border-b-2 shrink-0 ${
-                            activeWlTab === pw.position
-                              ? 'text-content-primary border-accent'
-                              : 'text-content-muted hover:text-content-secondary border-transparent'
-                          }`}
-                        >
-                          <span
-                            className="inline-block w-2 h-2 rounded-sm"
-                            style={{ background: positionTabColor(idx) }}
-                          />
-                          {pw.position}
-                          <span className="text-[10px] text-content-muted">({lines})</span>
-                        </button>
-                      )
-                    })}
+                    {tab.positionWordlists.map((pw, idx) => (
+                      <button
+                        key={pw.position}
+                        onClick={() => store.setSelectedPositionTab(pw.position)}
+                        className={`flex items-center gap-1 px-3 py-1 text-xs border-b-2 shrink-0 ${
+                          activeWlTab === pw.position
+                            ? 'text-content-primary border-accent'
+                            : 'text-content-muted hover:text-content-secondary border-transparent'
+                        }`}
+                      >
+                        <span
+                          className="inline-block w-2 h-2 rounded-sm"
+                          style={{ background: positionTabColor(idx) }}
+                        />
+                        {pw.position}
+                        <span className="text-[10px] text-content-muted">({formatNumber(positionCount(pw))})</span>
+                      </button>
+                    ))}
                   </div>
-                  {/* Active position wordlist */}
                   {activePositionWl && (
-                    <>
-                      <div className="flex items-center gap-1 px-2 py-1 bg-surface-card border-b border-border shrink-0">
-                        <span className="text-xs text-content-muted">
-                          {activeWlTab} ({formatNumber(activePositionWl.wordlist.split('\n').filter(l => l.trim()).length)} payloads)
-                        </span>
-                        {activePositionWl.wordlistFileName && (
-                          <span className="text-xs text-content-secondary ml-1 truncate max-w-32">{activePositionWl.wordlistFileName}</span>
-                        )}
-                        <div className="flex items-center gap-1 ml-auto">
-                          <label className="text-xs px-2 py-0.5 rounded-sm bg-surface-input hover:bg-surface-hover text-content-secondary cursor-pointer">
-                            Upload
-                            <input
-                              ref={posFileInputRef}
-                              type="file"
-                              accept=".txt,.lst,.list,.wordlist,text/*"
-                              onChange={(e) => handlePositionFileUpload(activeWlTab, e)}
-                              className="hidden"
-                              disabled={isRunning}
-                            />
-                          </label>
-                          {activePositionWl.wordlist && (
-                            <Tooltip content="Clear wordlist">
-                              <button
-                                onClick={() => store.setPositionWordlist(activeWlTab, '')}
-                                className="text-xs text-content-muted hover:text-semantic-error px-1 inline-flex items-center"
-                                disabled={isRunning}
-                              >
-                                <X size={12} />
-                              </button>
-                            </Tooltip>
-                          )}
-                        </div>
-                      </div>
-                      <textarea
-                        value={activePositionWl.wordlist}
-                        onChange={(e) => store.setPositionWordlist(activeWlTab, e.target.value)}
-                        className="flex-1 bg-surface-input text-xs font-mono px-2 py-1 resize-none outline-none text-content-primary"
-                        placeholder={`Paste wordlist for ${activeWlTab} (one payload per line) or upload a file...`}
-                        readOnly={isRunning}
-                        spellCheck={false}
-                      />
-                    </>
+                    <PayloadSourcePanel
+                      key={activeWlTab}
+                      label={activeWlTab}
+                      placeholder={`Paste wordlist for ${activeWlTab} (one payload per line) or upload a file...`}
+                      wordlist={activePositionWl.wordlist}
+                      wordlistFileName={activePositionWl.wordlistFileName}
+                      source={activePositionWl.source}
+                      catalog={catalog}
+                      disabled={isRunning}
+                      onWordlistChange={(v, fn) => store.setPositionWordlist(activeWlTab, v, fn)}
+                      onSourceChange={(src) => store.setPositionSource(activeWlTab, src)}
+                    />
                   )}
                 </>
               )}

@@ -9,6 +9,7 @@ import type {
   EchoState,
 } from './echoTypes'
 import type { InterceptKind, PendingItem } from '../stores/interceptStore'
+import type { PayloadSource, WordlistCatalog } from './fuzzSources'
 import type { ChatMessage, ActiveUser } from '../stores/teamStore'
 import type { FlaggedSummary, FlaggedRequest } from '../stores/teamFlaggedStore'
 import type { SharedConfigSummary, SharedConfig, SharedConfigPayload } from '../stores/teamSharedConfigStore'
@@ -1181,6 +1182,8 @@ export const api = {
     raw: string; scheme: string; host: string;
     wordlist?: string[];
     wordlists?: Record<string, string[]>;
+    source?: PayloadSource;
+    sources?: Record<string, PayloadSource>;
     attackMode?: string;
     threads: number; rateLimit: number; followRedirects: boolean;
     updateContentLength?: boolean;
@@ -1190,6 +1193,9 @@ export const api = {
     matcherMode: string; filterMode: string;
     maxStoredBodies?: number;
   }) => req<{ campaignId: string; total: number }>('POST', '/fuzzer/start', params),
+  fuzzListWordlists: () => req<WordlistCatalog>('GET', '/fuzzer/wordlists'),
+  fuzzPreviewSource: (source: PayloadSource) =>
+    req<{ count: number; sample: string[]; exceedsLimit: boolean }>('POST', '/fuzzer/wordlist/preview', source),
   fuzzStop: (id: string) => req<{ status: string }>('POST', `/fuzzer/${id}/stop`),
   fuzzListCampaigns: () => req<{ campaigns: Array<{ id: string; status: string; createdAt: string; total: number; completed: number; errors: number }> }>('GET', '/fuzzer/campaigns'),
   fuzzGetCampaign: (id: string, offset?: number, limit?: number) => {

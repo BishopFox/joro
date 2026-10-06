@@ -22,6 +22,8 @@ type fuzzerStartRequest struct {
 	Host                string              `json:"host"`
 	Wordlist            []string            `json:"wordlist"`              // Single-position wordlist
 	Wordlists           map[string][]string `json:"wordlists,omitempty"`   // Multi-position: position → wordlist
+	Source              *fuzzer.PayloadSource          `json:"source,omitempty"`  // Single-position / spray: a built-in list or generator, resolved server-side
+	Sources             map[string]fuzzer.PayloadSource `json:"sources,omitempty"` // Split/yolo: a source per position; absent ones fall back to Wordlists
 	AttackMode          string              `json:"attackMode,omitempty"`  // spray, split, yolo
 	Threads             int                 `json:"threads"`
 	RateLimit           float64             `json:"rateLimit"`
@@ -93,12 +95,22 @@ func (s *APIServer) handleFuzzerStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(positions) <= 1 {
-		// Single-position mode
-		if len(req.Wordlist) == 0 {
-			writeError(w, http.StatusBadRequest, "wordlist is empty")
-			return
+		// Single-position mode. A source (built-in list or generator) resolves
+		// server-side; otherwise the inline wordlist is used as-is.
+		if req.Source != nil {
+			wl, err := req.Source.Resolve(fuzzer.MaxGeneratedPayloads)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			cfg.Wordlist = wl
+		} else {
+			if len(req.Wordlist) == 0 {
+				writeError(w, http.StatusBadRequest, "wordlist is empty")
+				return
+			}
+			cfg.Wordlist = req.Wordlist
 		}
-		cfg.Wordlist = req.Wordlist
 	} else {
 		// Multi-position mode
 		mode := fuzzer.AttackMode(req.AttackMode)
@@ -109,30 +121,46 @@ func (s *APIServer) handleFuzzerStart(w http.ResponseWriter, r *http.Request) {
 		cfg.AttackMode = mode
 
 		if mode == fuzzer.AttackSpray {
-			// Spray: single wordlist used for all positions
-			if len(req.Wordlist) == 0 {
-				writeError(w, http.StatusBadRequest, "wordlist is empty")
-				return
+			// Spray: single wordlist (or source) used for all positions
+			var wl []string
+			if req.Source != nil {
+				resolved, err := req.Source.Resolve(fuzzer.MaxGeneratedPayloads)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+				wl = resolved
+			} else {
+				if len(req.Wordlist) == 0 {
+					writeError(w, http.StatusBadRequest, "wordlist is empty")
+					return
+				}
+				wl = req.Wordlist
 			}
 			cfg.Wordlists = make(map[string][]string, len(positions))
 			for _, pos := range positions {
-				cfg.Wordlists[pos] = req.Wordlist
+				cfg.Wordlists[pos] = wl
 			}
 		} else {
-			// Split/Yolo: require a wordlist for each position
-			if len(req.Wordlists) == 0 {
-				writeError(w, http.StatusBadRequest, "wordlists map is required for split/yolo modes")
-				return
-			}
+			// Split/Yolo: each position takes a resolved source or an inline wordlist
+			cfg.Wordlists = make(map[string][]string, len(positions))
 			for _, pos := range positions {
+				if src, ok := req.Sources[pos]; ok {
+					resolved, err := src.Resolve(fuzzer.MaxGeneratedPayloads)
+					if err != nil {
+						writeError(w, http.StatusBadRequest, fmt.Sprintf("position %s: %v", pos, err))
+						return
+					}
+					cfg.Wordlists[pos] = resolved
+					continue
+				}
 				wl, ok := req.Wordlists[pos]
 				if !ok || len(wl) == 0 {
 					writeError(w, http.StatusBadRequest, fmt.Sprintf("missing or empty wordlist for position %s", pos))
 					return
 				}
-				_ = wl
+				cfg.Wordlists[pos] = wl
 			}
-			cfg.Wordlists = req.Wordlists
 
 			// Safety limit for yolo mode
 			if mode == fuzzer.AttackYolo {
@@ -334,4 +362,68 @@ func (s *APIServer) handleFuzzerUploadWordlist(w http.ResponseWriter, r *http.Re
 		"lines": lines,
 		"count": len(lines),
 	})
+}
+
+// handleFuzzerListWordlists returns the catalog of built-in lists and generators.
+// Built-in list contents are never sent — only a count — so the picker shows size
+// without shipping the payloads twice.
+func (s *APIServer) handleFuzzerListWordlists(w http.ResponseWriter, r *http.Request) {
+	type builtinDTO struct {
+		ID          string `json:"id"`
+		Label       string `json:"label"`
+		Description string `json:"description"`
+		Category    string `json:"category"`
+		Count       int    `json:"count"`
+	}
+	lists := fuzzer.BuiltinLists()
+	builtins := make([]builtinDTO, 0, len(lists))
+	for _, l := range lists {
+		builtins = append(builtins, builtinDTO{
+			ID: l.ID, Label: l.Label, Description: l.Description,
+			Category: l.Category, Count: len(l.Values),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"builtins":   builtins,
+		"generators": fuzzer.Generators(),
+	})
+}
+
+// handleFuzzerPreviewSource resolves a payload source and returns its size plus a
+// small sample, so the editor can show "~N payloads — a, b, c, ..." live. It
+// reuses the same resolver and cap as a real campaign start.
+func (s *APIServer) handleFuzzerPreviewSource(w http.ResponseWriter, r *http.Request) {
+	if !requireLocalOrigin(w, r) {
+		return
+	}
+	var src fuzzer.PayloadSource
+	if err := decodeJSON(r, &src); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	count, err := src.Count()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp := map[string]any{
+		"count":        count,
+		"sample":       []string{},
+		"exceedsLimit": count > fuzzer.MaxGeneratedPayloads, // cannot be run
+	}
+	// Only materialize for the sample when the list is small enough that doing so
+	// on a debounced keystroke is cheap; the count alone covers the rest.
+	const previewSampleCap = 100_000
+	if count > 0 && count <= previewSampleCap {
+		full, err := src.Resolve(previewSampleCap)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if len(full) > 20 {
+			full = full[:20]
+		}
+		resp["sample"] = full
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

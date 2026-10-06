@@ -112,6 +112,8 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/fuzzer/campaigns/{id}/results/{index}", s.handleFuzzerGetResult)
 	mux.HandleFunc("DELETE /api/v1/fuzzer/campaigns/{id}", s.handleFuzzerDeleteCampaign)
 	mux.HandleFunc("POST /api/v1/fuzzer/wordlist", s.handleFuzzerUploadWordlist)
+	mux.HandleFunc("GET /api/v1/fuzzer/wordlists", s.handleFuzzerListWordlists)
+	mux.HandleFunc("POST /api/v1/fuzzer/wordlist/preview", s.handleFuzzerPreviewSource)
 
 	// API description documents (the SJ tab). Loads a Swagger/OpenAPI document,
 	// renders each operation to raw bytes, and drives scans, auth-profile
