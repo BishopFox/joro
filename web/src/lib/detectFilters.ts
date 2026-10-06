@@ -16,6 +16,7 @@ export const CATEGORY_OPTIONS = [
   { key: 'headers', label: 'Headers', title: 'Security header and CORS issues' },
   { key: 'cookies', label: 'Cookies', title: 'Cookie flag issues' },
   { key: 'anomaly', label: 'Anomaly', title: 'Endpoints unlike their siblings on the same host' },
+  { key: 'dom-xss', label: 'DOM XSS', title: 'Runtime-confirmed DOM-based cross-site scripting' },
 ]
 
 export const TARGET_OPTIONS = [

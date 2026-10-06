@@ -1,3 +1,4 @@
+import { useActiveScanStore } from '../stores/activeScanStore'
 import { useAutomationStore } from '../stores/automationStore'
 import { useCallbackStore, type CallbackInteraction } from '../stores/callbackStore'
 import { useDetectStore, type Finding, type DetectSummary } from '../stores/detectStore'
@@ -413,6 +414,32 @@ function handleMessage(msg: WSMessage) {
     case 'fuzzer.complete': {
       const d = msg.data as { campaignId: string; status: string }
       useFuzzStore.getState().setCampaignStatus(d.campaignId, d.status === 'stopped' ? 'stopped' : 'completed')
+      break
+    }
+    case 'activescan.started': {
+      // The start toast fires from the initiating HTTP response (scanMenu); this
+      // builds the run row for the Scans tab + the floating pill.
+      const d = msg.data as {
+        runId: string; host: string; origin: string; scope: string; rules: string[]; total: number
+      }
+      useActiveScanStore.getState().applyStarted(d)
+      break
+    }
+    case 'activescan.progress': {
+      const d = msg.data as { runId: string; scanned: number; total: number; findings: number }
+      useActiveScanStore.getState().applyProgress(d)
+      break
+    }
+    case 'activescan.complete': {
+      const d = msg.data as {
+        runId: string; status: string; completed: number; errors: number; findings: number
+      }
+      useActiveScanStore.getState().applyComplete(d)
+      const verb = d.status === 'stopped' ? 'stopped' : 'complete'
+      useToastStore.getState().addToast(
+        `Active scan ${verb} — ${d.findings} finding${d.findings === 1 ? '' : 's'}`,
+        'info',
+      )
       break
     }
     case 'detect.finding': {

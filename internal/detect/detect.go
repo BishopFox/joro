@@ -124,13 +124,20 @@ const (
 	// reflection that cannot escape its context is mapped there and never filed
 	// here.
 	CategoryReflection Category = "reflection"
+	// CategoryDOMXSS holds runtime-confirmed DOM-based cross-site scripting: a
+	// canary placed in a controllable DOM source (the URL fragment, a query
+	// value, window.name) that the page's own JavaScript carried into a dangerous
+	// sink. These come from internal/activescan driving a headless browser over
+	// CDP, not the passive rule engine — the payload never reaches the server, so
+	// no captured response could reveal it.
+	CategoryDOMXSS Category = "dom-xss"
 )
 
 // Categories lists every category. See Severities.
 var Categories = []Category{
 	CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
 	CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
-	CategoryReflection,
+	CategoryReflection, CategoryDOMXSS,
 }
 
 // Valid reports whether c is a known category.
@@ -138,7 +145,7 @@ func (c Category) Valid() bool {
 	switch c {
 	case CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
 		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
-		CategoryReflection:
+		CategoryReflection, CategoryDOMXSS:
 		return true
 	}
 	return false
@@ -149,7 +156,7 @@ func AllCategories() []Category {
 	return []Category{
 		CategorySecrets, CategoryCredentials, CategoryPII, CategoryAccess,
 		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
-		CategoryReflection,
+		CategoryReflection, CategoryDOMXSS,
 	}
 }
 

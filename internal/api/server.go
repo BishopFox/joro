@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BishopFox/joro/internal/activescan"
+	"github.com/BishopFox/joro/internal/activescan/domxss"
 	"github.com/BishopFox/joro/internal/anomaly"
 	"github.com/BishopFox/joro/internal/apiscan"
 	"github.com/BishopFox/joro/internal/automation"
@@ -119,6 +121,13 @@ type APIServer struct {
 	// state and are cleared on a project switch.
 	chainStore *chain.Store
 	chainRuns  *chainrun.Store
+
+	// Active scanning: operator-initiated rules that drive a target and file
+	// findings into the shared detect store. Both are nil in listener/team mode
+	// (the routes are proxy-mode only); runs are session state cleared on a
+	// project switch, and the registry is the rule set the host offers.
+	activeScans     *activescan.Store
+	activeScanRules *activescan.Registry
 
 	// Passive detection. All three are nil in listener and team-server mode; the
 	// detect routes are gated on proxy mode in registerRoutes, so only the shared
@@ -280,6 +289,7 @@ func New(
 		specRuns:      apiscan.NewStore(),
 		chainStore:    chain.NewStore(),
 		chainRuns:     chainrun.NewStore(),
+		activeScans:   activescan.NewStore(),
 		pluginManager: pluginManager,
 
 		detectEngine:   detectEngine,
@@ -317,6 +327,11 @@ func New(
 	s.echoEngine = echo.NewEngine(
 		s.echoStore, store, scope, detectFindings,
 		hub.Broadcast(), s.broadcastDetectSummary)
+	// Active-scan rule set. The registry is built here (not a package global, per
+	// the no-globals rule) so the api layer can import both activescan and its
+	// rules without an import cycle.
+	s.activeScanRules = activescan.NewRegistry()
+	s.activeScanRules.Register(domxss.New())
 	// Both stores are built here rather than in SetAutomation, because both outlive
 	// automation: a webhook references a trigger, and neither needs an agent to be useful.
 	// See initTriggers for why the trigger store moved out of newScriptManager.

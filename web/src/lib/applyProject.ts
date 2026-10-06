@@ -5,6 +5,7 @@ import { useSettingsStore, type Settings } from '../stores/settingsStore'
 import { useSJStore } from '../stores/sjStore'
 import { useEchoStore } from '../stores/echoStore'
 import { useChainStore } from '../stores/chainStore'
+import { useActiveScanStore } from '../stores/activeScanStore'
 
 // applyProjectResp propagates a project load/switch response to global live
 // state: it invalidates cached request history, refreshes settings into the
@@ -29,6 +30,7 @@ export function applyProjectResp(_resp: unknown): void {
   // previous engagement, and its verdicts were computed against a baseline
   // measured there.
   useChainStore.getState().clearAll()
+  useActiveScanStore.getState().clear()
   api
     .getSettings()
     .then((s) => useSettingsStore.getState().setSettings(s as Settings))

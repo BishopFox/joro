@@ -1097,6 +1097,20 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface ActiveScanRun {
+  id: string
+  host: string
+  origin: string
+  scope: string
+  rules: string[]
+  status: 'running' | 'complete' | 'stopped'
+  total: number
+  completed: number
+  errors: number
+  findings: number
+  createdAt: string
+}
+
 export const api = {
   // Sitemap
   getSitemap: (params: Record<string, string | number> = {}) => {
@@ -1764,6 +1778,35 @@ export const api = {
     req<ScanState>('POST', '/detect/scan', opts ?? {}),
   getDetectScan: () => req<ScanState>('GET', '/detect/scan'),
   cancelDetectScan: () => req<{ status: string }>('POST', '/detect/scan/cancel'),
+
+  // Active scanning — operator-initiated rules (DOM XSS is the first) that drive a
+  // target and file findings into Detect. Scope "host" scans every captured GET
+  // endpoint for origin; "request" scans one captured request or a raw url.
+  activeScanRules: () =>
+    req<{ rules: { id: string; name: string; category: string; enabled: boolean }[] }>(
+      'GET',
+      '/activescan/rules',
+    ),
+  setActiveScanRuleEnabled: (id: string, enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', `/activescan/rules/${id}/enabled`, { enabled }),
+  startActiveScan: (body: {
+    scope: 'host' | 'request'
+    origin?: string
+    url?: string
+    requestId?: string
+    rules?: string[]
+  }) =>
+    req<{ runId: string; total: number; rules: string[]; urls: number; skipped: number }>(
+      'POST',
+      '/activescan/runs',
+      body,
+    ),
+  listActiveScanRuns: () => req<{ runs: ActiveScanRun[] }>('GET', '/activescan/runs'),
+  getActiveScanRun: (id: string) =>
+    req<ActiveScanRun & { errorMessages: string[] }>('GET', `/activescan/runs/${id}`),
+  stopActiveScan: (id: string) =>
+    req<{ stopped: boolean }>('POST', `/activescan/runs/${id}/stop`),
+  deleteActiveScan: (id: string) => req<{ deleted: boolean }>('DELETE', `/activescan/runs/${id}`),
 
   // Highlights
   getHighlights: () => req<{ highlights: Record<string, string> }>('GET', '/highlights'),

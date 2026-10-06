@@ -16,6 +16,7 @@ import { changeRequestType, changeContentType, getMethod, getContentType, rawToC
 import ContextMenu from '../components/ContextMenu'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { initiateScan } from '../lib/scanMenu'
 import { copyText } from '../lib/clipboard'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
@@ -473,6 +474,7 @@ export default function ManipulateHTTP() {
           <ContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={handleCloseCtxMenu} items={[
             ...getSelectionMenuItems(navigate),
             { label: 'Fuzz', onClick: sendToFuzz },
+            { label: 'Initiate scan', onClick: () => initiateScan({ scope: 'request', url: getRequestUrl() }) },
             {
               label: method === 'GET' ? 'Change to POST' : 'Change to GET',
               onClick: () => updateTab(tab.id, { rawReq: changeRequestType(tab.rawReq) }),

@@ -14,6 +14,7 @@ import TabButton from '../components/TabButton'
 import { useLenses } from '../lib/lenses'
 import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
+import { initiateScan } from '../lib/scanMenu'
 import ConfirmModal from '../components/ConfirmModal'
 import { Tooltip } from '../components/Tooltip'
 import { Filter, ChevronRight, X, WrapText, SlidersHorizontal } from 'lucide-react'
@@ -76,6 +77,7 @@ export default function Map() {
       : 'raw'
   const [prettyJson, setPrettyJson] = usePrettyJson()
   const [detailMenu, setDetailMenu] = useState<{ x: number; y: number } | null>(null)
+  const [hostMenu, setHostMenu] = useState<{ x: number; y: number; origin: string } | null>(null)
 
   // Inline delete on tree rows.
   type DeleteTarget = { kind: 'host' | 'endpoint'; origin: string; path?: string }
@@ -334,7 +336,13 @@ export default function Map() {
               return (
                 <div key={host.origin}>
                   {/* Host row */}
-                  <div className="group flex items-center rounded-sm hover:bg-surface-hover transition-colors">
+                  <div
+                    className="group flex items-center rounded-sm hover:bg-surface-hover transition-colors"
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      setHostMenu({ x: e.clientX, y: e.clientY, origin: host.origin })
+                    }}
+                  >
                     <button
                       onClick={() => toggleHost(host.origin)}
                       className="flex items-center gap-2 flex-1 min-w-0 text-left px-2 py-1.5"
@@ -636,6 +644,20 @@ export default function Map() {
         />
       )}
 
+      {hostMenu && (
+        <ContextMenu
+          x={hostMenu.x}
+          y={hostMenu.y}
+          onClose={() => setHostMenu(null)}
+          items={[
+            {
+              label: 'Initiate scan',
+              onClick: () => initiateScan({ scope: 'host', origin: hostMenu.origin }),
+            },
+          ]}
+        />
+      )}
+
       {detailMenu && selectedDetail && (
         <ContextMenu
           x={detailMenu.x}
@@ -645,6 +667,7 @@ export default function Map() {
             ...getSelectionMenuItems(navigate),
             { label: 'Manipulate', onClick: sendToManipulate },
             { label: 'Fuzz', onClick: sendToFuzz },
+            { label: 'Initiate scan', onClick: () => initiateScan({ scope: 'request', requestId: selectedDetail.id }) },
             { label: 'Copy URL', onClick: copyUrl },
             { label: 'Copy as curl', onClick: copyCurl },
             { label: 'Copy Raw Request', onClick: () => copyRaw('request') },

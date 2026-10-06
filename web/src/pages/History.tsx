@@ -23,6 +23,7 @@ import ContextMenu from '../components/ContextMenu'
 import ConfirmModal from '../components/ConfirmModal'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { initiateScan } from '../lib/scanMenu'
 import { copyText } from '../lib/clipboard'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
@@ -1149,6 +1150,7 @@ function HTTPHistory() {
             ...(rowSeq !== undefined
               ? [{ label: 'Add to Chain', onClick: () => sendToChain(rowSeq) }]
               : []),
+            { label: 'Initiate scan', onClick: () => initiateScan({ scope: 'request', requestId: rowMenu.itemId }) },
             { label: 'Stage for Dead Drop', onClick: () => stageForDeadDrop(rowMenu.itemId) },
           ]}
         />
@@ -1167,6 +1169,7 @@ function HTTPHistory() {
             { label: 'Fuzz', onClick: sendToFuzz },
             { label: 'SJ', onClick: sendToSJ },
             { label: 'Add to Chain', onClick: () => sendToChain(selectedDetail.seq) },
+            { label: 'Initiate scan', onClick: () => initiateScan({ scope: 'request', requestId: selectedDetail.id }) },
             { label: 'Stage for Dead Drop', onClick: () => stageDetailForDeadDrop(selectedDetail) },
             ...(teamMode ? [{ label: 'Flag to team', icon: <Flag size={13} />, onClick: flagToTeam }] : []),
             { label: 'Copy URL', onClick: copyUrl },

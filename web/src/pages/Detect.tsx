@@ -15,6 +15,7 @@ import {
   Eye,
   EyeOff,
   Radio,
+  Scan,
   ShieldAlert,
   Trash2,
   WrapText,
@@ -29,7 +30,8 @@ import {
 } from '@codemirror/view'
 import type { Range } from '@codemirror/state'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { api } from '../lib/api'
+import { api, type ActiveScanRun } from '../lib/api'
+import { useActiveScanStore } from '../stores/activeScanStore'
 import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
 import LensOutput from '../components/LensOutput'
 import TabButton from '../components/TabButton'
@@ -198,7 +200,8 @@ function evidenceHighlightPlugin(
 }
 
 export default function Detect() {
-  const [tab, setTab] = useState<'findings' | 'rules'>('findings')
+  const [tab, setTab] = useState<'findings' | 'rules' | 'scans'>('findings')
+  const scanRunning = useActiveScanStore((s) => s.runs.some((r) => r.status === 'running'))
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -207,6 +210,7 @@ export default function Detect() {
           [
             ['findings', 'Findings'],
             ['rules', 'Rules'],
+            ['scans', 'Scans'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -219,10 +223,13 @@ export default function Detect() {
             }`}
           >
             {label}
+            {key === 'scans' && scanRunning && (
+              <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-accent-tertiary animate-pulse align-middle" />
+            )}
           </button>
         ))}
       </div>
-      {tab === 'findings' ? <FindingsView /> : <RulesView />}
+      {tab === 'findings' ? <FindingsView /> : tab === 'rules' ? <RulesView /> : <ScansView />}
     </div>
   )
 }
@@ -1201,6 +1208,26 @@ function RulesView() {
   const [creating, setCreating] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
 
+  // Active-scan rules come from a separate registry endpoint and are few and
+  // static apart from their enabled toggle, so they live in local state rather
+  // than the detect store. null means not-yet-loaded (or unavailable in this mode).
+  const [activeRules, setActiveRules] = useState<
+    { id: string; name: string; category: string; enabled: boolean }[] | null
+  >(null)
+  useEffect(() => {
+    api
+      .activeScanRules()
+      .then((d) => setActiveRules(d.rules))
+      .catch(() => setActiveRules(null))
+  }, [])
+  const toggleActiveRule = (id: string, enabled: boolean) => {
+    setActiveRules((prev) => prev?.map((r) => (r.id === id ? { ...r, enabled } : r)) ?? prev)
+    api.setActiveScanRuleEnabled(id, enabled).catch((err) => {
+      addToast((err as Error).message, 'error')
+      setActiveRules((prev) => prev?.map((r) => (r.id === id ? { ...r, enabled: !enabled } : r)) ?? prev)
+    })
+  }
+
   const loadRules = useCallback(async () => {
     try {
       const d = await api.listDetectRules()
@@ -1467,6 +1494,40 @@ function RulesView() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto min-h-0">
+        {activeRules && activeRules.length > 0 && (
+          <div className="border-b border-border">
+            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-surface-card text-content-muted">
+              <Scan size={12} strokeWidth={1.8} className="text-accent-tertiary" />
+              <span className="text-[10px] font-semibold uppercase tracking-wide">Active rules</span>
+              <span className="text-[10px] text-content-muted">· run on demand via "Initiate scan"</span>
+            </div>
+            <table className="w-full text-xs">
+              <tbody>
+                {activeRules.map((r) => (
+                  <tr key={r.id} className={`border-b border-border-subtle ${r.enabled ? '' : 'opacity-60'}`}>
+                    <td className="px-2 py-1 w-8">
+                      <input
+                        type="checkbox"
+                        className="accent-accent"
+                        checked={r.enabled}
+                        onChange={(e) => toggleActiveRule(r.id, e.target.checked)}
+                      />
+                    </td>
+                    <td className="px-2 py-1">
+                      <div className="text-content-secondary">{r.name}</div>
+                    </td>
+                    <td className="px-2 py-1">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-surface-input text-content-muted">
+                        {r.category}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1 text-[10px] text-content-muted">active · operator-initiated</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-surface-card text-content-muted uppercase">
             <tr>
@@ -1606,6 +1667,116 @@ function RulesView() {
           onChanged={loadRules}
         />
       )}
+    </div>
+  )
+}
+
+// ScansView lists active-scan runs with live progress. Runs are session state in
+// useActiveScanStore, fed by the activescan.* WS events; this view seeds the list
+// from the server on mount and on reconnect, then renders live.
+function ScansView() {
+  const addToast = useToastStore((s) => s.addToast)
+  const runs = useActiveScanStore((s) => s.runs)
+  const { setRuns, removeRun } = useActiveScanStore()
+
+  const reload = useCallback(() => {
+    api
+      .listActiveScanRuns()
+      .then((d) => setRuns(d.runs))
+      .catch(() => {})
+  }, [setRuns])
+
+  useEffect(() => {
+    reload()
+    window.addEventListener('joro:ws-reconnected', reload)
+    return () => window.removeEventListener('joro:ws-reconnected', reload)
+  }, [reload])
+
+  const stop = (id: string) => {
+    api.stopActiveScan(id).catch((err) => addToast((err as Error).message, 'error'))
+  }
+  const remove = (id: string) => {
+    api
+      .deleteActiveScan(id)
+      .then(() => removeRun(id))
+      .catch((err) => addToast((err as Error).message, 'error'))
+  }
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-surface-card shrink-0">
+        <Scan size={13} strokeWidth={1.8} className="text-accent-tertiary" />
+        <span className="text-xs font-semibold text-content-secondary">Active scans</span>
+        <span className="text-[10px] text-content-muted">
+          {runs.length} run{runs.length === 1 ? '' : 's'}
+        </span>
+      </div>
+      {runs.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-center text-xs text-content-muted px-6">
+          No scans yet. Right-click a host in the Site Map or a request in History and choose
+          &ldquo;Initiate scan&rdquo;.
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto min-h-0 divide-y divide-border-subtle">
+          {runs.map((run) => (
+            <ScanRow key={run.id} run={run} onStop={stop} onDelete={remove} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ScanRow({
+  run,
+  onStop,
+  onDelete,
+}: {
+  run: ActiveScanRun
+  onStop: (id: string) => void
+  onDelete: (id: string) => void
+}) {
+  const pct = run.total > 0 ? Math.min(100, Math.round((run.completed / run.total) * 100)) : 0
+  const statusClass =
+    run.status === 'running'
+      ? 'text-accent-tertiary'
+      : run.status === 'stopped'
+        ? 'text-semantic-warning'
+        : 'text-content-muted'
+  return (
+    <div className="px-3 py-2">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-content-primary truncate">{run.origin || run.host}</span>
+            <span className={`text-[10px] uppercase font-semibold ${statusClass}`}>{run.status}</span>
+          </div>
+          <div className="text-[10px] text-content-muted truncate">
+            {run.scope} · {run.rules.join(', ') || 'all rules'}
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-[10px] text-content-muted shrink-0">
+          <span>
+            {run.completed}/{run.total}
+          </span>
+          <span className="text-content-secondary">
+            {run.findings} finding{run.findings === 1 ? '' : 's'}
+          </span>
+          {run.errors > 0 && <span className="text-semantic-error">{run.errors} err</span>}
+          {run.status === 'running' ? (
+            <button onClick={() => onStop(run.id)} className="text-semantic-error hover:underline">
+              Stop
+            </button>
+          ) : (
+            <button onClick={() => onDelete(run.id)} className="text-content-muted hover:text-content-primary">
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="mt-1.5 h-1.5 bg-surface-input rounded-full overflow-hidden">
+        <div className="h-full bg-accent-tertiary transition-all" style={{ width: `${pct}%` }} />
+      </div>
     </div>
   )
 }

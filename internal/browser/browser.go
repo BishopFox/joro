@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -106,6 +107,11 @@ type LaunchOptions struct {
 	ProfileDir      string
 	URL             string
 	WipeOnExit      bool // remove ProfileDir once the browser process exits
+
+	// RemoteDebugPort and Headless apply only to LaunchControlled. A zero port
+	// means allocate a free one.
+	RemoteDebugPort int
+	Headless        bool
 }
 
 // Launch starts the browser detached, routing all traffic through the proxy and
@@ -118,18 +124,10 @@ func Launch(opts LaunchOptions) error {
 	if target == "" {
 		target = "about:blank"
 	}
-	args := []string{
-		"--proxy-server=http://" + opts.ProxyAddr,
-		"--proxy-bypass-list=<-loopback>",    // route loopback targets through the proxy too
-		"--user-data-dir=" + opts.ProfileDir, // the SPKI flag is only honored when a user-data-dir is set
-		"--ignore-certificate-errors-spki-list=" + opts.SPKIFingerprint,
-		"--test-type", // suppresses the unsupported-command-line-flag infobar; does not alter cert validation
-		"--no-first-run",
-		"--no-default-browser-check",
-		"--new-window",
+	args := append(baseArgs(opts), "--new-window",
 		// The URL must be last: Chrome treats the first non-switch arg as a URL.
 		target,
-	}
+	)
 
 	cmd := exec.Command(opts.BrowserPath, args...)
 	if err := cmd.Start(); err != nil {
@@ -149,6 +147,98 @@ func Launch(opts LaunchOptions) error {
 		return nil
 	}
 	return cmd.Process.Release()
+}
+
+// baseArgs builds the launch flags shared by the interactive and controlled
+// launches: route everything through the proxy, trust only the pinned SPKI, and
+// keep a private profile. The URL, if any, must be appended last by the caller —
+// Chrome treats the first non-switch arg as a URL.
+func baseArgs(opts LaunchOptions) []string {
+	return []string{
+		"--proxy-server=http://" + opts.ProxyAddr,
+		"--proxy-bypass-list=<-loopback>",    // route loopback targets through the proxy too
+		"--user-data-dir=" + opts.ProfileDir, // the SPKI flag is only honored when a user-data-dir is set
+		"--ignore-certificate-errors-spki-list=" + opts.SPKIFingerprint,
+		"--test-type", // suppresses the unsupported-command-line-flag infobar; does not alter cert validation
+		"--no-first-run",
+		"--no-default-browser-check",
+	}
+}
+
+// Session is a controlled browser the caller drives over CDP and must tear down.
+// Unlike Launch, the process handle is retained so DebugPort can be dialled and
+// Kill can stop it.
+type Session struct {
+	cmd        *exec.Cmd
+	ProfileDir string
+	DebugPort  int
+}
+
+// LaunchControlled starts a headless browser with a loopback DevTools endpoint
+// and returns a handle to it. The profile is NOT wiped here — the caller owns
+// the session and wipes via Kill — and the process is not released, so Kill can
+// stop it when the scan is done or cancelled.
+//
+// It is the active-scan path: a dedicated instance that never touches the
+// operator's interactive browser or its persistent profile. CDP's injection
+// runs before any page script and is not subject to the page's CSP, which is why
+// a scan can instrument a target the proxy could never inject into.
+func LaunchControlled(opts LaunchOptions) (*Session, error) {
+	if err := os.MkdirAll(opts.ProfileDir, 0700); err != nil {
+		return nil, err
+	}
+	port := opts.RemoteDebugPort
+	if port == 0 {
+		p, err := freePort()
+		if err != nil {
+			return nil, fmt.Errorf("allocate debug port: %w", err)
+		}
+		port = p
+	}
+
+	args := baseArgs(opts)
+	args = append(args,
+		fmt.Sprintf("--remote-debugging-port=%d", port),
+		"--remote-debugging-address=127.0.0.1",
+		"--remote-allow-origins=*", // required by modern Chrome to accept a CDP WebSocket
+		"--disable-gpu",
+		"--disable-background-networking",
+	)
+	if opts.Headless {
+		args = append(args, "--headless=new")
+	}
+	// A controlled session drives navigation over CDP, so it opens on a blank
+	// page rather than a start URL.
+	args = append(args, "about:blank")
+
+	cmd := exec.Command(opts.BrowserPath, args...)
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &Session{cmd: cmd, ProfileDir: opts.ProfileDir, DebugPort: port}, nil
+}
+
+// Kill stops the browser and, when wipe is set, removes its profile directory.
+func (s *Session) Kill(wipe bool) {
+	if s.cmd != nil && s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+		_ = s.cmd.Wait()
+	}
+	if wipe && s.ProfileDir != "" && !profileInUse(s.ProfileDir) {
+		_ = os.RemoveAll(s.ProfileDir)
+	}
+}
+
+// freePort asks the OS for an unused loopback TCP port. There is a small window
+// between closing the listener and the browser binding the port, acceptable for
+// a single local launch.
+func freePort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
 // profileInUse reports whether a Chromium instance still holds the profile's

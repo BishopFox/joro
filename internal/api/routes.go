@@ -173,6 +173,17 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/chain/runs/{id}/stop", s.handleChainStopRun)
 	mux.HandleFunc("DELETE /api/v1/chain/runs/{id}", s.handleChainDeleteRun)
 
+	// Active scanning. Operator-initiated rules that drive a target and file
+	// findings into Detect; DOM XSS is the first. Scope-respecting (a scan with
+	// scope off is never rejected), proxy-mode only, one run at a time.
+	mux.HandleFunc("GET /api/v1/activescan/rules", s.handleActiveScanRules)
+	mux.HandleFunc("PUT /api/v1/activescan/rules/{id}/enabled", s.handleSetActiveScanRuleEnabled)
+	mux.HandleFunc("POST /api/v1/activescan/runs", s.handleActiveScanStart)
+	mux.HandleFunc("GET /api/v1/activescan/runs", s.handleActiveScanListRuns)
+	mux.HandleFunc("GET /api/v1/activescan/runs/{id}", s.handleActiveScanGetRun)
+	mux.HandleFunc("POST /api/v1/activescan/runs/{id}/stop", s.handleActiveScanStopRun)
+	mux.HandleFunc("DELETE /api/v1/activescan/runs/{id}", s.handleActiveScanDeleteRun)
+
 	// Passive detection. Unlike the other rule collections below, detect rules
 	// have a PUT (a rule's ID is referenced by every finding it produced) and a
 	// test endpoint.

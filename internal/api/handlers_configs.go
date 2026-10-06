@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/BishopFox/joro/internal/browser"
@@ -226,6 +227,12 @@ type projectConfigFile struct {
 	// rebuilds it, so persisting it would store a second copy of captured
 	// traffic that a project load could not keep in step with the first.
 	EchoConfig *echo.Config `json:"echoConfig,omitempty"`
+
+	// ActiveScanDisabledRules lists the active-scan rule IDs the operator turned
+	// off (schema v10). Only the exceptions travel, so a project that never
+	// touched them decodes to nil and runs every rule — no normalize gate needed,
+	// for the same reason EchoConfig/Chains above need none.
+	ActiveScanDisabledRules []string `json:"activeScanDisabledRules,omitempty"`
 }
 
 // encodePluginStates base64-encodes each blob for transport inside a JSON
@@ -362,12 +369,18 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		echoCfg = &c
 	}
 
+	var activeScanDisabled []string
+	if s.activeScanRules != nil {
+		activeScanDisabled = s.activeScanRules.Disabled()
+	}
+
 	return projectConfigFile{
-		// v9 added EchoConfig; v8 added Chains; v7 added AutomationStates. None
-		// needs a normalizeProjectConfig gate: all decode to nil when absent, which
-		// is the correct default — a backfill exists only where the zero value would
-		// be wrong, as it was for autoSave and detectEnabled.
-		Version:           9,
+		// v10 added ActiveScanDisabledRules; v9 added EchoConfig; v8 added Chains;
+		// v7 added AutomationStates. None needs a normalizeProjectConfig gate: all
+		// decode to nil when absent, which is the correct default — a backfill
+		// exists only where the zero value would be wrong, as it was for autoSave
+		// and detectEnabled.
+		Version:           10,
 		AutoSave:          autoSave,
 		SaveHistory:       saveHistory,
 		ListenerURL:       listenerURL,
@@ -399,8 +412,9 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		// state the first time anyone else saves.
 		AutomationStates: encodePluginStates(mergePluginStates(automationGhost, automationFresh)),
 
-		Chains:     s.chainStore.List(),
-		EchoConfig: echoCfg,
+		Chains:                  s.chainStore.List(),
+		EchoConfig:              echoCfg,
+		ActiveScanDisabledRules: activeScanDisabled,
 	}
 }
 
@@ -594,11 +608,17 @@ func (s *APIServer) liveStateSignature() string {
 		echoSig = fmt.Sprintf("/ec%v.%d.%d.%d", c.Enabled, c.MinValueLen,
 			c.TransformDepth, c.MaxBodyScanBytes)
 	}
+	// Only the active-rule toggles persist, so only they are fingerprinted — not
+	// the run list, which is session state.
+	activeScanSig := ""
+	if s.activeScanRules != nil {
+		activeScanSig = "/as" + strings.Join(s.activeScanRules.Disabled(), ",")
+	}
 	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%s/rp%d/cd%d/no%d/lc%d.%d",
 		reqCount, lastSeq, noteCount, maxNoteUpdate, hlCount,
 		scopeSignature(s.scope.Rules()), len(s.replace.Rules()),
 		len(s.customData.Items()), len(s.noise.Patterns()), chainCount, chainRev) +
-		s.detectSignature() + s.automationSignature() + echoSig
+		s.detectSignature() + s.automationSignature() + echoSig + activeScanSig
 }
 
 // saveProject snapshots live state to the named project's .joro (respecting its
@@ -688,6 +708,9 @@ func (s *APIServer) resetLiveProjectState() {
 	}
 	if s.chainRuns != nil {
 		s.chainRuns.Clear()
+	}
+	if s.activeScans != nil {
+		s.activeScans.Clear()
 	}
 	// The reflection map describes the previous engagement's traffic, so it goes
 	// with it; the settings return to their defaults alongside.
@@ -793,6 +816,9 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	if s.chainRuns != nil {
 		s.chainRuns.Clear()
 	}
+	if s.activeScans != nil {
+		s.activeScans.Clear()
+	}
 	if s.chainStore != nil {
 		s.chainStore.ReplaceAll(cfg.Chains)
 	}
@@ -807,6 +833,12 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 		} else {
 			s.echoEngine.SetConfig(echo.DefaultConfig())
 		}
+	}
+
+	// Active-rule toggles are project data; a nil slice (an older file, or a
+	// project that never changed them) clears the disabled set, so every rule runs.
+	if s.activeScanRules != nil {
+		s.activeScanRules.SetDisabled(cfg.ActiveScanDisabledRules)
 	}
 
 	// Apply team server settings.
