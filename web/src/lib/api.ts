@@ -172,6 +172,63 @@ export interface SitemapHost {
   count: number
 }
 
+export interface Tech {
+  name: string
+  version?: string
+  categories?: string[]
+  confidence: number
+}
+
+export interface HostTech {
+  host: string
+  technologies: Tech[]
+  updatedAt: string
+}
+
+export interface TechScanStatus {
+  running: boolean
+  jobId?: string
+  scanned: number
+  total: number
+  status?: string
+}
+
+export interface ActiveScanRule {
+  id: string
+  name: string
+  category: string
+  description: string
+  enabled: boolean
+  hasSignatures: boolean
+  // Present for single-row engines (e.g. DOM XSS) whose row carries these; a
+  // catalog engine's rows carry their own.
+  severity?: string
+  confidence?: string
+  target?: string
+}
+
+/** One read-only line in a catalog item's detail (e.g. "Payloads" -> "...", "Request"
+ *  -> "GET /.git/config"). Neutral so it serves both nuclei signatures and injection
+ *  checks. Mirrors activescan.CatalogField. */
+export interface CatalogDetailField {
+  label: string
+  value: string
+}
+
+/** One toggleable entry in an active rule's catalog — a nuclei signature or an
+ *  injection check. Mirrors activescan.CatalogItem. */
+export interface SignatureCatalogItem {
+  id: string
+  name: string
+  severity: string
+  confidence?: string
+  target?: string
+  description?: string
+  remediation?: string
+  enabled: boolean
+  detail?: CatalogDetailField[]
+}
+
 export interface CapturedWSMessage {
   id: string
   connectionId: string
@@ -1370,6 +1427,20 @@ export const api = {
   echoGetScan: () => req<EchoScanStatus>('GET', '/echo/scan'),
   echoCancelScan: () => req<EchoScanStatus>('POST', '/echo/scan/cancel', {}),
 
+  // Technology fingerprinting (passive; the embedded Wappalyzer database)
+  techHosts: () =>
+    req<{ enabled: boolean; hosts: HostTech[]; summary: { hosts: number; techs: number } }>(
+      'GET', '/tech/hosts'),
+  techHost: (host: string) => req<HostTech>('GET', `/tech/hosts/${encodeURIComponent(host)}`),
+  techSetEnabled: (enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', '/tech/enabled', { enabled }),
+  // Re-fingerprint captured history: all hosts, or one when scope is 'host'. Used
+  // to backfill hosts the live cursor skipped (e.g. a loaded project).
+  techScan: (body?: { scope?: 'host' | 'all'; host?: string; clear?: boolean }) =>
+    req<TechScanStatus>('POST', '/tech/scan', body ?? {}),
+  techScanStatus: () => req<TechScanStatus>('GET', '/tech/scan'),
+  techScanCancel: () => req<TechScanStatus>('POST', '/tech/scan/cancel', {}),
+
   // Generate
   generate: (format: string, mode?: string, implantUrl?: string, binaryName?: string, inMemory?: boolean) =>
     req<{ fileName: string; authKey: string; content: string }>(
@@ -1782,19 +1853,30 @@ export const api = {
   // Active scanning — operator-initiated rules (DOM XSS is the first) that drive a
   // target and file findings into Detect. Scope "host" scans every captured GET
   // endpoint for origin; "request" scans one captured request or a raw url.
-  activeScanRules: () =>
-    req<{ rules: { id: string; name: string; category: string; enabled: boolean }[] }>(
-      'GET',
-      '/activescan/rules',
-    ),
+  activeScanRules: () => req<{ rules: ActiveScanRule[] }>('GET', '/activescan/rules'),
   setActiveScanRuleEnabled: (id: string, enabled: boolean) =>
     req<{ enabled: boolean }>('PUT', `/activescan/rules/${id}/enabled`, { enabled }),
+  activeScanSignatures: (ruleId: string) =>
+    req<{ signatures: SignatureCatalogItem[]; total: number; bySeverity: Record<string, number> }>(
+      'GET', `/activescan/rules/${ruleId}/signatures`),
+  setActiveScanSignatureEnabled: (ruleId: string, id: string, enabled: boolean) =>
+    req<{ enabled: boolean }>(
+      'PUT',
+      `/activescan/rules/${encodeURIComponent(ruleId)}/signatures/${encodeURIComponent(id)}/enabled`,
+      { enabled },
+    ),
+  setActiveScanSignaturesBulk: (ruleId: string, enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', `/activescan/rules/${ruleId}/signatures/enabled`, { enabled }),
   startActiveScan: (body: {
     scope: 'host' | 'request'
     origin?: string
     url?: string
     requestId?: string
     rules?: string[]
+    tags?: string[]
+    severity?: string[]
+    ignoreFingerprint?: boolean
+    oast?: boolean
   }) =>
     req<{ runId: string; total: number; rules: string[]; urls: number; skipped: number }>(
       'POST',

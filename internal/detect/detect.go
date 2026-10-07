@@ -131,13 +131,33 @@ const (
 	// CDP, not the passive rule engine — the payload never reaches the server, so
 	// no captured response could reveal it.
 	CategoryDOMXSS Category = "dom-xss"
+	// CategoryTemplate holds results from the template-signature rule: a crafted
+	// request Joro sent whose response matched a check mined from a nuclei template
+	// (an exposed file, a known-vulnerable fingerprint, a misconfiguration). It
+	// names the finding class, not the mechanism — DOM XSS is also active-scanned
+	// but is its own class (CategoryDOMXSS). Both come from internal/activescan,
+	// not the passive engine: the probe is sent, not observed in captured traffic.
+	CategoryTemplate Category = "template"
+	// The injection classes below come from internal/activescan's parameter-fuzzing
+	// rules: Joro injected a payload into a request parameter and confirmed the
+	// vulnerability from the response (reflection/breakout, DB error, boolean or
+	// timing differential, rendered expression, redirect, file contents) or an
+	// out-of-band callback. Each is its own class, not the mechanism.
+	CategoryReflectedXSS     Category = "reflected-xss"
+	CategorySQLi             Category = "sqli"
+	CategorySSTI             Category = "ssti"
+	CategoryCommandInjection Category = "command-injection"
+	CategoryOpenRedirect     Category = "open-redirect"
+	CategoryPathTraversal    Category = "path-traversal"
 )
 
 // Categories lists every category. See Severities.
 var Categories = []Category{
 	CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
 	CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
-	CategoryReflection, CategoryDOMXSS,
+	CategoryReflection, CategoryDOMXSS, CategoryTemplate,
+	CategoryReflectedXSS, CategorySQLi, CategorySSTI, CategoryCommandInjection,
+	CategoryOpenRedirect, CategoryPathTraversal,
 }
 
 // Valid reports whether c is a known category.
@@ -145,7 +165,9 @@ func (c Category) Valid() bool {
 	switch c {
 	case CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
 		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
-		CategoryReflection, CategoryDOMXSS:
+		CategoryReflection, CategoryDOMXSS, CategoryTemplate,
+		CategoryReflectedXSS, CategorySQLi, CategorySSTI, CategoryCommandInjection,
+		CategoryOpenRedirect, CategoryPathTraversal:
 		return true
 	}
 	return false
@@ -156,7 +178,9 @@ func AllCategories() []Category {
 	return []Category{
 		CategorySecrets, CategoryCredentials, CategoryPII, CategoryAccess,
 		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
-		CategoryReflection, CategoryDOMXSS,
+		CategoryReflection, CategoryDOMXSS, CategoryTemplate,
+		CategoryReflectedXSS, CategorySQLi, CategorySSTI, CategoryCommandInjection,
+		CategoryOpenRedirect, CategoryPathTraversal,
 	}
 }
 

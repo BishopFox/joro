@@ -5,6 +5,7 @@ import FlaggedRequestsWidget from '../components/dashboard/FlaggedRequestsWidget
 import TeamChatWidget from '../components/dashboard/TeamChatWidget'
 import ActiveUsersWidget from '../components/dashboard/ActiveUsersWidget'
 import DetectFindingsWidget from '../components/dashboard/DetectFindingsWidget'
+import TechnologiesWidget from '../components/dashboard/TechnologiesWidget'
 import ProxyHealthWidget from '../components/dashboard/ProxyHealthWidget'
 import AutomationActivityWidget from '../components/dashboard/AutomationActivityWidget'
 
@@ -19,6 +20,7 @@ export type WidgetId =
   | 'team-chat'
   | 'active-users'
   | 'detect-findings'
+  | 'technologies'
   | 'proxy-health'
   | 'automation-activity'
 
@@ -69,6 +71,14 @@ export const WIDGETS: WidgetDef[] = [
     requiresProxyMode: true,
     needs: ['detect'],
     render: () => <DetectFindingsWidget />,
+  },
+  {
+    id: 'technologies',
+    label: 'Technologies',
+    description: 'Passive fingerprint of each host’s technology stack (headers, cookies, markup).',
+    requiresProxyMode: true,
+    needs: [],
+    render: () => <TechnologiesWidget />,
   },
   {
     id: 'proxy-health',

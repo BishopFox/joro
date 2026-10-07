@@ -20,6 +20,7 @@ import (
 	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/echo"
 	"github.com/BishopFox/joro/internal/proxy"
+	"github.com/BishopFox/joro/internal/techfp"
 	"github.com/hashicorp/go-uuid"
 )
 
@@ -233,6 +234,16 @@ type projectConfigFile struct {
 	// touched them decodes to nil and runs every rule — no normalize gate needed,
 	// for the same reason EchoConfig/Chains above need none.
 	ActiveScanDisabledRules []string `json:"activeScanDisabledRules,omitempty"`
+
+	// ActiveScanDisabledSignatures is the legacy (schema v11) flat list of disabled
+	// template-signature IDs. Read-only now: it is folded into
+	// ActiveScanDisabledItems["templatesig"] on load so old projects still restore.
+	ActiveScanDisabledSignatures []string `json:"activeScanDisabledSignatures,omitempty"`
+
+	// ActiveScanDisabledItems holds each catalog rule's disabled item IDs, keyed by
+	// rule id (schema v12). Generalizes ActiveScanDisabledSignatures to every rule
+	// with a catalog (template signatures + the injection rules). Exceptions-only.
+	ActiveScanDisabledItems map[string][]string `json:"activeScanDisabledItems,omitempty"`
 }
 
 // encodePluginStates base64-encodes each blob for transport inside a JSON
@@ -373,14 +384,15 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 	if s.activeScanRules != nil {
 		activeScanDisabled = s.activeScanRules.Disabled()
 	}
+	activeScanDisabledItems := s.collectDisabledItems()
 
 	return projectConfigFile{
-		// v10 added ActiveScanDisabledRules; v9 added EchoConfig; v8 added Chains;
-		// v7 added AutomationStates. None needs a normalizeProjectConfig gate: all
-		// decode to nil when absent, which is the correct default — a backfill
-		// exists only where the zero value would be wrong, as it was for autoSave
-		// and detectEnabled.
-		Version:           10,
+		// v12 generalized disabled signatures to ActiveScanDisabledItems (per-rule
+		// catalog disables); v10 added ActiveScanDisabledRules; v9 added EchoConfig; v8
+		// Chains; v7 AutomationStates. None needs a normalizeProjectConfig gate: all
+		// decode to nil when absent, which is the correct default — and the legacy v11
+		// ActiveScanDisabledSignatures is folded into the map on apply.
+		Version:           12,
 		AutoSave:          autoSave,
 		SaveHistory:       saveHistory,
 		ListenerURL:       listenerURL,
@@ -415,6 +427,7 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		Chains:                  s.chainStore.List(),
 		EchoConfig:              echoCfg,
 		ActiveScanDisabledRules: activeScanDisabled,
+		ActiveScanDisabledItems: activeScanDisabledItems,
 	}
 }
 
@@ -614,6 +627,7 @@ func (s *APIServer) liveStateSignature() string {
 	if s.activeScanRules != nil {
 		activeScanSig = "/as" + strings.Join(s.activeScanRules.Disabled(), ",")
 	}
+	activeScanSig += s.disabledItemsSignature()
 	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%s/rp%d/cd%d/no%d/lc%d.%d",
 		reqCount, lastSeq, noteCount, maxNoteUpdate, hlCount,
 		scopeSignature(s.scope.Rules()), len(s.replace.Rules()),
@@ -840,6 +854,14 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	if s.activeScanRules != nil {
 		s.activeScanRules.SetDisabled(cfg.ActiveScanDisabledRules)
 	}
+	// Per-catalog-item disables, keyed by rule id; a missing key clears that rule's
+	// set. Fold the legacy v11 flat signature list into the template rule's entry so
+	// old project files still restore.
+	items := cfg.ActiveScanDisabledItems
+	if items == nil && len(cfg.ActiveScanDisabledSignatures) > 0 {
+		items = map[string][]string{"templatesig": cfg.ActiveScanDisabledSignatures}
+	}
+	s.applyDisabledItems(items)
 
 	// Apply team server settings.
 	s.mu.Lock()
@@ -944,6 +966,14 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	// re-examined by an explicit rescan.
 	detectResp := s.applyDetectProjectConfig(cfg)
 	s.resetDetectCursor(s.store.LastSeq())
+
+	// The fingerprint cursor was just parked forward past the loaded history, so the
+	// live loop would skip it. Backfill the loaded hosts with a background rescan —
+	// tech data is cheap and tag-only (unlike detect's findings, which is why detect
+	// requires an explicit rescan). Clear:true drops the previous project's tags.
+	if s.techEngine != nil && s.store.Count() > 0 {
+		s.techEngine.StartRescan(s.detectBackgroundCtx(), techfp.RescanRequest{Scope: "all", Clear: true})
+	}
 
 	var unknownPluginStates []string
 	if s.pluginManager != nil {

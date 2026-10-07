@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import Toasts from './components/Toasts'
 import ActiveScanIndicator from './components/ActiveScanIndicator'
+import ScanOptionsModal from './components/ScanOptionsModal'
 import UpdateBanner from './components/UpdateBanner'
 import PluginBanner from './components/PluginBanner'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -218,6 +219,7 @@ export default function App() {
     <div className="flex flex-col h-screen">
       <Toasts />
       <ActiveScanIndicator />
+      <ScanOptionsModal />
       <UpdateBanner />
       <PluginBanner failed={failedPlugins} />
       {/* Top nav */}

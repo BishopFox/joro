@@ -4,7 +4,8 @@ import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { api } from '../lib/api'
-import type { SitemapHost, SitemapEndpoint, SitemapVariant } from '../lib/api'
+import type { SitemapHost, SitemapEndpoint, SitemapVariant, Tech } from '../lib/api'
+import { useTechStore } from '../stores/techStore'
 import { rawToCurl } from '../lib/httpTransform'
 import { RequestDetail } from '../stores/requestStore'
 import { useRequestStore } from '../stores/requestStore'
@@ -14,7 +15,8 @@ import TabButton from '../components/TabButton'
 import { useLenses } from '../lib/lenses'
 import { useResizable } from '../lib/useResizable'
 import ContextMenu from '../components/ContextMenu'
-import { initiateScan } from '../lib/scanMenu'
+import { initiateScan, fingerprintHosts } from '../lib/scanMenu'
+import { useScanOptionsStore } from '../stores/scanOptionsStore'
 import ConfirmModal from '../components/ConfirmModal'
 import { Tooltip } from '../components/Tooltip'
 import { Filter, ChevronRight, X, WrapText, SlidersHorizontal } from 'lucide-react'
@@ -42,6 +44,31 @@ function b64Decode(s: string) {
 export default function Map() {
   const navigate = useNavigate()
   const [hosts, setHosts] = useState<SitemapHost[]>([])
+
+  // Technology fingerprints, for the per-host badges. Push-driven via ws; load
+  // once on mount (the store guards against re-fetching).
+  const techHosts = useTechStore((s) => s.hosts)
+  useEffect(() => {
+    void useTechStore.getState().load()
+  }, [])
+  // A plain record, not a Map — the page component is itself named Map and
+  // shadows the global constructor.
+  const techByHost = useMemo(() => {
+    const m: Record<string, Tech[]> = {}
+    for (const h of techHosts) m[h.host.toLowerCase()] = h.technologies
+    return m
+  }, [techHosts])
+  const techFor = useCallback(
+    (origin: string): Tech[] => {
+      try {
+        return techByHost[new URL(origin).host.toLowerCase()] ?? []
+      } catch {
+        return []
+      }
+    },
+    [techByHost],
+  )
+
   const [expandedHosts, setExpandedHosts] = useState<Set<string>>(new Set())
   const [expandedEndpoints, setExpandedEndpoints] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -350,6 +377,15 @@ export default function Map() {
                       <span className={`inline-flex items-center text-content-muted transition-transform ${hostExpanded ? 'rotate-90' : ''}`}><ChevronRight size={12} /></span>
                       <span className="text-xs font-semibold text-content-primary">{host.origin}</span>
                       <span className="text-[10px] text-content-muted ml-1">({host.count})</span>
+                      {techFor(host.origin).slice(0, 5).map((t) => (
+                        <span
+                          key={t.name}
+                          title={[t.name + (t.version ? ` ${t.version}` : ''), ...(t.categories ?? [])].join(' · ')}
+                          className="px-1 py-0.5 rounded text-[9px] font-medium bg-accent-secondary/15 text-accent-secondary shrink-0"
+                        >
+                          {t.name}
+                        </span>
+                      ))}
                       <span className="text-[10px] text-content-muted ml-auto">{host.endpoints.length} {host.endpoints.length === 1 ? 'endpoint' : 'endpoints'}</span>
                     </button>
                     <Tooltip content="Parameters">
@@ -654,6 +690,25 @@ export default function Map() {
               label: 'Initiate scan',
               onClick: () => initiateScan({ scope: 'host', origin: hostMenu.origin }),
             },
+            {
+              label: 'Scan with options…',
+              onClick: () =>
+                useScanOptionsStore.getState().openScan({
+                  scope: 'host',
+                  origin: hostMenu.origin,
+                  label: hostMenu.origin,
+                }),
+            },
+            {
+              label: 'Fingerprint host',
+              onClick: () => {
+                try {
+                  void fingerprintHosts(new URL(hostMenu.origin).host)
+                } catch {
+                  void fingerprintHosts()
+                }
+              },
+            },
           ]}
         />
       )}
@@ -668,6 +723,15 @@ export default function Map() {
             { label: 'Manipulate', onClick: sendToManipulate },
             { label: 'Fuzz', onClick: sendToFuzz },
             { label: 'Initiate scan', onClick: () => initiateScan({ scope: 'request', requestId: selectedDetail.id }) },
+            {
+              label: 'Scan with options…',
+              onClick: () =>
+                useScanOptionsStore.getState().openScan({
+                  scope: 'request',
+                  requestId: selectedDetail.id,
+                  label: `${selectedDetail.method} ${selectedDetail.url}`,
+                }),
+            },
             { label: 'Copy URL', onClick: copyUrl },
             { label: 'Copy as curl', onClick: copyCurl },
             { label: 'Copy Raw Request', onClick: () => copyRaw('request') },

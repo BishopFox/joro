@@ -897,30 +897,26 @@ func disclosureRules() []Rule {
 		},
 
 		// SQL errors, one rule per engine so the finding names the DBMS.
+		// Patterns are shared with the active SQLi rule via sqlerror.go so the two
+		// never drift.
 		sqlErr("sql-error-mysql", "MySQL error disclosed",
 			"A MySQL or MariaDB error reaching the client. The message discloses fragments of the query, and because unsanitized input provoked it, marks the parameter as a SQL injection candidate.",
-			"",
-			`(?i)(?:You have an error in your SQL syntax|Warning: mysqli?_[a-z_]+\(\)|MySQLSyntaxErrorException|com\.mysql\.(?:jdbc|cj)|check the manual that corresponds to your (?:MySQL|MariaDB))`),
+			"", SQLErrMySQL),
 		sqlErr("sql-error-postgres", "PostgreSQL error disclosed",
 			"A PostgreSQL error reaching the client. PSQLException and unterminated-string text disclose query structure and mark the parameter as a SQL injection candidate.",
-			"",
-			`(?i)(?:PG::[A-Za-z]+Error|org\.postgresql\.util\.PSQLException|pg_query\(\)|unterminated quoted string at or near|invalid input syntax for)`),
+			"", SQLErrPostgres),
 		sqlErr("sql-error-mssql", "SQL Server error disclosed",
 			"A Microsoft SQL Server error reaching the client. Unclosed-quotation and syntax-near messages disclose query structure and mark the parameter as a SQL injection candidate.",
-			"",
-			`(?i)(?:Unclosed quotation mark after the character string|Incorrect syntax near|System\.Data\.SqlClient\.SqlException|Microsoft OLE DB Provider for SQL Server|\[SQL Server\])`),
+			"", SQLErrMSSQL),
 		sqlErr("sql-error-oracle", "Oracle error disclosed",
 			"An Oracle ORA- error code reaching the client. The code identifies the failure precisely and marks the parameter as a SQL injection candidate.",
-			"ora-",
-			`\b(ORA-\d{5})\b`),
+			"ora-", SQLErrOracle),
 		sqlErr("sql-error-sqlite", "SQLite error disclosed",
 			"A SQLite error reaching the client. Unrecognized-token and no-such-table messages disclose schema names and mark the parameter as a SQL injection candidate.",
-			"",
-			`(?i)(?:SQLite3?::[A-Za-z]+|sqlite3\.(?:Operational|Programming)Error|SQLITE_ERROR|unrecognized token:|no such table:)`),
+			"", SQLErrSQLite),
 		sqlErr("sql-error-odbc", "ODBC/JET database error disclosed",
 			"An ODBC, JET, or DB2 error reaching the client, including PDO SQLSTATE codes. The driver-level message discloses query structure and marks the parameter as a SQL injection candidate.",
-			"",
-			`(?i)(?:\[Microsoft\]\[ODBC|Microsoft JET Database Engine|DB2 SQL error|SQLSTATE\[[0-9A-Z]{5}\])`),
+			"", SQLErrODBC),
 
 		// Version and technology fingerprints.
 		{

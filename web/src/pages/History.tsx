@@ -24,6 +24,7 @@ import ConfirmModal from '../components/ConfirmModal'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
 import { initiateScan } from '../lib/scanMenu'
+import { useScanOptionsStore } from '../stores/scanOptionsStore'
 import { copyText } from '../lib/clipboard'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
@@ -1151,6 +1152,15 @@ function HTTPHistory() {
               ? [{ label: 'Add to Chain', onClick: () => sendToChain(rowSeq) }]
               : []),
             { label: 'Initiate scan', onClick: () => initiateScan({ scope: 'request', requestId: rowMenu.itemId }) },
+            {
+              label: 'Scan with options…',
+              onClick: () =>
+                useScanOptionsStore.getState().openScan({
+                  scope: 'request',
+                  requestId: rowMenu.itemId,
+                  label: 'Selected request',
+                }),
+            },
             { label: 'Stage for Dead Drop', onClick: () => stageForDeadDrop(rowMenu.itemId) },
           ]}
         />
@@ -1170,6 +1180,15 @@ function HTTPHistory() {
             { label: 'SJ', onClick: sendToSJ },
             { label: 'Add to Chain', onClick: () => sendToChain(selectedDetail.seq) },
             { label: 'Initiate scan', onClick: () => initiateScan({ scope: 'request', requestId: selectedDetail.id }) },
+            {
+              label: 'Scan with options…',
+              onClick: () =>
+                useScanOptionsStore.getState().openScan({
+                  scope: 'request',
+                  requestId: selectedDetail.id,
+                  label: `${selectedDetail.method} ${selectedDetail.url}`,
+                }),
+            },
             { label: 'Stage for Dead Drop', onClick: () => stageDetailForDeadDrop(selectedDetail) },
             ...(teamMode ? [{ label: 'Flag to team', icon: <Flag size={13} />, onClick: flagToTeam }] : []),
             { label: 'Copy URL', onClick: copyUrl },

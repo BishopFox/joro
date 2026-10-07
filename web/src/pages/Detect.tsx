@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -10,7 +9,6 @@ import {
 import { useNavigate } from 'react-router'
 import {
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Eye,
   EyeOff,
@@ -30,7 +28,7 @@ import {
 } from '@codemirror/view'
 import type { Range } from '@codemirror/state'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { api, type ActiveScanRun } from '../lib/api'
+import { api, type ActiveScanRun, type ActiveScanRule, type SignatureCatalogItem } from '../lib/api'
 import { useActiveScanStore } from '../stores/activeScanStore'
 import { ResponseRender, usePrettyJson } from '../components/ResponseRender'
 import LensOutput from '../components/LensOutput'
@@ -42,6 +40,8 @@ import { useResizable } from '../lib/useResizable'
 import ContextMenu, { type MenuItem } from '../components/ContextMenu'
 import ConfirmModal from '../components/ConfirmModal'
 import DetectRuleModal from '../components/DetectRuleModal'
+import SignatureDetail from '../components/SignatureDetail'
+import RuleTableSection, { type RuleGroupVM } from '../components/RuleTableSection'
 import MultiSelectDropdown from '../components/MultiSelectDropdown'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
@@ -120,25 +120,41 @@ function formatTime(iso: string): string {
 
 // Collapsed rule categories persist to localStorage, as the findings sort order
 // does.
-const COLLAPSED_KEY = 'joro-detect-collapsed'
+// Tracks which groups the operator has opened. Default-empty means every group
+// (active and passive) starts collapsed; their choices then persist.
+const EXPANDED_KEY = 'joro-detect-expanded'
 
-function loadCollapsed(): Set<string> {
+function loadExpanded(): Set<string> {
   try {
-    const raw = localStorage.getItem(COLLAPSED_KEY)
+    const raw = localStorage.getItem(EXPANDED_KEY)
     if (raw) return new Set(JSON.parse(raw) as string[])
   } catch {
-    // Ignore malformed storage and start expanded.
+    // Ignore malformed storage and start all-collapsed.
   }
   return new Set()
 }
 
-function persistCollapsed(v: Set<string>) {
+function persistExpanded(v: Set<string>) {
   try {
-    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...v]))
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify([...v]))
   } catch {
     // Storage is best-effort.
   }
 }
+
+// Active techniques are grouped into families in the Active Rules tab. Family is a
+// UI-only mapping from a rule's finding category; unmapped → "Other".
+const ACTIVE_FAMILY: Record<string, string> = {
+  'reflected-xss': 'Injection',
+  sqli: 'Injection',
+  ssti: 'Injection',
+  'command-injection': 'Injection',
+  'open-redirect': 'Injection',
+  'path-traversal': 'Injection',
+  template: 'Signatures',
+  'dom-xss': 'Browser-driven',
+}
+const ACTIVE_FAMILY_ORDER = ['Injection', 'Signatures', 'Browser-driven', 'Other']
 
 // evidenceHighlightPlugin marks the matched evidence inside the raw view.
 //
@@ -200,7 +216,7 @@ function evidenceHighlightPlugin(
 }
 
 export default function Detect() {
-  const [tab, setTab] = useState<'findings' | 'rules' | 'scans'>('findings')
+  const [tab, setTab] = useState<'findings' | 'passive-rules' | 'active-rules' | 'scans'>('findings')
   const scanRunning = useActiveScanStore((s) => s.runs.some((r) => r.status === 'running'))
 
   return (
@@ -209,7 +225,8 @@ export default function Detect() {
         {(
           [
             ['findings', 'Findings'],
-            ['rules', 'Rules'],
+            ['passive-rules', 'Passive Rules'],
+            ['active-rules', 'Active Rules'],
             ['scans', 'Scans'],
           ] as const
         ).map(([key, label]) => (
@@ -229,7 +246,15 @@ export default function Detect() {
           </button>
         ))}
       </div>
-      {tab === 'findings' ? <FindingsView /> : tab === 'rules' ? <RulesView /> : <ScansView />}
+      {tab === 'findings' ? (
+        <FindingsView />
+      ) : tab === 'passive-rules' ? (
+        <RulesView mode="passive" />
+      ) : tab === 'active-rules' ? (
+        <RulesView mode="active" />
+      ) : (
+        <ScansView />
+      )}
     </div>
   )
 }
@@ -1191,9 +1216,10 @@ function DetailField({
 // Rules
 // ---------------------------------------------------------------------------
 
-// RulesView is a full-width list. The inline checkbox toggles a rule in place;
-// the row body opens DetectRuleModal for per-rule configuration.
-function RulesView() {
+// RulesView renders either the passive detection rules or the active-scan
+// techniques, depending on mode — the two models get separate Detect sub-tabs but
+// share this grouped-table view.
+function RulesView({ mode }: { mode: 'passive' | 'active' }) {
   const addToast = useToastStore((s) => s.addToast)
   const { rules, rulesLoaded, config, setRules, setRuleEnabled, setConfig, setFilter } =
     useDetectStore()
@@ -1203,7 +1229,7 @@ function RulesView() {
   const [state, setState] = useState<'all' | 'enabled' | 'disabled'>('all')
   const [cats, setCats] = useState<string[]>([])
   const [sevs, setSevs] = useState<string[]>([])
-  const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed)
+  const [expanded, setExpanded] = useState<Set<string>>(loadExpanded)
   const [modalRuleId, setModalRuleId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -1211,20 +1237,61 @@ function RulesView() {
   // Active-scan rules come from a separate registry endpoint and are few and
   // static apart from their enabled toggle, so they live in local state rather
   // than the detect store. null means not-yet-loaded (or unavailable in this mode).
-  const [activeRules, setActiveRules] = useState<
-    { id: string; name: string; category: string; enabled: boolean }[] | null
-  >(null)
-  useEffect(() => {
-    api
-      .activeScanRules()
-      .then((d) => setActiveRules(d.rules))
-      .catch(() => setActiveRules(null))
+  const [activeRules, setActiveRules] = useState<ActiveScanRule[] | null>(null)
+  // Signatures per engine that has a catalog, keyed by rule id.
+  const [activeSigs, setActiveSigs] = useState<Record<string, SignatureCatalogItem[]>>({})
+  // The signature (or single-engine check) whose read-only detail is open.
+  const [activeDetail, setActiveDetail] = useState<SignatureCatalogItem | null>(null)
+
+  const loadActive = useCallback(async () => {
+    try {
+      const d = await api.activeScanRules()
+      setActiveRules(d.rules)
+      const sigs: Record<string, SignatureCatalogItem[]> = {}
+      await Promise.all(
+        d.rules
+          .filter((r) => r.hasSignatures)
+          .map(async (r) => {
+            sigs[r.id] = (await api.activeScanSignatures(r.id)).signatures
+          }),
+      )
+      setActiveSigs(sigs)
+    } catch {
+      setActiveRules(null)
+    }
   }, [])
+  useEffect(() => {
+    if (mode === 'active') void loadActive()
+  }, [mode, loadActive])
+
   const toggleActiveRule = (id: string, enabled: boolean) => {
     setActiveRules((prev) => prev?.map((r) => (r.id === id ? { ...r, enabled } : r)) ?? prev)
     api.setActiveScanRuleEnabled(id, enabled).catch((err) => {
       addToast((err as Error).message, 'error')
       setActiveRules((prev) => prev?.map((r) => (r.id === id ? { ...r, enabled: !enabled } : r)) ?? prev)
+    })
+  }
+  const toggleSignature = (ruleId: string, sigId: string, enabled: boolean) => {
+    setActiveSigs((prev) => ({
+      ...prev,
+      [ruleId]: (prev[ruleId] ?? []).map((s) => (s.id === sigId ? { ...s, enabled } : s)),
+    }))
+    api.setActiveScanSignatureEnabled(ruleId, sigId, enabled).catch((err) => {
+      addToast((err as Error).message, 'error')
+      setActiveSigs((prev) => ({
+        ...prev,
+        [ruleId]: (prev[ruleId] ?? []).map((s) => (s.id === sigId ? { ...s, enabled: !enabled } : s)),
+      }))
+    })
+  }
+  const bulkSignatures = (ruleId: string, enabled: boolean) => {
+    setActiveSigs((prev) => ({
+      ...prev,
+      [ruleId]: (prev[ruleId] ?? []).map((s) => ({ ...s, enabled })),
+    }))
+    api.setActiveScanSignaturesBulk(ruleId, enabled).catch((err) => {
+      addToast((err as Error).message, 'error')
+      void loadActive()
     })
   }
 
@@ -1238,16 +1305,16 @@ function RulesView() {
   }, [setRules, addToast])
 
   useEffect(() => {
-    if (!rulesLoaded) void loadRules()
-  }, [rulesLoaded, loadRules])
+    if (mode === 'passive' && !rulesLoaded) void loadRules()
+  }, [mode, rulesLoaded, loadRules])
 
   useEffect(() => {
-    if (config) return
+    if (mode !== 'passive' || config) return
     api
       .getDetectConfig()
       .then(setConfig)
       .catch(() => {})
-  }, [config, setConfig])
+  }, [mode, config, setConfig])
 
   // Resolved from the live list rather than captured on open, so a toggle made
   // inside the modal shows immediately after loadRules().
@@ -1290,28 +1357,160 @@ function RulesView() {
   const filtering =
     search !== '' || cats.length > 0 || sevs.length > 0 || origin !== 'all' || state !== 'all'
 
-  function toggleCategory(category: string) {
-    setCollapsed((prev) => {
+  function toggleGroup(key: string) {
+    setExpanded((prev) => {
       const next = new Set(prev)
-      if (next.has(category)) next.delete(category)
-      else next.add(category)
-      persistCollapsed(next)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      persistExpanded(next)
       return next
     })
   }
-
-  function setAllCollapsed(all: boolean) {
-    const next = all ? new Set(grouped.map(([c]) => c)) : new Set<string>()
-    persistCollapsed(next)
-    setCollapsed(next)
-  }
-
-  const allCollapsed = grouped.length > 0 && grouped.every(([c]) => collapsed.has(c))
 
   function setCategoryEnabled(category: string, enabled: boolean) {
     for (const r of rules) {
       if (r.category === category && r.enabled !== enabled) setRuleEnabled(r.id, enabled)
     }
+  }
+
+  // Passive rules mapped into the shared section view-model (rows click → edit modal).
+  const passiveGroups = useMemo<RuleGroupVM[]>(
+    () =>
+      grouped.map(([category, catRules]) => ({
+        key: category,
+        label: category,
+        rows: catRules.map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          severity: r.severity,
+          confidence: r.confidence,
+          target: r.target,
+          originBuiltin: r.builtin,
+          originLabel: r.builtin ? 'Built-in' : 'Custom',
+          enabled: r.enabled,
+          hits: r.findingCount,
+          onToggle: (en: boolean) => setRuleEnabled(r.id, en),
+          onClick: () => {
+            setCreating(false)
+            setModalRuleId(r.id)
+          },
+          onHits: () => setFilter({ rule: r.id, severities: [] }),
+        })),
+        onEnableAll: () => setCategoryEnabled(category, true),
+        onDisableAll: () => setCategoryEnabled(category, false),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [grouped],
+  )
+
+  // Active rules mapped the same way: engines with a catalog expand to their
+  // signatures (per-signature toggle, read-only detail on click) with a master
+  // engine toggle; a single-row engine (DOM XSS) is one row.
+  // Active techniques are grouped by family (section) → technique (group) → rows.
+  const activeFamilies = useMemo<{ family: string; groups: RuleGroupVM[] }[]>(() => {
+    if (!activeRules) return []
+    const needle = search.toLowerCase()
+    const stateOK = (enabled: boolean) =>
+      state === 'all' || (state === 'enabled' && enabled) || (state === 'disabled' && !enabled)
+    const rowOK = (name: string, id: string, desc: string | undefined, severity: string) => {
+      if (origin === 'custom') return false // active signatures are all built-in
+      if (sevs.length > 0 && !sevs.includes(severity)) return false
+      if (
+        needle &&
+        !name.toLowerCase().includes(needle) &&
+        !id.toLowerCase().includes(needle) &&
+        !(desc ?? '').toLowerCase().includes(needle)
+      ) {
+        return false
+      }
+      return true
+    }
+    const byFamily = new Map<string, RuleGroupVM[]>()
+    const push = (fam: string, g: RuleGroupVM) => {
+      const a = byFamily.get(fam) ?? []
+      a.push(g)
+      byFamily.set(fam, a)
+    }
+    for (const eng of activeRules) {
+      if (cats.length > 0 && !cats.includes(eng.category)) continue
+      const fam = ACTIVE_FAMILY[eng.category] ?? 'Other'
+      if (eng.hasSignatures) {
+        const rows = (activeSigs[eng.id] ?? [])
+          .filter((s) => rowOK(s.name, s.id, s.description, s.severity) && stateOK(s.enabled))
+          .map((s) => ({
+            id: `${eng.id}:${s.id}`,
+            name: s.name,
+            description: s.description,
+            severity: s.severity,
+            confidence: s.confidence,
+            target: s.target,
+            originBuiltin: true,
+            originLabel: 'Built-in',
+            enabled: s.enabled,
+            onToggle: (en: boolean) => toggleSignature(eng.id, s.id, en),
+            onClick: () => setActiveDetail(s),
+          }))
+        if (filtering && rows.length === 0) continue
+        push(fam, {
+          key: eng.id,
+          label: eng.name,
+          description: eng.description,
+          rows,
+          onEnableAll: () => bulkSignatures(eng.id, true),
+          onDisableAll: () => bulkSignatures(eng.id, false),
+        })
+      } else {
+        const sev = eng.severity ?? 'info'
+        if (!(rowOK(eng.name, eng.id, eng.description, sev) && stateOK(eng.enabled))) continue
+        const synthetic: SignatureCatalogItem = {
+          id: eng.id,
+          name: eng.name,
+          severity: sev,
+          confidence: eng.confidence,
+          target: eng.target,
+          description: eng.description,
+          enabled: eng.enabled,
+        }
+        push(fam, {
+          key: eng.id,
+          label: eng.name,
+          rows: [
+            {
+              id: eng.id,
+              name: eng.name,
+              description: eng.description,
+              severity: sev,
+              confidence: eng.confidence,
+              target: eng.target,
+              originBuiltin: true,
+              originLabel: 'Built-in',
+              enabled: eng.enabled,
+              onToggle: (en: boolean) => toggleActiveRule(eng.id, en),
+              onClick: () => setActiveDetail(synthetic),
+            },
+          ],
+          onEnableAll: () => toggleActiveRule(eng.id, true),
+          onDisableAll: () => toggleActiveRule(eng.id, false),
+        })
+      }
+    }
+    return ACTIVE_FAMILY_ORDER.filter((f) => byFamily.has(f)).map((f) => ({
+      family: f,
+      groups: byFamily.get(f)!,
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRules, activeSigs, search, sevs, cats, origin, state, filtering])
+
+  const anyExpanded = expanded.size > 0
+  function setAllExpanded(expand: boolean) {
+    const keys =
+      mode === 'active'
+        ? activeFamilies.flatMap((f) => f.groups.map((g) => g.key))
+        : passiveGroups.map((g) => g.key)
+    const next = expand ? new Set(keys) : new Set<string>()
+    persistExpanded(next)
+    setExpanded(next)
   }
 
   async function patchConfig(patch: Record<string, unknown>) {
@@ -1329,15 +1528,6 @@ function RulesView() {
         : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
     }`
 
-  const originPill = (builtin: boolean) => (
-    <span
-      className={`inline-block px-1 py-px rounded-sm bg-surface-input text-[10px] font-semibold uppercase tracking-wide align-middle ${
-        builtin ? 'text-accent-secondary' : 'text-accent-tertiary'
-      }`}
-    >
-      {builtin ? 'Built-in' : 'Custom'}
-    </span>
-  )
 
   const enabledCount = rules.filter((r) => r.enabled).length
 
@@ -1345,12 +1535,14 @@ function RulesView() {
     <div className="flex flex-col flex-1 min-h-0">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 border-b border-border bg-surface-card shrink-0">
-        <MultiSelectDropdown
-          label="Category"
-          options={CATEGORY_OPTIONS}
-          selected={cats}
-          onChange={setCats}
-        />
+        {mode === 'passive' && (
+          <MultiSelectDropdown
+            label="Category"
+            options={CATEGORY_OPTIONS}
+            selected={cats}
+            onChange={setCats}
+          />
+        )}
         <MultiSelectDropdown
           label="Severity"
           options={SEVERITY_OPTIONS}
@@ -1366,13 +1558,15 @@ function RulesView() {
             className="bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border w-full"
           />
         </label>
-        <div className="flex items-center gap-0.5">
-          {(['all', 'builtin', 'custom'] as const).map((k) => (
-            <button key={k} onClick={() => setOrigin(k)} className={chip(origin === k)}>
-              {k === 'all' ? 'All' : k === 'builtin' ? 'Built-in' : 'Custom'}
-            </button>
-          ))}
-        </div>
+        {mode === 'passive' && (
+          <div className="flex items-center gap-0.5">
+            {(['all', 'builtin', 'custom'] as const).map((k) => (
+              <button key={k} onClick={() => setOrigin(k)} className={chip(origin === k)}>
+                {k === 'all' ? 'All' : k === 'builtin' ? 'Built-in' : 'Custom'}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-0.5">
           {(['all', 'enabled', 'disabled'] as const).map((k) => (
             <Tooltip
@@ -1385,30 +1579,34 @@ function RulesView() {
             </Tooltip>
           ))}
         </div>
-        <Tooltip content={allCollapsed ? 'Expand every category' : 'Collapse every category'}>
+        <Tooltip content={anyExpanded ? 'Collapse every group' : 'Expand every group'}>
           <button
-            onClick={() => setAllCollapsed(!allCollapsed)}
+            onClick={() => setAllExpanded(!anyExpanded)}
             disabled={filtering}
             className="text-xs px-2 py-1 rounded-sm bg-surface-input text-content-secondary hover:bg-surface-hover disabled:opacity-50"
           >
-            {allCollapsed ? 'Expand all' : 'Collapse all'}
+            {anyExpanded ? 'Collapse all' : 'Expand all'}
           </button>
         </Tooltip>
-        <button
-          onClick={() => setShowSettings((v) => !v)}
-          className="text-xs px-2 py-1 rounded-sm bg-surface-input text-content-secondary hover:bg-surface-hover"
-        >
-          {showSettings ? 'Hide settings' : 'Settings'}
-        </button>
-        <button
-          onClick={() => {
-            setModalRuleId(null)
-            setCreating(true)
-          }}
-          className="text-xs px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black font-semibold"
-        >
-          + New rule
-        </button>
+        {mode === 'passive' && (
+          <>
+            <button
+              onClick={() => setShowSettings((v) => !v)}
+              className="text-xs px-2 py-1 rounded-sm bg-surface-input text-content-secondary hover:bg-surface-hover"
+            >
+              {showSettings ? 'Hide settings' : 'Settings'}
+            </button>
+            <button
+              onClick={() => {
+                setModalRuleId(null)
+                setCreating(true)
+              }}
+              className="text-xs px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black font-semibold"
+            >
+              + New rule
+            </button>
+          </>
+        )}
       </div>
 
       {/* Detection settings: engine config rather than per-rule, so it stays
@@ -1481,179 +1679,55 @@ function RulesView() {
 
       {/* Count bar */}
       <div className="flex items-center gap-3 text-content-muted text-xs px-2 py-1 border-b border-border bg-surface-card shrink-0">
-        <span>
-          Showing {visible.length} of {rules.length} rules
-        </span>
-        <span>
-          {enabledCount} enabled, {rules.length - enabledCount} disabled
-        </span>
-        <span className="ml-auto text-[10px]">
-          Click a rule to configure it; use the checkbox to toggle it directly.
-        </span>
+        {mode === 'passive' ? (
+          <>
+            <span>
+              Showing {visible.length} of {rules.length} rules
+            </span>
+            <span>
+              {enabledCount} enabled, {rules.length - enabledCount} disabled
+            </span>
+            <span className="ml-auto text-[10px]">
+              Click a rule to configure it; use the checkbox to toggle it directly.
+            </span>
+          </>
+        ) : (
+          <span className="ml-auto text-[10px]">
+            Operator-initiated via "Initiate scan". Click a check for detail; use the checkbox to
+            toggle it.
+          </span>
+        )}
       </div>
 
       {/* Table */}
       <div className="flex-1 overflow-auto min-h-0">
-        {activeRules && activeRules.length > 0 && (
-          <div className="border-b border-border">
-            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-surface-card text-content-muted">
-              <Scan size={12} strokeWidth={1.8} className="text-accent-tertiary" />
-              <span className="text-[10px] font-semibold uppercase tracking-wide">Active rules</span>
-              <span className="text-[10px] text-content-muted">· run on demand via "Initiate scan"</span>
+        {mode === 'active' ? (
+          activeFamilies.length === 0 ? (
+            <div className="px-3 py-8 text-center text-content-muted text-xs">
+              No active rules match the current filters.
             </div>
-            <table className="w-full text-xs">
-              <tbody>
-                {activeRules.map((r) => (
-                  <tr key={r.id} className={`border-b border-border-subtle ${r.enabled ? '' : 'opacity-60'}`}>
-                    <td className="px-2 py-1 w-8">
-                      <input
-                        type="checkbox"
-                        className="accent-accent"
-                        checked={r.enabled}
-                        onChange={(e) => toggleActiveRule(r.id, e.target.checked)}
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <div className="text-content-secondary">{r.name}</div>
-                    </td>
-                    <td className="px-2 py-1">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-surface-input text-content-muted">
-                        {r.category}
-                      </span>
-                    </td>
-                    <td className="px-2 py-1 text-[10px] text-content-muted">active · operator-initiated</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          ) : (
+            activeFamilies.map((f) => (
+              <RuleTableSection
+                key={f.family}
+                title={f.family}
+                groups={f.groups}
+                expanded={expanded}
+                onToggleExpand={toggleGroup}
+                filtering={filtering}
+                emptyText="No techniques match the current filters."
+              />
+            ))
+          )
+        ) : (
+          <RuleTableSection
+            groups={passiveGroups}
+            expanded={expanded}
+            onToggleExpand={toggleGroup}
+            filtering={filtering}
+            emptyText="No rules match the current filters."
+          />
         )}
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-surface-card text-content-muted uppercase">
-            <tr>
-              <th className="px-2 py-1 w-8" />
-              <th className="px-2 py-1 text-left">Rule</th>
-              <th className="px-2 py-1 text-left w-20">Severity</th>
-              <th className="px-2 py-1 text-left w-14">Conf</th>
-              <th className="px-2 py-1 text-left w-32">Target</th>
-              <th className="px-2 py-1 text-left w-20">Origin</th>
-              <th className="px-2 py-1 text-right w-12">Hits</th>
-            </tr>
-          </thead>
-          <tbody>
-            {grouped.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-2 py-8 text-center text-content-muted text-xs">
-                  No rules match the current filters.
-                </td>
-              </tr>
-            )}
-            {grouped.map(([category, catRules]) => {
-              const isCollapsed = !filtering && collapsed.has(category)
-              const onCount = catRules.filter((r) => r.enabled).length
-              return (
-              <Fragment key={category}>
-                <tr
-                  className="cursor-pointer hover:bg-surface-hover"
-                  onClick={() => !filtering && toggleCategory(category)}
-                >
-                  <td
-                    colSpan={7}
-                    className="px-2 py-1 bg-surface-input text-[10px] text-content-muted uppercase tracking-wide"
-                  >
-                    <span className="flex items-center gap-2">
-                      {filtering ? (
-                        <span className="w-3" />
-                      ) : isCollapsed ? (
-                        <ChevronRight size={12} />
-                      ) : (
-                        <ChevronDown size={12} />
-                      )}
-                      {category} ({catRules.length})
-                      {/* With the body collapsed this is the only signal of what is
-                          switched off, so the header has to carry it. */}
-                      <span className={onCount === catRules.length ? '' : 'text-semantic-warning'}>
-                        {onCount} on
-                      </span>
-                      {/* stopPropagation so bulk toggling never collapses the group */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setCategoryEnabled(category, true)
-                        }}
-                        className="text-accent-secondary hover:underline normal-case"
-                      >
-                        Enable all
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setCategoryEnabled(category, false)
-                        }}
-                        className="text-accent-secondary hover:underline normal-case"
-                      >
-                        Disable all
-                      </button>
-                    </span>
-                  </td>
-                </tr>
-                {!isCollapsed && catRules.map((r) => (
-                  <tr
-                    key={r.id}
-                    className={`border-b border-border-subtle cursor-pointer hover:bg-surface-hover ${
-                      r.enabled ? '' : 'opacity-60'
-                    }`}
-                    onClick={() => {
-                      setCreating(false)
-                      setModalRuleId(r.id)
-                    }}
-                  >
-                    <td className="px-2 py-1">
-                      {/* stopPropagation keeps bulk toggling from opening the modal */}
-                      <input
-                        type="checkbox"
-                        className="accent-accent"
-                        checked={r.enabled}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => setRuleEnabled(r.id, e.target.checked)}
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <div className="text-content-secondary truncate max-w-md">{r.name}</div>
-                      {r.description && (
-                        <div className="text-[10px] text-content-muted truncate max-w-md">
-                          {r.description}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-2 py-1">{severityBadge(r.severity)}</td>
-                    <td className="px-2 py-1 text-content-muted">{r.confidence}</td>
-                    <td className="px-2 py-1 text-content-muted truncate">{r.target}</td>
-                    <td className="px-2 py-1">{originPill(r.builtin)}</td>
-                    <td className="px-2 py-1 text-right">
-                      {r.findingCount ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            // Clear the severity filter too; an Info rule's count
-                            // would otherwise open an empty table.
-                            setFilter({ rule: r.id, severities: [] })
-                          }}
-                          className="text-accent-secondary hover:underline"
-                        >
-                          {r.findingCount}
-                        </button>
-                      ) : (
-                        <span className="text-content-muted">0</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </Fragment>
-              )
-            })}
-          </tbody>
-        </table>
       </div>
 
       {(modalRule || creating) && (
@@ -1666,6 +1740,28 @@ function RulesView() {
           }}
           onChanged={loadRules}
         />
+      )}
+      {activeDetail && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
+          onClick={() => setActiveDetail(null)}
+        >
+          <div
+            className="bg-surface-card border border-border rounded w-[40rem] max-w-[95vw] max-h-[80vh] overflow-y-auto p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center mb-2">
+              <h3 className="text-sm font-semibold text-content-primary">Rule detail</h3>
+              <button
+                onClick={() => setActiveDetail(null)}
+                className="ml-auto px-2 py-1 rounded-sm text-xs text-content-secondary hover:text-content-primary hover:bg-surface-input"
+              >
+                Close
+              </button>
+            </div>
+            <SignatureDetail sig={activeDetail} />
+          </div>
+        </div>
       )}
     </div>
   )

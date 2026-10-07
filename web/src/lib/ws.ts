@@ -14,6 +14,8 @@ import { useInterceptStore, type InterceptKind, type PendingItem } from '../stor
 import { useManipulateWSStore, type WSFrameEntry } from '../stores/manipulateWSStore'
 import { useRequestStore, type RequestSummary } from '../stores/requestStore'
 import { useTeamStore, type ChatMessage, type ActiveUser } from '../stores/teamStore'
+import { useTechStore } from '../stores/techStore'
+import type { HostTech } from '../lib/api'
 import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectionStore'
 import { useTeamFlaggedStore, type FlaggedSummary } from '../stores/teamFlaggedStore'
 import { useTeamSharedConfigStore, type SharedConfigSummary } from '../stores/teamSharedConfigStore'
@@ -453,6 +455,14 @@ function handleMessage(msg: WSMessage) {
     }
     case 'detect.summary': {
       useDetectStore.getState().setSummary(msg.data as DetectSummary)
+      break
+    }
+    case 'tech.detected': {
+      useTechStore.getState().applyDetected(msg.data as HostTech)
+      break
+    }
+    case 'tech.summary': {
+      useTechStore.getState().setSummary(msg.data as { hosts: number; techs: number })
       break
     }
     case 'detect.scan.started': {

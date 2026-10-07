@@ -44,6 +44,11 @@ func (s *APIServer) resetDetectCursor(seq int) {
 			s.echoStore.Clear()
 		}
 	}
+	// Technology fingerprinting walks the same sequence numbering, so it resets
+	// here too; at seq 0 ResetCursor also clears its derived host map.
+	if s.techEngine != nil {
+		s.techEngine.ResetCursor(seq)
+	}
 	if s.detectScanner == nil {
 		return
 	}
@@ -69,4 +74,14 @@ func (s *APIServer) StartEchoLoop(ctx context.Context) {
 		return
 	}
 	go s.echoEngine.Run(ctx)
+}
+
+// StartTechLoop launches the passive technology fingerprinter. Like the echo
+// loop it runs unconditionally and no-ops per tick while disabled; it compiles
+// the embedded Wappalyzer database on its own goroutine, off the boot path.
+func (s *APIServer) StartTechLoop(ctx context.Context) {
+	if s.techEngine == nil {
+		return
+	}
+	go s.techEngine.Run(ctx)
 }

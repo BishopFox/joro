@@ -16,7 +16,14 @@ import (
 	"time"
 
 	"github.com/BishopFox/joro/internal/activescan"
+	"github.com/BishopFox/joro/internal/activescan/cmdi"
 	"github.com/BishopFox/joro/internal/activescan/domxss"
+	"github.com/BishopFox/joro/internal/activescan/openredirect"
+	"github.com/BishopFox/joro/internal/activescan/pathtraversal"
+	"github.com/BishopFox/joro/internal/activescan/reflectedxss"
+	"github.com/BishopFox/joro/internal/activescan/sqli"
+	"github.com/BishopFox/joro/internal/activescan/ssti"
+	"github.com/BishopFox/joro/internal/activescan/templatesig"
 	"github.com/BishopFox/joro/internal/anomaly"
 	"github.com/BishopFox/joro/internal/apiscan"
 	"github.com/BishopFox/joro/internal/automation"
@@ -40,6 +47,7 @@ import (
 	"github.com/BishopFox/joro/internal/proxy"
 	"github.com/BishopFox/joro/internal/sliver"
 	"github.com/BishopFox/joro/internal/team"
+	"github.com/BishopFox/joro/internal/techfp"
 	"github.com/BishopFox/joro/internal/trigger"
 	"github.com/BishopFox/joro/internal/update"
 	"github.com/BishopFox/joro/internal/webhook"
@@ -143,6 +151,11 @@ type APIServer struct {
 	// project, and only a breakout reaches detectFindings. See internal/echo.
 	echoEngine *echo.Engine
 	echoStore  *echo.Store
+
+	// Passive technology fingerprinting (the embedded Wappalyzer database). Nil
+	// outside proxy mode. The active-scan signature rule reads its store to run
+	// only the checks a host's stack warrants. See internal/techfp.
+	techEngine *techfp.Engine
 
 	// detectCtx is the server-lifetime context, so a rescan job can outlive the
 	// HTTP request that started it. Guarded by mu.
@@ -327,11 +340,23 @@ func New(
 	s.echoEngine = echo.NewEngine(
 		s.echoStore, store, scope, detectFindings,
 		hub.Broadcast(), s.broadcastDetectSummary)
+	// Passive technology fingerprinting over the same capture store. Built here so
+	// it rides the one cursor-reset path (resetDetectCursor) the other passive
+	// analyzers use.
+	s.techEngine = techfp.NewEngine(techfp.NewStore(), store, hub.Broadcast())
 	// Active-scan rule set. The registry is built here (not a package global, per
 	// the no-globals rule) so the api layer can import both activescan and its
 	// rules without an import cycle.
 	s.activeScanRules = activescan.NewRegistry()
 	s.activeScanRules.Register(domxss.New())
+	s.activeScanRules.Register(templatesig.New())
+	// Injection-fuzzing rules (parameter mutation + differential/timing/OAST).
+	s.activeScanRules.Register(reflectedxss.New())
+	s.activeScanRules.Register(sqli.New())
+	s.activeScanRules.Register(ssti.New())
+	s.activeScanRules.Register(cmdi.New())
+	s.activeScanRules.Register(openredirect.New())
+	s.activeScanRules.Register(pathtraversal.New())
 	// Both stores are built here rather than in SetAutomation, because both outlive
 	// automation: a webhook references a trigger, and neither needs an agent to be useful.
 	// See initTriggers for why the trigger store moved out of newScriptManager.

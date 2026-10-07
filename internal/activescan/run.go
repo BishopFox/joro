@@ -169,7 +169,7 @@ func Execute(ctx context.Context, run *Run, d Deps) {
 		}
 		if err := rule.Run(runCtx, Target{
 			Scheme: schemeOf(run.Origin), Host: run.Host, Origin: run.Origin, URLs: run.urls,
-		}, d.RuleDeps, rep); err != nil {
+		}, run.Config, d.RuleDeps, rep); err != nil {
 			run.addError(fmt.Sprintf("%s: %v", rule.Name(), err))
 		}
 	}

@@ -178,6 +178,9 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	// scope off is never rejected), proxy-mode only, one run at a time.
 	mux.HandleFunc("GET /api/v1/activescan/rules", s.handleActiveScanRules)
 	mux.HandleFunc("PUT /api/v1/activescan/rules/{id}/enabled", s.handleSetActiveScanRuleEnabled)
+	mux.HandleFunc("GET /api/v1/activescan/rules/{id}/signatures", s.handleActiveScanSignatures)
+	mux.HandleFunc("PUT /api/v1/activescan/rules/{id}/signatures/enabled", s.handleSetActiveScanSignaturesBulk)
+	mux.HandleFunc("PUT /api/v1/activescan/rules/{id}/signatures/{itemId}/enabled", s.handleSetActiveScanSignatureEnabled)
 	mux.HandleFunc("POST /api/v1/activescan/runs", s.handleActiveScanStart)
 	mux.HandleFunc("GET /api/v1/activescan/runs", s.handleActiveScanListRuns)
 	mux.HandleFunc("GET /api/v1/activescan/runs/{id}", s.handleActiveScanGetRun)
@@ -228,6 +231,16 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/echo/scan", s.handleStartEchoScan)
 	mux.HandleFunc("GET /api/v1/echo/scan", s.handleGetEchoScan)
 	mux.HandleFunc("POST /api/v1/echo/scan/cancel", s.handleCancelEchoScan)
+
+	// Technology fingerprinting (the embedded Wappalyzer database). UI-only, like
+	// echo: a passive read of captured traffic that names the stack each host
+	// serves, which the active-scan rule reads to gate its checks.
+	mux.HandleFunc("GET /api/v1/tech/hosts", s.handleListTechHosts)
+	mux.HandleFunc("GET /api/v1/tech/hosts/{host}", s.handleGetTechHost)
+	mux.HandleFunc("PUT /api/v1/tech/enabled", s.handleSetTechEnabled)
+	mux.HandleFunc("POST /api/v1/tech/scan", s.handleStartTechScan)
+	mux.HandleFunc("GET /api/v1/tech/scan", s.handleGetTechScan)
+	mux.HandleFunc("POST /api/v1/tech/scan/cancel", s.handleCancelTechScan)
 
 	// Web shell generator
 	mux.HandleFunc("POST /api/v1/generate", s.handleGenerate)

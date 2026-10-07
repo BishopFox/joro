@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/BishopFox/joro/internal/activescan"
+	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/proxy"
 )
 
@@ -32,6 +33,16 @@ type activeScanRequest struct {
 	RequestID string   `json:"requestId,omitempty"` // a captured request to scan
 	Rules     []string `json:"rules,omitempty"`     // rule IDs; empty = all
 	BudgetMs  int      `json:"budgetMs,omitempty"`
+
+	// Template-signature rule options. Tags and Severity narrow which signatures
+	// run; IgnoreFingerprint skips technology gating and runs every eligible one.
+	Tags              []string `json:"tags,omitempty"`
+	Severity          []string `json:"severity,omitempty"`
+	IgnoreFingerprint bool     `json:"ignoreFingerprint,omitempty"`
+	// OAST opts out-of-band testing in or out when a listener is configured; nil
+	// (omitted) leaves it on, false turns it off. It never enables OAST when no
+	// callback domain is configured — that gate is server-side.
+	OAST *bool `json:"oast,omitempty"`
 }
 
 func (s *APIServer) handleActiveScanStart(w http.ResponseWriter, r *http.Request) {
@@ -68,9 +79,13 @@ func (s *APIServer) handleActiveScanStart(w http.ResponseWriter, r *http.Request
 
 	rules := s.activeScanRules.Resolve(req.Rules)
 	cfg := activescan.Config{
-		Scope:    req.Scope,
-		Rules:    req.Rules,
-		BudgetMs: req.BudgetMs,
+		Scope:             req.Scope,
+		Rules:             req.Rules,
+		BudgetMs:          req.BudgetMs,
+		Tags:              req.Tags,
+		Severity:          req.Severity,
+		IgnoreFingerprint: req.IgnoreFingerprint,
+		NoOAST:            req.OAST != nil && !*req.OAST,
 	}
 	total, err := activescan.Plan(cfg, target, rules)
 	if err != nil {
@@ -104,6 +119,8 @@ func (s *APIServer) handleActiveScanStart(w http.ResponseWriter, r *http.Request
 			Store:     s.store,
 			Scope:     s.scope,
 			DataDir:   s.cfg.DataDir,
+			Tech:      s.techStore(),
+			Callback:  s.cbStore,
 		},
 	}
 	// context.Background, not the request's: a scan outlives the HTTP call.
@@ -130,7 +147,11 @@ func (s *APIServer) resolveScanTarget(req activeScanRequest) (activescan.Target,
 	}
 }
 
-// hostTarget collects a host's unique GET URLs from the capture store.
+// hostTarget collects a host's distinct requests from the capture store, carrying
+// the raw bytes and method so the injection rules can fuzz parameters (GET query +
+// POST/PUT/PATCH bodies) and DOM XSS can navigate the GET pages. Distinct by
+// method+URL+body-shape, so two POSTs to one URL with different bodies both count.
+// Not capped by a request count — the scan budget bounds the work.
 func (s *APIServer) hostTarget(origin string) (activescan.Target, error) {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
@@ -140,25 +161,26 @@ func (s *APIServer) hostTarget(origin string) (activescan.Target, error) {
 	seen := map[string]bool{}
 	var urls []activescan.TargetURL
 	for _, cr := range reqs {
-		if !strings.EqualFold(cr.Method, "GET") || seen[cr.URL] {
+		key := fmt.Sprintf("%s %s %d", cr.Method, cr.URL, len(cr.ReqRaw))
+		if seen[key] {
 			continue
 		}
-		seen[cr.URL] = true
-		urls = append(urls, activescan.TargetURL{URL: cr.URL, Method: "GET", RequestID: cr.ID})
-		if len(urls) >= activescan.MaxURLs {
-			break
-		}
+		seen[key] = true
+		urls = append(urls, activescan.TargetURL{URL: cr.URL, Method: cr.Method, RequestID: cr.ID, RawReq: cr.ReqRaw})
 	}
 	if len(urls) == 0 {
-		return activescan.Target{}, fmt.Errorf("no captured GET endpoints for %s", origin)
+		return activescan.Target{}, fmt.Errorf("no captured endpoints for %s", origin)
 	}
 	return activescan.Target{Scheme: u.Scheme, Host: u.Host, Origin: origin, URLs: urls}, nil
 }
 
-// requestTarget builds a single-URL target from a captured request or a raw URL.
+// requestTarget builds a single-request target from a captured request or a raw
+// URL, carrying the raw bytes and method for the injection rules.
 func (s *APIServer) requestTarget(req activeScanRequest) (activescan.Target, error) {
 	rawURL := strings.TrimSpace(req.URL)
+	method := "GET"
 	requestID := ""
+	var rawReq []byte
 	if req.RequestID != "" {
 		cr := s.store.Get(req.RequestID)
 		if cr == nil {
@@ -166,6 +188,8 @@ func (s *APIServer) requestTarget(req activeScanRequest) (activescan.Target, err
 		}
 		rawURL = cr.URL
 		requestID = cr.ID
+		method = cr.Method
+		rawReq = cr.ReqRaw
 	}
 	if rawURL == "" {
 		return activescan.Target{}, fmt.Errorf("a request scan needs a requestId or url")
@@ -178,7 +202,7 @@ func (s *APIServer) requestTarget(req activeScanRequest) (activescan.Target, err
 		Scheme: u.Scheme,
 		Host:   u.Host,
 		Origin: u.Scheme + "://" + u.Host,
-		URLs:   []activescan.TargetURL{{URL: rawURL, Method: "GET", RequestID: requestID}},
+		URLs:   []activescan.TargetURL{{URL: rawURL, Method: method, RequestID: requestID, RawReq: rawReq}},
 	}, nil
 }
 
@@ -191,13 +215,30 @@ func (s *APIServer) filterInScope(urls []activescan.TargetURL) (kept []activesca
 			skipped++
 			continue
 		}
-		if s.scope.InScope(u.Host, "GET", u.Path) {
+		method := tu.Method
+		if method == "" {
+			method = "GET"
+		}
+		if s.scope.InScope(u.Host, method, u.Path) {
 			kept = append(kept, tu)
 		} else {
 			skipped++
 		}
 	}
 	return kept, skipped
+}
+
+// activeRuleSeverity is the representative severity shown for a single-row active
+// rule in the Rules UI; the actual findings carry their own confirmed severity.
+func activeRuleSeverity(cat detect.Category) detect.Severity {
+	switch cat {
+	case detect.CategorySQLi, detect.CategorySSTI, detect.CategoryCommandInjection:
+		return detect.SeverityCritical
+	case detect.CategoryOpenRedirect:
+		return detect.SeverityMedium
+	default:
+		return detect.SeverityHigh
+	}
 }
 
 func (s *APIServer) handleActiveScanRules(w http.ResponseWriter, r *http.Request) {
@@ -207,10 +248,23 @@ func (s *APIServer) handleActiveScanRules(w http.ResponseWriter, r *http.Request
 	rules := s.activeScanRules.All()
 	out := make([]map[string]any, 0, len(rules))
 	for _, rule := range rules {
-		out = append(out, map[string]any{
+		entry := map[string]any{
 			"id": rule.ID(), "name": rule.Name(), "category": string(rule.Category()),
-			"enabled": s.activeScanRules.IsEnabled(rule.ID()),
-		})
+			"description": rule.Description(),
+			"enabled":     s.activeScanRules.IsEnabled(rule.ID()),
+		}
+		// hasSignatures tells the UI to render the rule's catalog items as rows rather
+		// than the rule as a single row: any rule implementing Cataloger has a catalog.
+		_, hasCatalog := rule.(activescan.Cataloger)
+		entry["hasSignatures"] = hasCatalog
+		// A single-row rule carries the row's severity/confidence/target (its
+		// representative class severity); a catalog rule's rows carry their own.
+		if !hasCatalog {
+			entry["severity"] = string(activeRuleSeverity(rule.Category()))
+			entry["confidence"] = string(detect.ConfidenceHigh)
+			entry["target"] = string(detect.TargetMessage)
+		}
+		out = append(out, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"rules": out})
 }
@@ -237,6 +291,140 @@ func (s *APIServer) handleSetActiveScanRuleEnabled(w http.ResponseWriter, r *htt
 	s.activeScanRules.SetEnabled(id, body.Enabled)
 	// The toggle is picked up by the next autosave tick, which compares
 	// projectSignature (now carrying the disabled set); no explicit save here.
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": body.Enabled})
+}
+
+// collectDisabledItems gathers every catalog rule's disabled item ids, keyed by rule
+// id, for the project file. Returns nil when nothing is disabled (exceptions-only).
+func (s *APIServer) collectDisabledItems() map[string][]string {
+	if s.activeScanRules == nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, rule := range s.activeScanRules.All() {
+		if c, ok := rule.(activescan.Cataloger); ok {
+			if d := c.DisabledItems(); len(d) > 0 {
+				out[rule.ID()] = d
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// applyDisabledItems distributes a rule-keyed disabled-items map back onto the catalog
+// rules on a project restore; a missing key clears that rule's set (everything enabled).
+func (s *APIServer) applyDisabledItems(m map[string][]string) {
+	if s.activeScanRules == nil {
+		return
+	}
+	for _, rule := range s.activeScanRules.All() {
+		if c, ok := rule.(activescan.Cataloger); ok {
+			c.SetDisabledItems(m[rule.ID()])
+		}
+	}
+}
+
+// disabledItemsSignature fingerprints every catalog rule's disabled set for the
+// autosave dirty-check (registration order is stable, so the string is deterministic).
+func (s *APIServer) disabledItemsSignature() string {
+	if s.activeScanRules == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, rule := range s.activeScanRules.All() {
+		if c, ok := rule.(activescan.Cataloger); ok {
+			b.WriteString("/ci:" + rule.ID() + ":" + strings.Join(c.DisabledItems(), ","))
+		}
+	}
+	return b.String()
+}
+
+// catalogRule returns the rule with the given id as a Cataloger, or nil if the rule
+// does not exist or has no catalog. It replaces the old templatesig-specific resolver,
+// so any catalog rule (template signatures, the injection rules) works generically.
+func (s *APIServer) catalogRule(id string) activescan.Cataloger {
+	if s.activeScanRules == nil {
+		return nil
+	}
+	c, _ := s.activeScanRules.Get(id).(activescan.Cataloger)
+	return c
+}
+
+// handleActiveScanSignatures returns a rule's read-only catalog — one item per
+// signature or check, with its enabled-state and per-severity counts.
+func (s *APIServer) handleActiveScanSignatures(w http.ResponseWriter, r *http.Request) {
+	if !s.activeScanAvailable(w) {
+		return
+	}
+	rule := s.catalogRule(r.PathValue("id"))
+	if rule == nil {
+		writeError(w, http.StatusNotFound, "no catalog for this rule")
+		return
+	}
+	items := rule.CatalogItems()
+	bySeverity := map[string]int{}
+	for i := range items {
+		bySeverity[items[i].Severity]++
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"signatures": items, "total": len(items), "bySeverity": bySeverity,
+	})
+}
+
+// handleSetActiveScanSignaturesBulk enables or disables every item of a rule's
+// catalog in one call — the "Enable all / Disable all" control.
+func (s *APIServer) handleSetActiveScanSignaturesBulk(w http.ResponseWriter, r *http.Request) {
+	if !s.activeScanAvailable(w) {
+		return
+	}
+	rule := s.catalogRule(r.PathValue("id"))
+	if rule == nil {
+		writeError(w, http.StatusNotFound, "no catalog for this rule")
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.Enabled {
+		rule.SetDisabledItems(nil)
+	} else {
+		items := rule.CatalogItems()
+		ids := make([]string, 0, len(items))
+		for i := range items {
+			ids = append(ids, items[i].ID)
+		}
+		rule.SetDisabledItems(ids)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": body.Enabled})
+}
+
+// handleSetActiveScanSignatureEnabled toggles one catalog item of a rule. Rule-scoped
+// because check ids (e.g. "time-based") can repeat across rules. Persists with the
+// project (projectSignature carries the disabled set), like the rule toggle.
+func (s *APIServer) handleSetActiveScanSignatureEnabled(w http.ResponseWriter, r *http.Request) {
+	if !s.activeScanAvailable(w) {
+		return
+	}
+	rule := s.catalogRule(r.PathValue("id"))
+	if rule == nil {
+		writeError(w, http.StatusNotFound, "no catalog for this rule")
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	rule.SetItemEnabled(r.PathValue("itemId"), body.Enabled)
 	writeJSON(w, http.StatusOK, map[string]any{"enabled": body.Enabled})
 }
 

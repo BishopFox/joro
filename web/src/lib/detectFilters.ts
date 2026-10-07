@@ -17,6 +17,13 @@ export const CATEGORY_OPTIONS = [
   { key: 'cookies', label: 'Cookies', title: 'Cookie flag issues' },
   { key: 'anomaly', label: 'Anomaly', title: 'Endpoints unlike their siblings on the same host' },
   { key: 'dom-xss', label: 'DOM XSS', title: 'Runtime-confirmed DOM-based cross-site scripting' },
+  { key: 'template', label: 'Template', title: 'Template-signature checks: exposed files, known fingerprints, misconfigurations' },
+  { key: 'reflected-xss', label: 'Reflected XSS', title: 'Confirmed reflected cross-site scripting (parameter breaks out of its context)' },
+  { key: 'sqli', label: 'SQL injection', title: 'Error-based, boolean, time-based, or out-of-band SQL injection' },
+  { key: 'ssti', label: 'SSTI', title: 'Server-side template injection (an injected expression was evaluated)' },
+  { key: 'command-injection', label: 'Command injection', title: 'OS command injection (timing, echoed nonce, or out-of-band callback)' },
+  { key: 'open-redirect', label: 'Open redirect', title: 'Unvalidated redirect to an attacker-controlled host' },
+  { key: 'path-traversal', label: 'Path traversal', title: 'Directory traversal / local file inclusion returning file contents' },
 ]
 
 export const TARGET_OPTIONS = [

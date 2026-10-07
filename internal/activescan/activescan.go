@@ -32,9 +32,11 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/BishopFox/joro/internal/callback"
 	"github.com/BishopFox/joro/internal/cert"
 	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/proxy"
+	"github.com/BishopFox/joro/internal/techfp"
 )
 
 // Status is a run's state.
@@ -89,6 +91,19 @@ type Config struct {
 	// the seam a future rule's Plan refusal hangs on.
 	AllowDestructive bool
 
+	// Tags and Severity narrow which signatures the template rule runs; empty
+	// means no filter. IgnoreFingerprint makes that rule skip fingerprint gating
+	// and run every eligible signature. Only the template-signature rule reads
+	// these; other rules ignore them.
+	Tags              []string
+	Severity          []string
+	IgnoreFingerprint bool
+
+	// NoOAST opts the injection rules out of out-of-band testing even when a
+	// callback listener is configured. OAST is already disabled when no listener
+	// is configured; this is the operator's explicit opt-out when one is.
+	NoOAST bool
+
 	BudgetMs int
 }
 
@@ -100,6 +115,14 @@ type RuleDeps struct {
 	Store     *proxy.Store
 	Scope     *proxy.Scope
 	DataDir   string
+	// Tech is the passive fingerprint store. The template-signature rule reads it
+	// to run only the checks a host's detected stack warrants; nil disables gating
+	// (every eligible signature runs).
+	Tech *techfp.Store
+	// Callback is the out-of-band (OAST) callback store. The injection rules mint a
+	// token and poll it for blind interactions; nil (or no configured domain)
+	// disables OAST vectors, so they run only when a listener/domain is configured.
+	Callback *callback.Store
 }
 
 // Reporter is how a rule reports progress and results back to the run. Both
@@ -118,7 +141,10 @@ type Rule interface {
 	ID() string
 	Name() string
 	Category() detect.Category
-	Run(ctx context.Context, t Target, deps RuleDeps, rep Reporter) error
+	// Description explains what the rule does, for the Rules UI. It is the active
+	// counterpart to a passive rule's Description field.
+	Description() string
+	Run(ctx context.Context, t Target, cfg Config, deps RuleDeps, rep Reporter) error
 }
 
 // Registry holds the rules a host process offers. It is built and owned by the

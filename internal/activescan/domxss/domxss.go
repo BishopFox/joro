@@ -56,6 +56,15 @@ func (*Rule) ID() string                { return ruleID }
 func (*Rule) Name() string              { return "DOM-based XSS" }
 func (*Rule) Category() detect.Category { return detect.CategoryDOMXSS }
 
+func (*Rule) Description() string {
+	return "Drives a dedicated headless Chromium through Joro's proxy and plants per-source " +
+		"canaries in the URL fragment, a query value, and window.name, then reports when the " +
+		"page's own JavaScript carries one into a dangerous sink (innerHTML, document.write, " +
+		"eval, setTimeout, location, and similar). Injection is over CDP before page load, so " +
+		"it is unaffected by CSP, and the canary never reaches the server — the flow is " +
+		"confirmed in the browser."
+}
+
 // hit is one sink report from the injected monitor.
 type hit struct {
 	Sink    string `json:"sink"`
@@ -90,7 +99,7 @@ func (c *collector) drain() []hit {
 
 // Run launches a dedicated headless browser, injects the monitor, and navigates
 // each target URL with canaries, reporting confirmed flows.
-func (r *Rule) Run(ctx context.Context, t activescan.Target, deps activescan.RuleDeps, rep activescan.Reporter) error {
+func (r *Rule) Run(ctx context.Context, t activescan.Target, _ activescan.Config, deps activescan.RuleDeps, rep activescan.Reporter) error {
 	if deps.CA == nil {
 		return fmt.Errorf("no CA available for the scan browser")
 	}
@@ -156,6 +165,12 @@ func (r *Rule) Run(ctx context.Context, t activescan.Target, deps activescan.Rul
 	for _, tu := range t.URLs {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		// Only GET endpoints are navigable pages; a host target now also carries
+		// non-GET parametric requests for the injection rules, which this rule skips.
+		if tu.Method != "" && !strings.EqualFold(tu.Method, "GET") {
+			rep.Progress(1)
+			continue
 		}
 		scanURL(ctx, client, col, loadCh, t.Host, tu.URL, rep)
 		rep.Progress(1)
