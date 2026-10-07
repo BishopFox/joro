@@ -296,7 +296,8 @@ interface SJState {
 
   // A re-parse of the document a tab already holds, not a new one: it replaces
   // the spec and nothing else, where setSpec resets drafts, target and selection
-  // because a *different* document has arrived. Keyed by spec id rather than tab
+  // and discards the Automate/Matrix runs because a *different* document has
+  // arrived. Keyed by spec id rather than tab
   // id for the reason addRunResults is keyed by run id — every tab showing that
   // document is looking at the one parse, and they have to agree about it.
   setSpecParse: (specId: string, spec: SJSpec) => void
@@ -416,6 +417,18 @@ export const useSJStore = create<SJState>((set, get) => ({
     set((s) => {
       const normalized = normalizeSpec(spec)
       const srv = normalized.servers[0]
+      // A different document has arrived, so the Automate and Auth Matrix runs —
+      // which ran against the document being replaced — no longer describe what is
+      // loaded. Tear them down like unloadDocument does rather than leave stale
+      // rows attributed to the new document; discoverRun is left alone because the
+      // Brute sweep is not scoped to one document and may be the very list the
+      // operator just loaded this spec from.
+      const prev = s.tabs.find((t) => t.id === tabId)
+      for (const run of [prev?.scanRun, prev?.matrixRun]) {
+        if (!run) continue
+        if (run.status === 'running') api.sjStopRun(run.id).catch(() => {})
+        api.sjDeleteRun(run.id).catch(() => {})
+      }
       return patchTab(s, tabId, {
         spec: normalized,
         loading: false,
@@ -430,8 +443,10 @@ export const useSJStore = create<SJState>((set, get) => ({
         selectedOpId: normalized.operations[0]?.id ?? null,
         drafts: {},
         scope: { kind: 'all' },
+        scanRun: null,
+        matrixRun: null,
         discover: {
-          ...(s.tabs.find((t) => t.id === tabId)?.discover ?? {
+          ...(prev?.discover ?? {
             scheme: 'https', host: '', basePath: '', full: false, stopOnFirst: false,
           }),
           scheme: srv?.scheme || 'https',
