@@ -73,7 +73,12 @@ export default function AutomationConfigPanel({
       ? []
       : capabilities.filter((c) => c.unrestrictedOnly && t.grants.includes(c.id)).map((c) => c.toolName)
 
-  const sendCapableEnabled = tokens.some((t) => !t.disabled && !t.expired && t.sendsTraffic)
+  // Only a token that requires scope has its sends refused when scope is off or empty; a
+  // token with scope enforcement off sends regardless (guard.go gates the scope check on
+  // RequireScope), so it must not trigger the fail-closed banner.
+  const sendCapableEnabled = tokens.some(
+    (t) => !t.disabled && !t.expired && t.sendsTraffic && t.requireScope,
+  )
 
   async function guard(fn: () => Promise<unknown>, ok: string) {
     try {
