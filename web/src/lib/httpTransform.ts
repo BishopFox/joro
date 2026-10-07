@@ -239,11 +239,16 @@ export function rawToCurl(rawRequest: string, requestUrl: string): string {
 
   const parts = [`curl -X ${parsed.method} '${shellEscape(requestUrl)}'`]
 
+  let compressed = false
   for (const [name, value] of parsed.headers) {
     const lower = name.toLowerCase()
     if (lower === 'host' || lower === 'content-length') continue
+    if (lower === 'accept-encoding' && /gzip|deflate|br|zstd/i.test(value)) {
+      compressed = true
+    }
     parts.push(`  -H '${shellEscape(name)}: ${shellEscape(value)}'`)
   }
+  if (compressed) parts.push('  --compressed')
 
   if (parsed.body) {
     parts.push(`  --data-raw '${shellEscape(parsed.body)}'`)
