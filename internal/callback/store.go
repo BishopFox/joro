@@ -12,6 +12,10 @@ type Token struct {
 	Token     string    `json:"token"`
 	CreatedAt time.Time `json:"createdAt"`
 	HitCount  int       `json:"hitCount"`
+	// ResponseHash is the value the server returns on a correlated interaction,
+	// for an operator or OAST client to match against. Derived from Token, not a
+	// stored column — like HitCount, it is populated on read.
+	ResponseHash string `json:"expectedHash"`
 }
 
 // Interaction represents a recorded callback interaction (DNS or HTTP).
@@ -58,7 +62,7 @@ func (s *Store) CreateToken(id, note, hex string) (*Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Token{ID: id, Note: note, Token: hex, CreatedAt: now}, nil
+	return &Token{ID: id, Note: note, Token: hex, CreatedAt: now, ResponseHash: ResponseHash(hex)}, nil
 }
 
 // ListTokens returns all tokens with their hit counts.
@@ -81,6 +85,7 @@ func (s *Store) ListTokens() ([]Token, error) {
 		if err := rows.Scan(&t.ID, &t.Note, &t.Token, &t.CreatedAt, &t.HitCount); err != nil {
 			return nil, err
 		}
+		t.ResponseHash = ResponseHash(t.Token)
 		tokens = append(tokens, t)
 	}
 	return tokens, rows.Err()

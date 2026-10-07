@@ -149,6 +149,12 @@ const (
 	CategoryCommandInjection Category = "command-injection"
 	CategoryOpenRedirect     Category = "open-redirect"
 	CategoryPathTraversal    Category = "path-traversal"
+	// CategoryOOB holds confirmed out-of-band interactions: a callback canary
+	// (sha256 of an OAST token) the callback server computed and that then appeared
+	// in captured traffic. It comes from internal/oast, not the passive engine —
+	// the value is proof the target reached the callback server for that probe, so
+	// a reflection of it is a server-side interaction rather than an echo of input.
+	CategoryOOB Category = "oob"
 )
 
 // Categories lists every category. See Severities.
@@ -157,7 +163,7 @@ var Categories = []Category{
 	CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
 	CategoryReflection, CategoryDOMXSS, CategoryTemplate,
 	CategoryReflectedXSS, CategorySQLi, CategorySSTI, CategoryCommandInjection,
-	CategoryOpenRedirect, CategoryPathTraversal,
+	CategoryOpenRedirect, CategoryPathTraversal, CategoryOOB,
 }
 
 // Valid reports whether c is a known category.
@@ -167,7 +173,7 @@ func (c Category) Valid() bool {
 		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
 		CategoryReflection, CategoryDOMXSS, CategoryTemplate,
 		CategoryReflectedXSS, CategorySQLi, CategorySSTI, CategoryCommandInjection,
-		CategoryOpenRedirect, CategoryPathTraversal:
+		CategoryOpenRedirect, CategoryPathTraversal, CategoryOOB:
 		return true
 	}
 	return false
@@ -180,7 +186,7 @@ func AllCategories() []Category {
 		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
 		CategoryReflection, CategoryDOMXSS, CategoryTemplate,
 		CategoryReflectedXSS, CategorySQLi, CategorySSTI, CategoryCommandInjection,
-		CategoryOpenRedirect, CategoryPathTraversal,
+		CategoryOpenRedirect, CategoryPathTraversal, CategoryOOB,
 	}
 }
 

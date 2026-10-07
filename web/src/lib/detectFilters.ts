@@ -24,6 +24,7 @@ export const CATEGORY_OPTIONS = [
   { key: 'command-injection', label: 'Command injection', title: 'OS command injection (timing, echoed nonce, or out-of-band callback)' },
   { key: 'open-redirect', label: 'Open redirect', title: 'Unvalidated redirect to an attacker-controlled host' },
   { key: 'path-traversal', label: 'Path traversal', title: 'Directory traversal / local file inclusion returning file contents' },
+  { key: 'oob', label: 'Out-of-band', title: 'Confirmed out-of-band interaction: a callback canary computed by the OAST server reflected into captured traffic' },
 ]
 
 export const TARGET_OPTIONS = [

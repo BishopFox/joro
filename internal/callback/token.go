@@ -2,6 +2,7 @@ package callback
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"regexp"
@@ -12,6 +13,21 @@ import (
 // 16-char hex value, so any candidate string carrying a token contains such a
 // run; we only ever use its first 16 chars.
 var hexRunRe = regexp.MustCompile("[0-9a-fA-F]{16,}")
+
+// ResponseHash is the deterministic value the callback server returns on a
+// correlated interaction: the lowercase hex SHA-256 of the token's hex string.
+//
+// This is a stable external contract. An OAST client reproduces it with a plain
+// sha256 of the token it embedded — sha256("<token>") — so observing this value
+// (reflected in a target response, in a protocol field) proves the interaction
+// actually reached this server for that specific token, rather than being a
+// coincidental echo of the injected input. The input is the token's ASCII hex,
+// not its 8 raw bytes, because that hex is what appears in the subdomain, path,
+// or address a probe carries.
+func ResponseHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
 
 // GenerateToken creates a new token with a random 16-char hex identifier.
 func GenerateToken(store *Store, name string) (*Token, error) {

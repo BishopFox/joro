@@ -192,8 +192,13 @@ func (s *SMTPServer) handleConnection(conn net.Conn, implicitTLS bool) {
 			if err != nil {
 				return
 			}
-			s.recordMessage(conn, sess, data)
-			s.writeLine(rw, sess, "250 OK queued")
+			queued := "250 OK queued"
+			if tok := s.recordMessage(conn, sess, data); tok != nil {
+				// A correlated recipient gets the token's response hash in the reply,
+				// a protocol-legal field an OAST client can read to validate the hit.
+				queued += " " + ResponseHash(tok.Token)
+			}
+			s.writeLine(rw, sess, queued)
 			sess.from, sess.rcpts = "", nil
 		case "RSET":
 			sess.from, sess.rcpts = "", nil
@@ -265,7 +270,10 @@ func (s *SMTPServer) writeLines(rw *bufio.ReadWriter, sess *smtpSession, lines [
 	rw.Flush() //nolint:errcheck
 }
 
-func (s *SMTPServer) recordMessage(conn net.Conn, sess *smtpSession, data []byte) {
+// recordMessage correlates the session's recipients to a token, records the
+// interaction, and returns the matched token (nil if none) so the caller can
+// echo its response hash in the queued-OK reply.
+func (s *SMTPServer) recordMessage(conn net.Conn, sess *smtpSession, data []byte) *Token {
 	cfg, _ := s.store.GetConfig()
 	domain := cfg.Domain
 
@@ -279,7 +287,7 @@ func (s *SMTPServer) recordMessage(conn net.Conn, sess *smtpSession, data []byte
 		}
 	}
 	if token == nil {
-		return
+		return nil
 	}
 
 	var hdrFrom, hdrTo, hdrSubject, body string
@@ -322,9 +330,10 @@ func (s *SMTPServer) recordMessage(conn net.Conn, sess *smtpSession, data []byte
 	}
 	if err := s.store.RecordInteraction(interaction); err != nil {
 		log.Printf("callback smtp: record interaction: %v", err)
-		return
+		return nil
 	}
 	s.broadcast <- event.WSEvent{Type: "callback.interaction", Data: interaction}
+	return token
 }
 
 // splitVerb returns the first whitespace-delimited token and the remainder.

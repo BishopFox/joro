@@ -737,6 +737,17 @@ export default function Callbacks() {
                     Copy URL
                   </button>
                 </div>
+                {t.expectedHash && (
+                  <div className="flex items-center justify-between mt-1" title="SHA-256 of the token; the value the server returns on a hit. Match it against a reflected response to confirm an out-of-band interaction.">
+                    <code className="text-[10px] text-content-muted truncate">hash {t.expectedHash.slice(0, 16)}…</code>
+                    <button
+                      onClick={() => copyText(t.expectedHash)}
+                      className="text-xs text-accent-secondary hover:text-accent-secondary-hover shrink-0"
+                    >
+                      Copy hash
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
 

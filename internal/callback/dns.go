@@ -91,6 +91,15 @@ func (d *DNSServer) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				log.Printf("callback dns: record interaction: %v", err)
 			}
 			d.broadcast <- event.WSEvent{Type: "callback.interaction", Data: interaction}
+
+			// A correlated TXT query is answered with the token's response hash, so
+			// an OAST client can validate a hit via a plain TXT lookup.
+			if q.Qtype == dns.TypeTXT {
+				msg.Answer = append(msg.Answer, &dns.TXT{
+					Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 60},
+					Txt: []string{ResponseHash(token.Token)},
+				})
+			}
 		}
 
 		// Respond with A record for A queries

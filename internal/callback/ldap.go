@@ -198,7 +198,7 @@ func (s *LDAPServer) handleMessage(conn net.Conn, sess *ldapSession, msg []byte)
 			sess.bindDN = string(name)
 			sess.gotOp = true
 		}
-		s.writeResponse(conn, idBytes, ldapBindResponse)
+		s.writeResponse(conn, idBytes, ldapBindResponse, s.responseHashFor(sess))
 		return false
 
 	case ldapSearchRequest:
@@ -208,7 +208,7 @@ func (s *LDAPServer) handleMessage(conn net.Conn, sess *ldapSession, msg []byte)
 			sess.searchBase = string(base)
 			sess.gotOp = true
 		}
-		s.writeResponse(conn, idBytes, ldapSearchDone)
+		s.writeResponse(conn, idBytes, ldapSearchDone, s.responseHashFor(sess))
 		return false
 
 	case ldapUnbindRequest:
@@ -223,13 +223,30 @@ func (s *LDAPServer) handleMessage(conn net.Conn, sess *ldapSession, msg []byte)
 
 // writeResponse builds and sends a minimal success LDAPMessage echoing the
 // given messageID INTEGER value. opTag is ldapBindResponse or ldapSearchDone.
-func (s *LDAPServer) writeResponse(conn net.Conn, idBytes []byte, opTag byte) {
-	// LDAPResult: resultCode=success(0), matchedDN="", diagnosticMessage="".
-	resultBody := []byte{0x0A, 0x01, 0x00, 0x04, 0x00, 0x04, 0x00}
+// diag, when non-empty, is placed in the diagnosticMessage field — the token's
+// response hash on a correlated request, which an OAST client can read there.
+func (s *LDAPServer) writeResponse(conn net.Conn, idBytes []byte, opTag byte, diag string) {
+	// LDAPResult: resultCode=success(0), matchedDN="", diagnosticMessage=diag.
+	resultBody := []byte{0x0A, 0x01, 0x00, 0x04, 0x00}
+	resultBody = append(resultBody, ber(berOctetString, []byte(diag))...)
 	op := ber(opTag, resultBody)
 	inner := append(ber(berInteger, idBytes), op...)
 	msg := ber(berSequence, inner)
 	conn.Write(msg) //nolint:errcheck
+}
+
+// responseHashFor returns the response hash to place in an LDAP result's
+// diagnosticMessage when the request correlates to a token, or "" when none does.
+// It mirrors record's candidate order (search base, bind DN, then the raw bytes).
+func (s *LDAPServer) responseHashFor(sess *ldapSession) string {
+	tok, err := CorrelateAny(s.store,
+		sess.searchBase, sess.bindDN,
+		hex.EncodeToString(sess.raw.Bytes()),
+	)
+	if err != nil {
+		return ""
+	}
+	return ResponseHash(tok.Token)
 }
 
 // record correlates and stores the session. Runs once via defer; no-ops if no

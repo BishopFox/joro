@@ -6,6 +6,7 @@ export interface CallbackToken {
   token: string
   createdAt: string
   hitCount: number
+  expectedHash: string
 }
 
 export interface CallbackInteraction {

@@ -49,6 +49,11 @@ func (s *APIServer) resetDetectCursor(seq int) {
 	if s.techEngine != nil {
 		s.techEngine.ResetCursor(seq)
 	}
+	// The OAST confirmer forward-scans the same sequence numbering and drops its
+	// harvested hash set on reset, so it resets here too.
+	if s.oastEngine != nil {
+		s.oastEngine.ResetCursor(seq)
+	}
 	if s.detectScanner == nil {
 		return
 	}

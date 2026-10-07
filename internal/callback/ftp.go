@@ -163,7 +163,13 @@ func (s *FTPServer) handleConnection(conn net.Conn, implicitTLS bool) {
 		case "USER":
 			sess.user = rest
 			sess.sawUser = true
-			s.writeLine(rw, sess, "331 Password required")
+			// When the username carries a token, echo its response hash in the reply
+			// so an OAST client can validate the hit from the USER exchange alone.
+			reply := "331 Password required"
+			if tok, err := CorrelateAny(s.store, rest); err == nil {
+				reply += " " + ResponseHash(tok.Token)
+			}
+			s.writeLine(rw, sess, reply)
 		case "PASS":
 			sess.pass = rest
 			s.writeLine(rw, sess, "230 Login successful")

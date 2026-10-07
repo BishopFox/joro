@@ -43,6 +43,7 @@ import (
 	"github.com/BishopFox/joro/internal/mcp"
 	"github.com/BishopFox/joro/internal/mythic"
 	"github.com/BishopFox/joro/internal/notes"
+	"github.com/BishopFox/joro/internal/oast"
 	"github.com/BishopFox/joro/internal/plugins"
 	"github.com/BishopFox/joro/internal/proxy"
 	"github.com/BishopFox/joro/internal/sliver"
@@ -157,6 +158,11 @@ type APIServer struct {
 	// only the checks a host's stack warrants. See internal/techfp.
 	techEngine *techfp.Engine
 
+	// Out-of-band confirmation: correlates the callback server's response hash
+	// back into captured traffic and mints confirmed CategoryOOB findings. Nil
+	// outside proxy mode. See internal/oast.
+	oastEngine *oast.Engine
+
 	// detectCtx is the server-lifetime context, so a rescan job can outlive the
 	// HTTP request that started it. Guarded by mu.
 	detectCtx context.Context
@@ -228,6 +234,9 @@ type APIServer struct {
 	settings            Settings
 	activeUserConfig    string
 	activeProjectConfig string
+	// oastDomain is the callback domain the OAST confirmer harvests tokens under,
+	// seeded from --domain and best-effort refreshed from the listener. Guarded by mu.
+	oastDomain string
 	lastSaveSig         string // fingerprint of live state at last save (auto-save skip)
 
 	// pendingUserPluginStates / pendingProjectPluginStates preserve plugin
@@ -344,6 +353,14 @@ func New(
 	// it rides the one cursor-reset path (resetDetectCursor) the other passive
 	// analyzers use.
 	s.techEngine = techfp.NewEngine(techfp.NewStore(), store, hub.Broadcast())
+	// Out-of-band confirmer. Writes into the same findings store; built here so it
+	// rides the one cursor-reset path and pushes the shared summary. The token DB
+	// lives in the listener process, so it harvests expected hashes from captured
+	// callback hostnames under oastDomain (from --domain or refreshed later).
+	s.oastDomain = cfg.CallbackDomain
+	s.oastEngine = oast.NewEngine(
+		store, detectFindings, s.callbackDomainForOAST,
+		hub.Broadcast(), s.broadcastDetectSummary)
 	// Active-scan rule set. The registry is built here (not a package global, per
 	// the no-globals rule) so the api layer can import both activescan and its
 	// rules without an import cycle.

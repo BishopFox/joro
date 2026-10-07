@@ -456,6 +456,7 @@ func runProxyMode(ctx context.Context, cfg config.Config) {
 	apiSrv.StartAnomalyLoop(ctx)
 	apiSrv.StartEchoLoop(ctx)
 	apiSrv.StartTechLoop(ctx)
+	apiSrv.StartOASTLoop(ctx)
 
 	// Start proxy server.
 	proxyDone := make(chan struct{})

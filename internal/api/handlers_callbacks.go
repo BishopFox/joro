@@ -101,6 +101,35 @@ func (s *APIServer) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, token)
 }
 
+// handleVerifyCallback confirms that a value observed out of band (reflected in a
+// target response, read from a protocol field) is the response hash this server
+// derives for a token — so OAST tooling can validate a hit without reimplementing
+// the derivation. The derivation is public (sha256 of the token), so this leaks
+// nothing; it exists to spare clients the reimplementation and to return the
+// owning token's ID when the value matches a live token.
+func (s *APIServer) handleVerifyCallback(w http.ResponseWriter, r *http.Request) {
+	if !s.listenerMode {
+		s.proxyToListener(w, r)
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+		Value string `json:"value"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	valid := body.Token != "" && callback.ResponseHash(body.Token) == strings.TrimSpace(body.Value)
+	resp := map[string]any{"valid": valid}
+	if valid {
+		if tok, err := s.cbStore.FindTokenByHex(body.Token); err == nil {
+			resp["tokenId"] = tok.ID
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (s *APIServer) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 	if !s.listenerMode {
 		s.proxyToListener(w, r)

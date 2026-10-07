@@ -1611,6 +1611,8 @@ export const api = {
   clearInteractions: (tokenId?: string) =>
     req<unknown>('DELETE', `/callbacks/interactions${tokenId ? `?token_id=${tokenId}` : ''}`),
   getCallbackConfig: () => req<{ domain: string; responseIp: string }>('GET', '/callbacks/config'),
+  verifyCallback: (token: string, value: string) =>
+    req<{ valid: boolean; tokenId?: string }>('POST', '/callbacks/verify', { token, value }),
 
   // XSS Hunter
   listProbes: () => req<XSSProbe[]>('GET', '/xss/probes', undefined, TEAM_POLL_TIMEOUT),

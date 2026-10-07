@@ -147,8 +147,11 @@ func (h *HTTPServer) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	h.broadcast <- event.WSEvent{Type: "callback.interaction", Data: interaction}
 
+	// The correlated response is sha256(token), a value a probe can predict and
+	// confirm (see ResponseHash). A miss returns the generic marker below, with no
+	// token to hash — so an unknown probe still cannot use the body as an oracle.
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintln(w, "79cb7b990dd6d0d8eac756c92ccc04b6")
+	fmt.Fprintln(w, ResponseHash(token.Token))
 }
 
 func (h *HTTPServer) handleXSS(w http.ResponseWriter, r *http.Request) {
