@@ -54,7 +54,7 @@ export default function AutomationActivityWidget() {
     <DashboardPanel
       title="Automation"
       headerExtra={
-        <button onClick={goToSettings} className="text-[10px] text-content-muted hover:text-content-primary">
+        <button onClick={goToSettings} className="ml-auto float-right text-[10px] text-content-muted hover:text-content-primary">
           Manage
         </button>
       }

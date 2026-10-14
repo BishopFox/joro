@@ -229,10 +229,10 @@ export default function ChainBinder({ chain, fromStep, valueB64, onCancel, onAcc
 /** The readout that turns "this rule looks applicable" into "this rule returns
  *  the bytes you selected". */
 function SourceProof({ ok, matched, err }: { ok: boolean; matched?: string; err?: string }) {
-  if (err) return <span className="block text-semantic-error">{err}</span>
-  if (ok) return <span className="block text-semantic-success">matches your selection</span>
+  if (err) return <span className="block text-[10px] text-semantic-error">{err}</span>
+  if (ok) return <span className="block text-[10px] text-semantic-success">matches your selection</span>
   return (
-    <span className="block text-semantic-warning break-all">
+    <span className="block text-[10px] text-semantic-warning break-all">
       matches {matched ? `"${matched.slice(0, 60)}"` : 'something else'}
     </span>
   )

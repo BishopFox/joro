@@ -36,8 +36,8 @@ export default function FeedsSettings() {
   if (!available) {
     return (
       <div className="max-w-xl">
-        <h2 className="text-base font-semibold text-content-primary">Threat-Intelligence Feeds</h2>
-        <p className="mt-2 text-sm text-content-muted">
+        <h2 className="text-sm font-semibold text-content-primary">Threat-Intelligence Feeds</h2>
+        <p className="mt-2 text-xs text-content-muted">
           Feeds are disabled on this instance (started with <code className="font-mono">--no-feeds</code>,
           or <code className="font-mono">~/.joro/feeds.json</code> could not be read).
         </p>
@@ -54,15 +54,15 @@ export default function FeedsSettings() {
   return (
     <div className="max-w-xl space-y-6">
       <div>
-        <h2 className="text-base font-semibold text-content-primary">Threat-Intelligence Feeds</h2>
-        <p className="mt-1 text-sm text-content-secondary">
+        <h2 className="text-sm font-semibold text-content-primary">Threat-Intelligence Feeds</h2>
+        <p className="mt-1 text-xs text-content-secondary">
           Live high-severity CVEs, the CISA KEV catalog, recent public exploits, and curated
           advisories on your dashboard. Content is fetched and sanitized server-side; only validated
           links reach the UI.
         </p>
       </div>
 
-      <label className="flex items-start gap-2 text-sm text-content-primary">
+      <label className="flex items-start gap-2 text-xs text-content-primary">
         <input
           type="checkbox"
           className="mt-0.5"
@@ -80,7 +80,7 @@ export default function FeedsSettings() {
         </span>
       </label>
 
-      <label className="flex items-start gap-2 text-sm text-content-primary">
+      <label className="flex items-start gap-2 text-xs text-content-primary">
         <input
           type="checkbox"
           className="mt-0.5"
@@ -101,7 +101,7 @@ export default function FeedsSettings() {
           Sources
         </legend>
         {CATEGORY_LABELS.map((c) => (
-          <label key={c.id} className="flex items-center gap-2 text-sm text-content-primary">
+          <label key={c.id} className="flex items-center gap-2 text-xs text-content-primary">
             <input
               type="checkbox"
               checked={!!settings.categories[c.id]}
@@ -119,7 +119,7 @@ export default function FeedsSettings() {
       </fieldset>
 
       <div className="flex items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-content-primary">
+        <label className="flex items-center gap-2 text-xs text-content-primary">
           Refresh every
           <input
             type="number"
@@ -128,14 +128,14 @@ export default function FeedsSettings() {
             disabled={!settings.enabled || saving}
             onChange={(e) => setIntervalDraft(Number(e.target.value))}
             onBlur={commitInterval}
-            className="w-20 rounded border border-border bg-surface-input px-2 py-1 text-sm text-content-primary"
+            className="w-20 rounded border border-border bg-surface-input px-2 py-1 text-xs text-content-primary"
           />
           minutes
         </label>
         <button
           onClick={() => void refreshNow()}
           disabled={!settings.enabled || refreshing}
-          className="inline-flex items-center gap-1.5 rounded bg-accent-secondary px-3 py-1 text-sm font-medium text-black hover:bg-accent-secondary-hover disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded bg-accent-secondary px-3 py-1 text-xs font-medium text-black hover:bg-accent-secondary-hover disabled:opacity-50"
         >
           <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" />
           Refresh now
@@ -152,7 +152,7 @@ export default function FeedsSettings() {
           </h3>
           <ul className="mt-2 divide-y divide-border-subtle rounded border border-border">
             {sources.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+              <li key={s.id} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
                 <div className="min-w-0">
                   <span className="text-content-primary">{s.name}</span>
                   {s.lastError && (
