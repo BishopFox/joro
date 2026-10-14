@@ -8,7 +8,7 @@ import { NO_WIDGET } from './dashboardWidgets'
 // the dashboard frame and is shared by every preset — that's what keeps the
 // resizer working when the operator swaps chat out of it.
 
-export type PresetId = 'classic' | 'triptych' | 'grid' | 'stack'
+export type PresetId = 'intel' | 'classic' | 'triptych' | 'grid' | 'stack'
 
 export interface SlotDef {
   key: string
@@ -32,6 +32,39 @@ export const BAR_SLOTS: SlotDef[] = [
 ]
 
 export const PRESETS: PresetDef[] = [
+  {
+    // The curated "Default" dashboard: a freeform, non-customizable intel console. The CVE
+    // ticker rides above the whole page; this is an asymmetric magazine layout — a tall Threat
+    // Intel hero with the operator's own findings/interactions beneath it, beside a single
+    // full-height CISA KEV box. Team Chat + Active Users are pinned to the bottom bar.
+    //
+    // The id stays 'intel' (not 'default') on purpose: renaming it would need a layout-version
+    // migration and could orphan a stored layout. The operator only ever sees the label.
+    // DashboardLayoutSettings locks this preset's slot editors; the arrangement is fixed.
+    id: 'intel',
+    label: 'Default',
+    description: 'The curated intel dashboard (not customizable).',
+    slots: [
+      { key: 'headlines', label: 'Threat intel' },
+      { key: 'findings', label: 'Findings' },
+      { key: 'interactions', label: 'Interactions' },
+      { key: 'kev', label: 'CISA KEV' },
+    ],
+    renderRow: (slot) => (
+      <div className="flex-1 min-h-0 flex gap-2">
+        {/* Left column: the Threat Intel hero over the operator's own session. */}
+        <div className="flex-[3] min-w-0 flex flex-col gap-2">
+          <div className="flex-[2] min-h-0 flex">{slot('headlines')}</div>
+          <div className="flex-[1] min-h-0 flex gap-2">
+            {slot('findings')}
+            {slot('interactions')}
+          </div>
+        </div>
+        {/* Right column: a single full-height CISA KEV box. */}
+        <div className="flex-[2] min-w-0 flex">{slot('kev')}</div>
+      </div>
+    ),
+  },
   {
     id: 'classic',
     label: 'Classic',
@@ -118,22 +151,32 @@ export interface ModeLayout {
   slots: SlotMap
 }
 
-// Team default: the layout Joro shipped with, unchanged.
-export const DEFAULT_TEAM_LAYOUT: ModeLayout = {
-  preset: 'classic',
+// Local default: the curated intel console. Threat Intel leads as the hero over the operator's
+// own findings/interactions, beside a single CISA KEV box; the CVE ticker rides above the page,
+// and Team Chat + Active Users are pinned to the bottom bar (always present, both modes).
+export const DEFAULT_LOCAL_LAYOUT: ModeLayout = {
+  preset: 'intel',
   slots: {
-    main: 'network-graph',
-    sideTop: 'recent-interactions',
-    sideBottom: 'flagged-requests',
+    headlines: 'threat-headlines',
+    findings: 'detect-findings',
+    interactions: 'recent-interactions',
+    kev: 'kev-feed',
     barMain: 'team-chat',
     barAside: 'active-users',
   },
 }
 
-// Local default: what a solo operator running a proxy actually wants. Chat and
-// the active-user list are dropped (they're a scratchpad and a list of one) but
-// stay in the catalog, so both bar slots are empty and the bar stays hidden.
-export const DEFAULT_LOCAL_LAYOUT: ModeLayout = {
+// Team default: the SAME curated console. The two layouts stay independent — an operator can
+// still switch either to a different, customizable preset — but both default to the console.
+export const DEFAULT_TEAM_LAYOUT: ModeLayout = {
+  preset: 'intel',
+  slots: { ...DEFAULT_LOCAL_LAYOUT.slots },
+}
+
+// V2_DEFAULT_LOCAL is the local default Joro shipped at layout version 2 (the 2×2 grid). Kept
+// only so the v2→v3 migration can tell a pristine default — which it upgrades to the intel
+// console — from a layout the operator arranged, which it leaves alone. See migrateV2.
+export const V2_DEFAULT_LOCAL: ModeLayout = {
   preset: 'grid',
   slots: {
     topLeft: 'detect-findings',

@@ -17,6 +17,7 @@ import {
   type WidgetDef,
 } from '../lib/dashboardWidgets'
 import { presetOrDefault } from '../lib/dashboardPresets'
+import CveTicker from '../components/dashboard/CveTicker'
 import { useDashboardPolling } from '../lib/useDashboardPolling'
 import {
   useDashboardLayoutStore,
@@ -44,7 +45,7 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const barHeight = dragHeight ?? layout.barHeight
 
   const modeLayout = teamMode ? layout.team : layout.local
-  const preset = presetOrDefault(modeLayout.preset, teamMode ? 'classic' : 'grid')
+  const preset = presetOrDefault(modeLayout.preset, 'intel')
 
   const ctx: AvailabilityCtx = useMemo(() => ({ mode, teamMode }), [mode, teamMode])
 
@@ -122,39 +123,46 @@ export default function Dashboard({ teamMode = false }: DashboardProps) {
   const hasRowWidget = preset.slots.some((s) => resolve(s.key) !== null)
 
   return (
-    <div className="flex flex-col h-full p-2 gap-2">
-      {hasRowWidget ? (
-        preset.renderRow(rowSlot)
-      ) : (
-        <div className="flex-1 min-h-0 flex items-center justify-center">
-          <span className="text-content-muted text-xs">
-            No widgets in this layout -{' '}
-            <Link
-              to="/settings"
-              state={{ category: 'appearance' }}
-              className="text-accent-secondary hover:underline"
-            >
-              configure the dashboard
-            </Link>
-          </span>
-        </div>
-      )}
+    <div className="flex flex-col h-full">
+      {/* The CVE ticker is page chrome, docked under the global header — not a layout
+          slot. It gates itself: nothing when feeds are unavailable, an enable prompt when
+          they are off. */}
+      <CveTicker />
 
-      {showBar && (
-        <>
-          <div
-            onPointerDown={handleDragStart}
-            className="shrink-0 h-1.5 touch-none cursor-row-resize rounded-full bg-border hover:bg-accent-secondary transition-colors"
-          />
-          <div
-            className="shrink-0 flex bg-surface-terminal border border-border rounded"
-            style={{ height: barHeight }}
-          >
-            {barMain}
-            {barAside}
+      <div className="flex flex-col flex-1 min-h-0 p-2 gap-2">
+        {hasRowWidget ? (
+          preset.renderRow(rowSlot)
+        ) : (
+          <div className="flex-1 min-h-0 flex items-center justify-center">
+            <span className="text-content-muted text-xs">
+              No widgets in this layout -{' '}
+              <Link
+                to="/settings"
+                state={{ category: 'appearance' }}
+                className="text-accent-secondary hover:underline"
+              >
+                configure the dashboard
+              </Link>
+            </span>
           </div>
-        </>
-      )}
+        )}
+
+        {showBar && (
+          <>
+            <div
+              onPointerDown={handleDragStart}
+              className="shrink-0 h-1.5 touch-none cursor-row-resize rounded-full bg-border hover:bg-accent-secondary transition-colors"
+            />
+            <div
+              className="shrink-0 flex bg-surface-terminal border border-border rounded"
+              style={{ height: barHeight }}
+            >
+              {barMain}
+              {barAside}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

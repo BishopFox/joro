@@ -36,6 +36,10 @@ type Detection struct {
 	Version    string
 	Categories []string
 	Confidence int
+	// CPE is the technology's CPE 2.3 string from the Wappalyzer database (present on the
+	// security-relevant subset), e.g. "cpe:2.3:a:f5:nginx:*:*:*:*:*:*:*:*". Empty when the
+	// database has none. Surfaced so a consumer can join on vendor:product.
+	CPE string
 }
 
 // Input is the HTTP-observable surface of one response.
@@ -57,6 +61,7 @@ type cpattern struct {
 // techDef is one technology's compiled rules.
 type techDef struct {
 	name      string
+	cpe       string
 	cats      []string
 	headers   map[string][]cpattern // canonical header name -> patterns
 	cookies   map[string][]cpattern // lower cookie name -> patterns
@@ -132,6 +137,7 @@ type rawApp struct {
 	ScriptSrc stringList            `json:"scriptSrc"`
 	URL       stringList            `json:"url"`
 	Implies   stringList            `json:"implies"`
+	CPE       string                `json:"cpe"`
 }
 
 type rawCategory struct {
@@ -156,7 +162,7 @@ func LoadWappalyzer() (*Wappalyzer, Stats, error) {
 	w := &Wappalyzer{byName: make(map[string]*techDef, len(fp.Apps))}
 	var st Stats
 	for name, app := range fp.Apps {
-		t := &techDef{name: name}
+		t := &techDef{name: name, cpe: strings.TrimSpace(app.CPE)}
 		for _, id := range app.Cats {
 			if c, ok := cats[strconv.Itoa(id)]; ok && c.Name != "" {
 				t.cats = append(t.cats, c.Name)
@@ -277,7 +283,7 @@ func (w *Wappalyzer) Fingerprint(in Input) []Detection {
 	mark := func(t *techDef, cp cpattern, m []string) {
 		d := hits[t.name]
 		if d == nil {
-			d = &Detection{Name: t.name, Categories: t.cats, Confidence: cp.conf}
+			d = &Detection{Name: t.name, CPE: t.cpe, Categories: t.cats, Confidence: cp.conf}
 			hits[t.name] = d
 		}
 		if cp.conf > d.Confidence {
@@ -379,10 +385,12 @@ func (w *Wappalyzer) resolveImplies(hits map[string]*Detection) {
 			}
 			it := w.byName[imp]
 			cats := []string(nil)
+			cpe := ""
 			if it != nil {
 				cats = it.cats
+				cpe = it.cpe
 			}
-			hits[imp] = &Detection{Name: imp, Categories: cats, Confidence: 50}
+			hits[imp] = &Detection{Name: imp, CPE: cpe, Categories: cats, Confidence: 50}
 			queue = append(queue, imp)
 		}
 	}

@@ -37,6 +37,7 @@ import (
 	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/echo"
 	"github.com/BishopFox/joro/internal/event"
+	"github.com/BishopFox/joro/internal/feeds"
 	"github.com/BishopFox/joro/internal/fuzzer"
 	"github.com/BishopFox/joro/internal/httptools"
 	"github.com/BishopFox/joro/internal/jsautomation"
@@ -214,6 +215,15 @@ type APIServer struct {
 	webhookDeliver  *webhook.Deliverer
 	webhookDispatch *webhook.Dispatcher
 
+	// Threat-intelligence feeds. Independent of automation and of webhooks: a curated,
+	// read-only aggregator (NVD / CISA KEV / advisory headlines) the dashboard renders.
+	// Both nil under --no-feeds, in listener mode, or when feeds.json could not be read.
+	// feedsCtx is the server-lifetime context so a refresh kicked from a handler outlives
+	// the request; set once in startFeedsLoop before serving. See feeds_wire.go.
+	feeds      *feeds.Aggregator
+	feedsStore *feeds.SettingsStore
+	feedsCtx   context.Context
+
 	buildInfo  BuildInfo
 	cancelFunc context.CancelFunc
 	restart    bool
@@ -379,6 +389,7 @@ func New(
 	// See initTriggers for why the trigger store moved out of newScriptManager.
 	s.initTriggers()
 	s.initWebhooks()
+	s.initFeeds()
 	return s
 }
 
@@ -490,6 +501,9 @@ func (s *APIServer) Start(ctx context.Context) error {
 		// No-ops entirely under --no-webhooks. Started after automation so the run
 		// watcher startScriptTriggers registers is already in place.
 		s.startWebhooks(ctx)
+		// No-ops entirely under --no-feeds. Fetches nothing until the operator enables
+		// feeds in Settings or on the Dashboard.
+		s.startFeedsLoop(ctx)
 	}
 
 	// Serve frontend (skip in listener mode - listener is API-only).

@@ -8,6 +8,9 @@ import DetectFindingsWidget from '../components/dashboard/DetectFindingsWidget'
 import TechnologiesWidget from '../components/dashboard/TechnologiesWidget'
 import ProxyHealthWidget from '../components/dashboard/ProxyHealthWidget'
 import AutomationActivityWidget from '../components/dashboard/AutomationActivityWidget'
+import KevWidget from '../components/dashboard/KevWidget'
+import ThreatHeadlinesWidget from '../components/dashboard/ThreatHeadlinesWidget'
+import TargetExposureWidget from '../components/dashboard/TargetExposureWidget'
 
 // The dashboard widget catalog. Adding a widget means adding a component and
 // one entry here — nothing in the Go backend, the layout store, or the Settings
@@ -23,6 +26,9 @@ export type WidgetId =
   | 'technologies'
   | 'proxy-health'
   | 'automation-activity'
+  | 'kev-feed'
+  | 'threat-headlines'
+  | 'target-exposure'
 
 /** A slot value of 'none' leaves the slot empty. */
 export const NO_WIDGET = 'none'
@@ -102,6 +108,30 @@ export const WIDGETS: WidgetDef[] = [
     description: 'Out-of-band callbacks and XSS fires, newest first.',
     needs: ['callbacks'],
     render: () => <RecentInteractionsWidget />,
+  },
+  {
+    id: 'kev-feed',
+    label: 'CISA KEV',
+    description: 'Known Exploited Vulnerabilities — what is being exploited in the wild now.',
+    requiresProxyMode: true,
+    needs: [],
+    render: () => <KevWidget />,
+  },
+  {
+    id: 'threat-headlines',
+    label: 'Threat Intel',
+    description: 'Curated security-advisory headlines, newest first.',
+    requiresProxyMode: true,
+    needs: [],
+    render: () => <ThreatHeadlinesWidget />,
+  },
+  {
+    id: 'target-exposure',
+    label: 'Target Exposure',
+    description: 'Your fingerprinted targets cross-referenced against active CVE/KEV feeds.',
+    requiresProxyMode: true,
+    needs: [],
+    render: () => <TargetExposureWidget />,
   },
   {
     id: 'flagged-requests',

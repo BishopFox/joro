@@ -7,7 +7,7 @@ import {
   unavailableReason,
   type AvailabilityCtx,
 } from '../lib/dashboardWidgets'
-import { PRESETS, allSlots, presetOrDefault, type PresetId } from '../lib/dashboardPresets'
+import { PRESETS, presetOrDefault, type PresetId } from '../lib/dashboardPresets'
 import { layoutIncludes, useDashboardLayoutStore, type LayoutMode } from '../stores/dashboardLayoutStore'
 
 const inputCls = 'bg-surface-input text-xs px-2 py-1 rounded-sm border border-border'
@@ -45,9 +45,12 @@ export default function DashboardLayoutSettings({
   // Presence only applies to the team layout — it's the one in use when joined
   // to a team server.
   const hiddenFromTeam = editing === 'team' && !layoutIncludes(layout, 'team', 'team-chat')
-  const preset = presetOrDefault(modeLayout.preset, editing === 'team' ? 'classic' : 'grid')
+  const preset = presetOrDefault(modeLayout.preset, 'intel')
   // Availability for the layout being edited, which may not be the live one.
   const ctx: AvailabilityCtx = { mode: runMode, teamMode: editing === 'team' }
+  // The Default layout ('intel') is curated and fixed — its slots can't be rearranged. The
+  // Layout picker stays enabled so the operator can switch to a customizable preset.
+  const locked = preset.id === 'intel'
 
   return (
     <div className="space-y-2">
@@ -113,13 +116,21 @@ export default function DashboardLayoutSettings({
           </select>
         </div>
 
-        {allSlots(preset).map((s) => (
+        {locked && (
+          <div className="border-l-2 border-semantic-warning pl-2.5 py-1 text-[10px] text-content-secondary leading-relaxed">
+            The <span className="text-semantic-warning font-semibold">Default</span> layout is
+            curated and can&rsquo;t be rearranged. Pick another layout above to customize slots.
+          </div>
+        )}
+
+        {preset.slots.map((s) => (
           <div key={s.key} className="flex items-center justify-between gap-3 py-1.5">
             <span className="text-xs text-content-secondary min-w-0 truncate">{s.label}</span>
             <select
               value={modeLayout.slots[s.key] ?? NO_WIDGET}
               onChange={(e) => setSlot(editing, s.key, e.target.value)}
-              className={inputCls}
+              disabled={locked}
+              className={`${inputCls} disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               <option value={NO_WIDGET}>None</option>
               {WIDGETS.map((w) => {
@@ -135,6 +146,26 @@ export default function DashboardLayoutSettings({
             </select>
           </div>
         ))}
+
+        {/* The bottom bar is a fixed Team Chat + Active Users strip; the only control is
+            whether it shows. On the Default it is pinned on (disabled). When off, the row
+            area flexes to fill the page. */}
+        <label className="flex items-center justify-between gap-3 py-1.5">
+          <span className="min-w-0 truncate text-xs text-content-secondary">
+            Show Chat
+            <span className="ml-1 text-content-muted">· Team Chat + Active Users</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={modeLayout.slots.barMain !== NO_WIDGET}
+            disabled={locked}
+            onChange={(e) => {
+              setSlot(editing, 'barMain', e.target.checked ? 'team-chat' : NO_WIDGET)
+              setSlot(editing, 'barAside', e.target.checked ? 'active-users' : NO_WIDGET)
+            }}
+            className="disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+        </label>
       </div>
     </div>
   )

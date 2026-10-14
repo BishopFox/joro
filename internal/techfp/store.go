@@ -14,6 +14,9 @@ type Tech struct {
 	Version    string   `json:"version,omitempty"`
 	Categories []string `json:"categories,omitempty"`
 	Confidence int      `json:"confidence"`
+	// CPE is the technology's CPE 2.3 string (vendor:product), when the database has one.
+	// Surfaced so the UI can join a host's stack against CVE/KEV feeds by vendor/product.
+	CPE string `json:"cpe,omitempty"`
 }
 
 // HostTech is the technology set for one host.
@@ -79,7 +82,7 @@ func (s *Store) Observe(host string, deep bool, dets []Detection) bool {
 		cur := set[d.Name]
 		if cur == nil {
 			set[d.Name] = &Tech{
-				Name: d.Name, Version: d.Version,
+				Name: d.Name, Version: d.Version, CPE: d.CPE,
 				Categories: d.Categories, Confidence: d.Confidence,
 			}
 			changed = true

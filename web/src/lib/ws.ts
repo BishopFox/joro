@@ -15,6 +15,7 @@ import { useManipulateWSStore, type WSFrameEntry } from '../stores/manipulateWSS
 import { useRequestStore, type RequestSummary } from '../stores/requestStore'
 import { useTeamStore, type ChatMessage, type ActiveUser } from '../stores/teamStore'
 import { useTechStore } from '../stores/techStore'
+import { useFeedsStore } from '../stores/feedsStore'
 import type { HostTech } from '../lib/api'
 import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectionStore'
 import { useTeamFlaggedStore, type FlaggedSummary } from '../stores/teamFlaggedStore'
@@ -463,6 +464,11 @@ function handleMessage(msg: WSMessage) {
     }
     case 'tech.summary': {
       useTechStore.getState().setSummary(msg.data as { hosts: number; techs: number })
+      break
+    }
+    case 'feeds.updated': {
+      // A small summary hint; reload the authoritative snapshot (server-side aggregate).
+      void useFeedsStore.getState().reload()
       break
     }
     case 'detect.scan.started': {

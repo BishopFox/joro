@@ -425,6 +425,13 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/webhooks/{id}/test", s.handleTestWebhook)
 	mux.HandleFunc("GET /api/v1/webhooks/{id}/deliveries", s.handleListWebhookDeliveries)
 
+	// Threat-intel feeds. Registered unconditionally and gated on requireFeeds, for the same
+	// SPA-catch-all reason as the block above. UI-only, proxy-mode only (nil in listener mode).
+	mux.HandleFunc("GET /api/v1/feeds", s.handleGetFeeds)
+	mux.HandleFunc("POST /api/v1/feeds/refresh", s.handleRefreshFeeds)
+	mux.HandleFunc("GET /api/v1/feeds/settings", s.handleGetFeedsSettings)
+	mux.HandleFunc("PUT /api/v1/feeds/settings", s.handleSetFeedsSettings)
+
 	// Plugin routes (dynamic, based on loaded plugins).
 	registerPluginRoutes(s, mux)
 }

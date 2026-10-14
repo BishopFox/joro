@@ -339,3 +339,33 @@ div:has(> .cm-editor) {
   border-color: var(--color-accent-tertiary) !important;
   transform: scale(1.6);
 }
+
+/* CVE ticker marquee.
+ *
+ * The track holds the item run twice; translateX(-50%) scrolls exactly one copy's width,
+ * so the loop is seamless. Duration is set inline per item count. Hover pauses it for
+ * readability, and reduced-motion disables the scroll entirely (the first items stay
+ * visible). */
+@keyframes joro-ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.joro-ticker-track {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  will-change: transform;
+  animation: joro-ticker linear infinite;
+}
+.joro-ticker:hover .joro-ticker-track {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .joro-ticker-track {
+    animation: none;
+  }
+}

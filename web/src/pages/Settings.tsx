@@ -5,6 +5,7 @@ import type { PluginInfo } from '../lib/api'
 import ProjectBrowser from '../components/ProjectBrowser'
 import AutomationSettings from '../components/AutomationSettings'
 import WebhookSettings from '../components/webhooks/WebhookSettings'
+import FeedsSettings from '../components/FeedsSettings'
 import PluginSettings from '../components/PluginSettings'
 import { Settings, isTeamMode, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
@@ -17,7 +18,7 @@ import { useToastStore } from '../stores/toastStore'
 import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
 import { useStreamerStore } from '../stores/streamerStore'
-import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot, Webhook } from 'lucide-react'
+import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot, Webhook, Rss } from 'lucide-react'
 
 const THEMES = [
   { value: 'aomori', label: 'Aomori' },
@@ -40,7 +41,7 @@ const THEMES = [
   { value: 'tokyo', label: 'Tokyo' },
 ]
 
-type Category = 'project' | 'general' | 'appearance' | 'testing' | 'plugins' | 'automation' | 'webhooks'
+type Category = 'project' | 'general' | 'appearance' | 'testing' | 'plugins' | 'automation' | 'webhooks' | 'feeds'
 
 const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   {
@@ -77,6 +78,11 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
     id: 'webhooks',
     label: 'Webhooks',
     icon: <Webhook size={15} strokeWidth={1.7} aria-hidden="true" />,
+  },
+  {
+    id: 'feeds',
+    label: 'Threat Feeds',
+    icon: <Rss size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
 ]
 
@@ -256,6 +262,9 @@ export default function SettingsPage() {
 
           {/* Webhooks likewise, and it is available with no automation flag at all. */}
           {category === 'webhooks' && <WebhookSettings />}
+
+          {/* Feeds is padded-and-scrolling (it supplies no height of its own). */}
+          {category === 'feeds' && <FeedsSettings />}
 
           {category === 'plugins' && (
             <PluginSettings plugins={plugins} onRefresh={refreshPlugins} />

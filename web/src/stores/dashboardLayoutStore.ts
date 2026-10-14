@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import {
   DEFAULT_LOCAL_LAYOUT,
   DEFAULT_TEAM_LAYOUT,
+  V2_DEFAULT_LOCAL,
   allSlots,
   presetOrDefault,
   type ModeLayout,
@@ -14,7 +15,7 @@ const STORAGE_KEY = 'joro-dashboard-layout'
 // The dashboard's bottom-bar height used to live under its own key.
 const LEGACY_HEIGHT_KEY = 'joro-chat-height'
 
-export const LAYOUT_VERSION = 2
+export const LAYOUT_VERSION = 4
 export const DEFAULT_BAR_HEIGHT = 256
 export const MIN_BAR_HEIGHT = 100
 export const MAX_BAR_HEIGHT = 600
@@ -93,11 +94,59 @@ function migrateV1(obj: Partial<DashboardLayout>): Partial<DashboardLayout> {
   if (slots && slots[V1_LOCAL_GRAPH_SLOT] === 'network-graph') {
     return {
       ...obj,
-      version: LAYOUT_VERSION,
+      version: 2,
       local: { ...local, slots: { ...slots, [V1_LOCAL_GRAPH_SLOT]: 'automation-activity' } },
     } as Partial<DashboardLayout>
   }
-  return { ...obj, version: LAYOUT_VERSION }
+  return { ...obj, version: 2 }
+}
+
+// migrateV2 upgrades a version-2 blob to the intel-console local default.
+//
+// Only a local layout that is still exactly the shipped v2 grid default (isV2DefaultLocal) is
+// swapped to the new DEFAULT_LOCAL_LAYOUT; a layout the operator arranged — any other preset,
+// slot, or widget — is left untouched. Same "only where it still holds the default" discipline
+// as migrateV1, so a customized dashboard is never stomped; those operators adopt the console
+// via per-mode Reset. The team layout is unchanged, and a fresh install gets the intel default
+// straight from defaults().
+function migrateV2(obj: Partial<DashboardLayout>): Partial<DashboardLayout> {
+  const next = { ...obj, version: 3 } as Partial<DashboardLayout>
+  if (isV2DefaultLocal(obj.local)) {
+    next.local = { ...DEFAULT_LOCAL_LAYOUT, slots: { ...DEFAULT_LOCAL_LAYOUT.slots } }
+  }
+  return next
+}
+
+// migrateV3 upgrades a version-3 blob to version 4 by resetting BOTH layouts to the current
+// Default.
+//
+// Unlike migrateV1/V2 (which touch only a pristine default), this is a deliberate, one-time
+// full reset: the Default changed substantially (Threat Intel hero, a single CISA KEV box, and
+// Team Chat + Active Users pinned to the bottom bar), and every operator should land on it. A
+// plain sanitize would otherwise keep a stored `barMain: 'none'` and the old slots. The
+// customizable presets remain, so an operator can rebuild a prior arrangement afterward; the
+// saved bar height is preserved.
+function migrateV3(obj: Partial<DashboardLayout>): Partial<DashboardLayout> {
+  return {
+    ...obj,
+    version: LAYOUT_VERSION,
+    local: { ...DEFAULT_LOCAL_LAYOUT, slots: { ...DEFAULT_LOCAL_LAYOUT.slots } },
+    team: { ...DEFAULT_TEAM_LAYOUT, slots: { ...DEFAULT_TEAM_LAYOUT.slots } },
+  }
+}
+
+// isV2DefaultLocal reports whether a stored local layout is the pristine v2 grid default: the
+// grid preset with its four default widgets and an empty bottom bar. Bar slots are treated as
+// empty whether stored as 'none' or absent.
+function isV2DefaultLocal(local: unknown): boolean {
+  const l = local as { preset?: unknown; slots?: Record<string, unknown> } | undefined
+  if (!l || l.preset !== V2_DEFAULT_LOCAL.preset || !l.slots) return false
+  const want = V2_DEFAULT_LOCAL.slots
+  for (const k of ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']) {
+    if (l.slots[k] !== want[k]) return false
+  }
+  const barEmpty = (k: string) => !l.slots![k] || l.slots![k] === NO_WIDGET
+  return barEmpty('barMain') && barEmpty('barAside')
 }
 
 // sanitize is the single gate for untrusted layout data, used by both the
@@ -110,6 +159,8 @@ export function sanitize(raw: unknown): DashboardLayout {
   if (!raw || typeof raw !== 'object') return defaults()
   let obj = raw as Partial<DashboardLayout>
   if (obj.version === 1) obj = migrateV1(obj)
+  if (obj.version === 2) obj = migrateV2(obj)
+  if (obj.version === 3) obj = migrateV3(obj)
   if (obj.version !== LAYOUT_VERSION) return defaults()
   return {
     version: LAYOUT_VERSION,
@@ -179,6 +230,11 @@ interface DashboardLayoutState {
 // changePreset carries widget choices across a preset change positionally, so
 // trying a preset and switching back doesn't wipe the operator's picks.
 function changePreset(current: ModeLayout, next: PresetId, mode: LayoutMode): ModeLayout {
+  // The 'intel' (Default) layout is a fixed, non-customizable arrangement — switching to it
+  // restores the canonical widgets rather than carrying slots over positionally.
+  if (next === 'intel') {
+    return { preset: 'intel', slots: { ...DEFAULT_LOCAL_LAYOUT.slots } }
+  }
   const from = presetOrDefault(current.preset, defaultFor(mode).preset)
   const to = presetOrDefault(next, defaultFor(mode).preset)
   const carried = from.slots.map((s) => current.slots[s.key]).filter((v): v is string => !!v)

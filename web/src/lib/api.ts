@@ -8,6 +8,7 @@ import type {
   EchoScanStatus,
   EchoState,
 } from './echoTypes'
+import type { FeedSettings, FeedsResponse } from './feedTypes'
 import type { InterceptKind, PendingItem } from '../stores/interceptStore'
 import type { PayloadSource, WordlistCatalog } from './fuzzSources'
 import type { ChatMessage, ActiveUser } from '../stores/teamStore'
@@ -177,6 +178,9 @@ export interface Tech {
   version?: string
   categories?: string[]
   confidence: number
+  /** CPE 2.3 string (vendor:product) when the fingerprint DB has one — used to join a
+   *  host's stack against CVE/KEV feeds. */
+  cpe?: string
 }
 
 export interface HostTech {
@@ -1440,6 +1444,14 @@ export const api = {
     req<TechScanStatus>('POST', '/tech/scan', body ?? {}),
   techScanStatus: () => req<TechScanStatus>('GET', '/tech/scan'),
   techScanCancel: () => req<TechScanStatus>('POST', '/tech/scan/cancel', {}),
+
+  // Threat-intel feeds (NVD CVEs, CISA KEV, advisory headlines). Off by default; a 404
+  // means --no-feeds or an unreadable feeds.json, which the store reads as "unavailable".
+  getFeeds: () => req<FeedsResponse>('GET', '/feeds'),
+  refreshFeeds: () => req<{ status: string }>('POST', '/feeds/refresh', {}),
+  getFeedsSettings: () => req<FeedSettings>('GET', '/feeds/settings'),
+  setFeedsSettings: (settings: FeedSettings) =>
+    req<FeedSettings>('PUT', '/feeds/settings', settings),
 
   // Generate
   generate: (format: string, mode?: string, implantUrl?: string, binaryName?: string, inMemory?: boolean) =>

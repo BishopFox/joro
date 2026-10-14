@@ -64,6 +64,12 @@ type Config struct {
 	// engagement where nothing may leave the machine — a webhook is the one feature whose
 	// bytes go somewhere Joro's scope does not describe.
 	NoWebhooks bool
+	// NoFeeds disables the threat-intelligence feed fetcher entirely: no routes
+	// registered, no feeds.json read or written, no outbound request to NVD or CISA. A
+	// deployment-posture switch in the same family as NoWebhooks — the answer for an
+	// engagement where the operator's machine must make no incidental outbound calls.
+	// The feature is off by default regardless; this removes it outright.
+	NoFeeds bool
 	// NoPlugins skips loading plugins from ~/.joro/plugins/ — the files are still
 	// listed, so the UI can delete one, but no plugin code runs.
 	//
