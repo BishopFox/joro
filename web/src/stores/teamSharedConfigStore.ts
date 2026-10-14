@@ -19,9 +19,11 @@ export interface SharedConfigPayload {
   scopeEnabled: boolean
   scopeRules: { pattern: string; methods: string[]; path: string; include: boolean }[]
   replaceEnabled: boolean
-  replaceRules: { target: string; matchType: string; match: string; replace: string }[]
+  // Per-rule state travels as a disabled flag (absent = enabled), matching the
+  // server's sharedConfigPayload DTO. Live API uses enabled; this bundle uses disabled.
+  replaceRules: { target: string; matchType: string; match: string; replace: string; disabled?: boolean }[]
   customDataEnabled: boolean
-  customDataItems: { type: string; name: string; value: string }[]
+  customDataItems: { type: string; name: string; value: string; disabled?: boolean }[]
   // Custom detection rules travel with the bundle; findings do not.
   detectRules?: Record<string, unknown>[]
 }

@@ -60,6 +60,22 @@ func (s *APIServer) handleAddReplaceRule(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusCreated, rule)
 }
 
+func (s *APIServer) handleSetReplaceRuleEnabled(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if !s.replace.SetRuleEnabled(id, body.Enabled) {
+		writeError(w, http.StatusNotFound, "rule not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "enabled": body.Enabled})
+}
+
 func (s *APIServer) handleDeleteReplaceRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !s.replace.RemoveRule(id) {

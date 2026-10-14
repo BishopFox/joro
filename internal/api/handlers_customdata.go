@@ -56,6 +56,22 @@ func (s *APIServer) handleAddCustomDataItem(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusCreated, item)
 }
 
+func (s *APIServer) handleSetCustomDataItemEnabled(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if !s.customData.SetItemEnabled(id, body.Enabled) {
+		writeError(w, http.StatusNotFound, "item not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "enabled": body.Enabled})
+}
+
 func (s *APIServer) handleDeleteCustomDataItem(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !s.customData.RemoveItem(id) {

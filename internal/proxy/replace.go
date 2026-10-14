@@ -17,6 +17,7 @@ type MatchReplaceRule struct {
 	MatchType string         `json:"matchType"` // "string" or "regex"
 	Match     string         `json:"match"`
 	Replace   string         `json:"replace"`
+	Enabled   bool           `json:"enabled"` // per-rule gate, under the global toggle
 	compiled  *regexp.Regexp // cached for regex rules
 }
 
@@ -75,6 +76,7 @@ func (mr *MatchReplace) AddRule(target, matchType, match, replace string) MatchR
 		MatchType: matchType,
 		Match:     match,
 		Replace:   replace,
+		Enabled:   true,
 	}
 	if matchType == "regex" {
 		rule.compiled, _ = regexp.Compile(match)
@@ -98,12 +100,25 @@ func (mr *MatchReplace) RemoveRule(id string) bool {
 	return false
 }
 
+// SetRuleEnabled toggles a single rule by ID. Returns true if found.
+func (mr *MatchReplace) SetRuleEnabled(id string, enabled bool) bool {
+	mr.mu.Lock()
+	defer mr.mu.Unlock()
+	for i := range mr.rules {
+		if mr.rules[i].ID == id {
+			mr.rules[i].Enabled = enabled
+			return true
+		}
+	}
+	return false
+}
+
 // HasResponseRules reports whether any rules target response_header or response_body.
 func (mr *MatchReplace) HasResponseRules() bool {
 	mr.mu.RLock()
 	defer mr.mu.RUnlock()
 	for _, r := range mr.rules {
-		if r.Target == "response_header" || r.Target == "response_body" {
+		if r.Enabled && (r.Target == "response_header" || r.Target == "response_body") {
 			return true
 		}
 	}
@@ -118,7 +133,7 @@ func (mr *MatchReplace) Apply(target string, data []byte) []byte {
 		return data
 	}
 	for _, r := range mr.rules {
-		if r.Target != target {
+		if r.Target != target || !r.Enabled {
 			continue
 		}
 		if r.MatchType == "regex" {

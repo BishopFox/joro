@@ -66,12 +66,18 @@ type projectReplaceRule struct {
 	MatchType string `json:"matchType"`
 	Match     string `json:"match"`
 	Replace   string `json:"replace"`
+	// Disabled persists the per-rule opt-out as a disabled flag (absent = enabled),
+	// so an existing .joro written before this field loads every rule enabled with no
+	// version bump or normalizeProjectConfig backfill.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 type projectCustomItem struct {
 	Type  string `json:"type"`
 	Name  string `json:"name"`
 	Value string `json:"value"`
+	// Disabled: see projectReplaceRule.Disabled.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 type projectNote struct {
@@ -320,13 +326,13 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 	replaceRules := s.replace.Rules()
 	pReplaceRules := make([]projectReplaceRule, len(replaceRules))
 	for i, r := range replaceRules {
-		pReplaceRules[i] = projectReplaceRule{Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace}
+		pReplaceRules[i] = projectReplaceRule{Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace, Disabled: !r.Enabled}
 	}
 
 	customItems := s.customData.Items()
 	pCustomItems := make([]projectCustomItem, len(customItems))
 	for i, item := range customItems {
-		pCustomItems[i] = projectCustomItem{Type: item.Type, Name: item.Name, Value: item.Value}
+		pCustomItems[i] = projectCustomItem{Type: item.Type, Name: item.Name, Value: item.Value, Disabled: !item.Enabled}
 	}
 
 	var pNotes []projectNote
@@ -900,14 +906,14 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 
 	replaceRules := make([]proxy.MatchReplaceRule, len(cfg.ReplaceRules))
 	for i, r := range cfg.ReplaceRules {
-		replaceRules[i] = proxy.MatchReplaceRule{ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace}
+		replaceRules[i] = proxy.MatchReplaceRule{ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace, Enabled: !r.Disabled}
 	}
 	s.replace.SetEnabled(cfg.ReplaceEnabled)
 	s.replace.SetRules(replaceRules)
 
 	customItems := make([]proxy.CustomAddition, len(cfg.CustomDataItems))
 	for i, item := range cfg.CustomDataItems {
-		customItems[i] = proxy.CustomAddition{ID: proxy.GenerateID(), Type: item.Type, Name: item.Name, Value: item.Value}
+		customItems[i] = proxy.CustomAddition{ID: proxy.GenerateID(), Type: item.Type, Name: item.Name, Value: item.Value, Enabled: !item.Disabled}
 	}
 	s.customData.SetEnabled(cfg.CustomDataEnabled)
 	s.customData.SetItems(customItems)
@@ -1664,7 +1670,7 @@ func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 		replaceRules = append(replaceRules, proxy.MatchReplaceRule{
-			ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace,
+			ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace, Enabled: !r.Disabled,
 		})
 	}
 	s.replace.SetRules(replaceRules)
@@ -1680,7 +1686,7 @@ func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 		customItems = append(customItems, proxy.CustomAddition{
-			ID: proxy.GenerateID(), Type: it.Type, Name: it.Name, Value: it.Value,
+			ID: proxy.GenerateID(), Type: it.Type, Name: it.Name, Value: it.Value, Enabled: !it.Disabled,
 		})
 	}
 	s.customData.SetItems(customItems)

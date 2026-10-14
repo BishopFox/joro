@@ -11,10 +11,11 @@ import (
 
 // CustomAddition defines a single piece of data to inject into requests.
 type CustomAddition struct {
-	ID    string `json:"id"`
-	Type  string `json:"type"`  // "header", "query", "body"
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	ID      string `json:"id"`
+	Type    string `json:"type"` // "header", "query", "body"
+	Name    string `json:"name"`
+	Value   string `json:"value"`
+	Enabled bool   `json:"enabled"` // per-item gate, under the global toggle
 }
 
 // CustomData manages a set of additive request modifications.
@@ -62,10 +63,11 @@ func (cd *CustomData) SetItems(items []CustomAddition) {
 // AddItem adds a new item with a generated ID. Returns the item.
 func (cd *CustomData) AddItem(typ, name, value string) CustomAddition {
 	item := CustomAddition{
-		ID:    GenerateID(),
-		Type:  typ,
-		Name:  name,
-		Value: value,
+		ID:      GenerateID(),
+		Type:    typ,
+		Name:    name,
+		Value:   value,
+		Enabled: true,
 	}
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
@@ -86,6 +88,19 @@ func (cd *CustomData) RemoveItem(id string) bool {
 	return false
 }
 
+// SetItemEnabled toggles a single item by ID. Returns true if found.
+func (cd *CustomData) SetItemEnabled(id string, enabled bool) bool {
+	cd.mu.Lock()
+	defer cd.mu.Unlock()
+	for i := range cd.items {
+		if cd.items[i].ID == id {
+			cd.items[i].Enabled = enabled
+			return true
+		}
+	}
+	return false
+}
+
 // applyCustomData applies custom data additions to an *http.Request.
 func applyCustomData(cd *CustomData, r *http.Request) *http.Request {
 	if cd == nil || !cd.IsEnabled() {
@@ -98,6 +113,9 @@ func applyCustomData(cd *CustomData, r *http.Request) *http.Request {
 	cd.mu.RUnlock()
 
 	for _, item := range items {
+		if !item.Enabled {
+			continue
+		}
 		switch item.Type {
 		case "header":
 			if !slices.Contains(r.Header.Values(item.Name), item.Value) {

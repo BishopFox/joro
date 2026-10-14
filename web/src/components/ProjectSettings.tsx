@@ -13,6 +13,7 @@ import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectio
 import { useTeamSharedConfigStore } from '../stores/teamSharedConfigStore'
 import { useProjectStore } from '../stores/projectStore'
 import { Redacted } from './Redacted'
+import { Switch } from './Switch'
 import { redactNow } from '../stores/streamerStore'
 
 type FilterTab = 'scope' | 'noise' | 'replace'
@@ -663,23 +664,33 @@ export default function ProjectSettings() {
                 <div className="space-y-1 max-h-48 overflow-y-auto">
                   {replaceRules.map((rule) => (
                     <div key={rule.id} className="flex items-center gap-2 text-xs py-1 border-b border-border-subtle">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-secondary text-black">
-                        {rule.target.replace('_', ' ')}
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-input text-content-secondary">
-                        {rule.matchType}
-                      </span>
-                      <span className="text-content-primary font-mono truncate max-w-[12rem]"><Redacted value={rule.match} kind="secret" /></span>
-                      <span className="text-content-muted inline-flex items-center"><ArrowRight size={12} /></span>
-                      <span className="text-semantic-success font-mono truncate max-w-[12rem]">
-                        {rule.replace ? <Redacted value={rule.replace} kind="secret" /> : '(empty)'}
-                      </span>
+                      <div className={`flex items-center gap-2 min-w-0 flex-1 ${rule.enabled ? '' : 'opacity-50'}`}>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-secondary text-black">
+                          {rule.target.replace('_', ' ')}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-input text-content-secondary">
+                          {rule.matchType}
+                        </span>
+                        <span className="text-content-primary font-mono truncate max-w-[12rem]"><Redacted value={rule.match} kind="secret" /></span>
+                        <span className="text-content-muted inline-flex items-center"><ArrowRight size={12} /></span>
+                        <span className="text-semantic-success font-mono truncate max-w-[12rem]">
+                          {rule.replace ? <Redacted value={rule.replace} kind="secret" /> : '(empty)'}
+                        </span>
+                      </div>
+                      <Switch
+                        checked={rule.enabled}
+                        title={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                        onChange={async (next) => {
+                          await api.setReplaceRuleEnabled(rule.id, next)
+                          setReplaceRules((prev) => prev.map((r) => (r.id === rule.id ? { ...r, enabled: next } : r)))
+                        }}
+                      />
                       <button
                         onClick={async () => {
                           await api.deleteReplaceRule(rule.id)
                           setReplaceRules((prev) => prev.filter((r) => r.id !== rule.id))
                         }}
-                        className="ml-auto text-content-muted hover:text-semantic-error"
+                        className="text-content-muted hover:text-semantic-error"
                       >
                         x
                       </button>
@@ -784,18 +795,28 @@ export default function ProjectSettings() {
                 <div className="space-y-1 max-h-48 overflow-y-auto">
                   {customDataItems.map((item) => (
                     <div key={item.id} className="flex items-center gap-2 text-xs py-1 border-b border-border-subtle">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-secondary text-black">
-                        {item.type}
-                      </span>
-                      {item.name && <span className="text-content-primary font-mono">{item.name}</span>}
-                      {item.name && <span className="text-content-muted">=</span>}
-                      <span className="text-semantic-success font-mono truncate max-w-[20rem]">{item.value}</span>
+                      <div className={`flex items-center gap-2 min-w-0 flex-1 ${item.enabled ? '' : 'opacity-50'}`}>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-secondary text-black">
+                          {item.type}
+                        </span>
+                        {item.name && <span className="text-content-primary font-mono">{item.name}</span>}
+                        {item.name && <span className="text-content-muted">=</span>}
+                        <span className="text-semantic-success font-mono truncate max-w-[20rem]">{item.value}</span>
+                      </div>
+                      <Switch
+                        checked={item.enabled}
+                        title={item.enabled ? 'Disable item' : 'Enable item'}
+                        onChange={async (next) => {
+                          await api.setCustomDataItemEnabled(item.id, next)
+                          setCustomDataItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, enabled: next } : i)))
+                        }}
+                      />
                       <button
                         onClick={async () => {
                           await api.deleteCustomDataItem(item.id)
                           setCustomDataItems((prev) => prev.filter((i) => i.id !== item.id))
                         }}
-                        className="ml-auto text-content-muted hover:text-semantic-error"
+                        className="text-content-muted hover:text-semantic-error"
                       >
                         x
                       </button>

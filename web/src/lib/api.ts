@@ -105,6 +105,7 @@ export interface MatchReplaceRule {
   matchType: string
   match: string
   replace: string
+  enabled: boolean
 }
 
 export interface CustomAddition {
@@ -112,6 +113,7 @@ export interface CustomAddition {
   type: string
   name: string
   value: string
+  enabled: boolean
 }
 
 export interface Note {
@@ -1483,13 +1485,15 @@ export const api = {
   // Match & Replace
   getReplace: () => req<{ enabled: boolean; rules: MatchReplaceRule[] }>('GET', '/replace'),
   setReplaceEnabled: (enabled: boolean) => req<unknown>('PUT', '/replace/enabled', { enabled }),
-  addReplaceRule: (rule: Omit<MatchReplaceRule, 'id'>) => req<MatchReplaceRule>('POST', '/replace/rules', rule),
+  addReplaceRule: (rule: Omit<MatchReplaceRule, 'id' | 'enabled'>) => req<MatchReplaceRule>('POST', '/replace/rules', rule),
+  setReplaceRuleEnabled: (id: string, enabled: boolean) => req<unknown>('PUT', `/replace/rules/${id}/enabled`, { enabled }),
   deleteReplaceRule: (id: string) => req<unknown>('DELETE', `/replace/rules/${id}`),
 
   // Custom Data
   getCustomData: () => req<{ enabled: boolean; items: CustomAddition[] }>('GET', '/customdata'),
   setCustomDataEnabled: (enabled: boolean) => req<unknown>('PUT', '/customdata/enabled', { enabled }),
-  addCustomDataItem: (item: Omit<CustomAddition, 'id'>) => req<CustomAddition>('POST', '/customdata/items', item),
+  addCustomDataItem: (item: Omit<CustomAddition, 'id' | 'enabled'>) => req<CustomAddition>('POST', '/customdata/items', item),
+  setCustomDataItemEnabled: (id: string, enabled: boolean) => req<unknown>('PUT', `/customdata/items/${id}/enabled`, { enabled }),
   deleteCustomDataItem: (id: string) => req<unknown>('DELETE', `/customdata/items/${id}`),
 
   // WebSocket messages
@@ -1737,9 +1741,9 @@ export const api = {
       scopeEnabled: scope.enabled,
       scopeRules: scope.rules.map(({ pattern, methods, path, include }) => ({ pattern, methods, path, include })),
       replaceEnabled: replace.enabled,
-      replaceRules: replace.rules.map(({ target, matchType, match, replace }) => ({ target, matchType, match, replace })),
+      replaceRules: replace.rules.map(({ target, matchType, match, replace, enabled }) => ({ target, matchType, match, replace, disabled: !enabled })),
       customDataEnabled: custom.enabled,
-      customDataItems: custom.items.map(({ type, name, value }) => ({ type, name, value })),
+      customDataItems: custom.items.map(({ type, name, value, enabled }) => ({ type, name, value, disabled: !enabled })),
       // Only custom rules travel; built-ins exist on every install.
       detectRules: (detect?.rules ?? [])
         .filter((r) => !r.builtin)

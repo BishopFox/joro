@@ -14,6 +14,7 @@ import { useDashboardLayoutStore } from '../stores/dashboardLayoutStore'
 import DashboardLayoutSettings from '../components/DashboardLayoutSettings'
 import ConfirmModal from '../components/ConfirmModal'
 import HealthCheck from '../components/HealthCheck'
+import { Switch } from '../components/Switch'
 import { useToastStore } from '../stores/toastStore'
 import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
@@ -615,23 +616,6 @@ function Row({ label, title, children }: { label: ReactNode; title?: string; chi
 
 function SubLabel({ children }: { children: ReactNode }) {
   return <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-muted mt-2.5 mb-1.5">{children}</div>
-}
-
-function Switch({ checked, onChange, title }: { checked: boolean; onChange: (v: boolean) => void; title?: string }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      title={title}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-4 w-8 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary ${
-        checked ? 'bg-accent-secondary' : 'bg-surface-input border border-border'
-      }`}
-    >
-      <span className={`inline-block h-3 w-3 rounded-full bg-content-primary transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
-    </button>
-  )
 }
 
 function ValueChip({ children }: { children: ReactNode }) {

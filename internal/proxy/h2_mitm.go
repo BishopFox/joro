@@ -345,6 +345,9 @@ func applyCustomDataRaw(cd *CustomData, raw []byte) []byte {
 	bodyMutated := false
 
 	for _, item := range items {
+		if !item.Enabled {
+			continue
+		}
 		switch item.Type {
 		case "header":
 			full := fmt.Sprintf("%s: %s", item.Name, item.Value)

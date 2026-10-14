@@ -266,12 +266,14 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/replace", s.handleGetReplace)
 	mux.HandleFunc("PUT /api/v1/replace/enabled", s.handleSetReplaceEnabled)
 	mux.HandleFunc("POST /api/v1/replace/rules", s.handleAddReplaceRule)
+	mux.HandleFunc("PUT /api/v1/replace/rules/{id}/enabled", s.handleSetReplaceRuleEnabled)
 	mux.HandleFunc("DELETE /api/v1/replace/rules/{id}", s.handleDeleteReplaceRule)
 
 	// Custom Data
 	mux.HandleFunc("GET /api/v1/customdata", s.handleGetCustomData)
 	mux.HandleFunc("PUT /api/v1/customdata/enabled", s.handleSetCustomDataEnabled)
 	mux.HandleFunc("POST /api/v1/customdata/items", s.handleAddCustomDataItem)
+	mux.HandleFunc("PUT /api/v1/customdata/items/{id}/enabled", s.handleSetCustomDataItemEnabled)
 	mux.HandleFunc("DELETE /api/v1/customdata/items/{id}", s.handleDeleteCustomDataItem)
 
 	// Config save/load
