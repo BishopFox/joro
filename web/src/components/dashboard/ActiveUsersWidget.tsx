@@ -67,7 +67,7 @@ export default function ActiveUsersWidget() {
               value={settings?.teamStatus || 'online'}
               onChange={(e) => changeStatus(e.target.value)}
               disabled={!announcing}
-              className="flex-1 min-w-0 bg-surface-input text-content-primary text-xs px-1.5 py-1 rounded border border-border focus:outline-none focus:border-accent-secondary disabled:opacity-50"
+              className="flex-1 min-w-0 bg-surface-input text-content-primary text-xs px-1.5 py-1 rounded border border-border focus:outline-hidden focus:border-accent-secondary disabled:opacity-50"
             >
               {STATUS_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>

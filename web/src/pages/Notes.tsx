@@ -195,7 +195,7 @@ export default function Notes({ teamMode = false }: NotesProps) {
                 onChange={(e) => setNewHost(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addHost()}
                 placeholder="Add host..."
-                className="flex-1 min-w-0 bg-surface-input text-content-primary text-xs px-2 py-1 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary"
+                className="flex-1 min-w-0 bg-surface-input text-content-primary text-xs px-2 py-1 rounded border border-border placeholder:text-content-muted focus:outline-hidden focus:border-accent-secondary"
               />
               <button
                 onClick={addHost}
@@ -270,7 +270,7 @@ export default function Notes({ teamMode = false }: NotesProps) {
                               }}
                               rows={3}
                               autoFocus
-                              className="w-full bg-surface-input text-content-primary text-xs px-2 py-1 rounded border border-border focus:outline-none focus:border-accent-secondary resize-y"
+                              className="w-full bg-surface-input text-content-primary text-xs px-2 py-1 rounded border border-border focus:outline-hidden focus:border-accent-secondary resize-y"
                             />
                             <div className="flex gap-2">
                               <button
@@ -322,7 +322,7 @@ export default function Notes({ teamMode = false }: NotesProps) {
                   onChange={(e) => setNoteDraft(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addNote()}
                   placeholder="Add a note..."
-                  className="flex-1 bg-surface-input text-content-primary text-xs px-2 py-1.5 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary"
+                  className="flex-1 bg-surface-input text-content-primary text-xs px-2 py-1.5 rounded border border-border placeholder:text-content-muted focus:outline-hidden focus:border-accent-secondary"
                 />
                 <button
                   onClick={addNote}

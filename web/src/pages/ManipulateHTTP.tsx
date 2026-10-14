@@ -299,7 +299,7 @@ export default function ManipulateHTTP() {
                 onBlur={commitRename}
                 onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditingTabId(null) }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-surface-input text-xs px-1 py-0 rounded-sm border border-border w-16 outline-none"
+                className="bg-surface-input text-xs px-1 py-0 rounded-sm border border-border w-16 outline-hidden"
               />
             ) : (
               <span>{t.name}</span>

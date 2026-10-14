@@ -309,7 +309,7 @@ export default function Transform() {
           {sections.map((section, idx) => (
             <div key={section.id} className="flex flex-col flex-1 min-h-0">
               {idx > 0 && (
-                <div className="flex items-center justify-center py-1 flex-shrink-0">
+                <div className="flex items-center justify-center py-1 shrink-0">
                   <div className="text-content-muted inline-flex items-center"><ChevronDown size={14} /></div>
                 </div>
               )}
@@ -319,7 +319,7 @@ export default function Transform() {
                   onChange={(e) => updateText(section.id, e.target.value)}
                   placeholder={idx === 0 ? 'Enter text to transform...' : 'Result'}
                   rows={4}
-                  className="w-full flex-1 min-h-[6rem] bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-none focus:border-accent-secondary"
+                  className="w-full flex-1 min-h-[6rem] bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-hidden focus:border-accent-secondary"
                 />
                 <div className="flex items-center gap-2 mt-2">
                   <select
@@ -327,7 +327,7 @@ export default function Transform() {
                     onChange={(e) =>
                       updateEncoding(section.id, e.target.value as Encoding)
                     }
-                    className="bg-surface-input text-content-primary text-xs rounded px-2 py-1.5 border border-border focus:outline-none focus:border-accent-secondary"
+                    className="bg-surface-input text-content-primary text-xs rounded px-2 py-1.5 border border-border focus:outline-hidden focus:border-accent-secondary"
                   >
                     {ENCODINGS.map((enc) => (
                       <option key={enc.value} value={enc.value}>
@@ -369,7 +369,7 @@ export default function Transform() {
               onChange={(e) => setHashInput(e.target.value)}
               placeholder="Enter text to hash..."
               rows={4}
-              className="w-full bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-none focus:border-accent-secondary"
+              className="w-full bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-hidden focus:border-accent-secondary"
             />
             {hashInput && (
               <div className="mt-3 space-y-2">
@@ -422,7 +422,7 @@ export default function Transform() {
               onChange={(e) => setJwtInput(e.target.value)}
               placeholder="Paste a JWT (eyJ...)..."
               rows={3}
-              className="w-full bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-none focus:border-accent-secondary"
+              className="w-full bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-hidden focus:border-accent-secondary"
             />
             {jwtError && (
               <div className="text-semantic-error text-xs mt-1">{jwtError}</div>
@@ -433,7 +433,7 @@ export default function Transform() {
               onChange={(e) => setJwtHeader(e.target.value)}
               placeholder='{"alg": "HS256", "typ": "JWT"}'
               rows={4}
-              className="w-full bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-none focus:border-accent-secondary"
+              className="w-full bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-hidden focus:border-accent-secondary"
             />
             <label className="text-xs text-content-secondary font-semibold mt-3 mb-1">Payload</label>
             <textarea
@@ -441,7 +441,7 @@ export default function Transform() {
               onChange={(e) => setJwtPayload(e.target.value)}
               placeholder='{"sub": "1234567890", "name": "John Doe"}'
               rows={6}
-              className="w-full bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-none focus:border-accent-secondary flex-1"
+              className="w-full bg-surface-input text-content-primary text-sm font-mono rounded p-2 border border-border placeholder:text-content-muted resize-y focus:outline-hidden focus:border-accent-secondary flex-1"
             />
             <div className="flex gap-2 mt-2">
               <button

@@ -285,7 +285,7 @@ export default function ChainStepInspector({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <input
-                      className="font-mono text-xs text-accent-secondary bg-transparent border-none outline-none min-w-0 flex-1"
+                      className="font-mono text-xs text-accent-secondary bg-transparent border-none outline-hidden min-w-0 flex-1"
                       value={b.var}
                       onChange={(e) => patchBinding(b.id, { var: e.target.value })}
                     />

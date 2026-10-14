@@ -266,7 +266,7 @@ export default function TeamChatWidget() {
           }}
           onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
           placeholder={teamMode ? 'Type a message… (/flag <seq> to flag a request)' : 'Type a message...'}
-          className="flex-1 bg-surface-input text-content-primary text-xs px-2 py-1.5 rounded border border-border placeholder:text-content-muted focus:outline-none focus:border-accent-secondary"
+          className="flex-1 bg-surface-input text-content-primary text-xs px-2 py-1.5 rounded border border-border placeholder:text-content-muted focus:outline-hidden focus:border-accent-secondary"
         />
         <button
           onClick={sendMessage}

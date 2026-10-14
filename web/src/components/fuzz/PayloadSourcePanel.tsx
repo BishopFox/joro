@@ -113,7 +113,7 @@ export default function PayloadSourcePanel(props: Props) {
           <textarea
             value={wordlist}
             onChange={(e) => props.onWordlistChange(e.target.value)}
-            className="flex-1 bg-surface-input text-xs font-mono px-2 py-1 resize-none outline-none text-content-primary"
+            className="flex-1 bg-surface-input text-xs font-mono px-2 py-1 resize-none outline-hidden text-content-primary"
             placeholder={placeholder}
             readOnly={disabled}
             spellCheck={false}
@@ -288,7 +288,7 @@ function NumField({ label, value, disabled, onChange }: {
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value === '' ? 0 : Number(e.target.value))}
         disabled={disabled}
-        className="w-28 bg-surface-card text-xs px-2 py-1 rounded-sm text-content-primary border border-border outline-none"
+        className="w-28 bg-surface-card text-xs px-2 py-1 rounded-sm text-content-primary border border-border outline-hidden"
       />
     </div>
   )
@@ -307,7 +307,7 @@ function TextField({ label, value, disabled, onChange, mono, placeholder }: {
         disabled={disabled}
         placeholder={placeholder}
         spellCheck={false}
-        className={`flex-1 bg-surface-card text-xs px-2 py-1 rounded-sm text-content-primary border border-border outline-none ${mono ? 'font-mono' : ''}`}
+        className={`flex-1 bg-surface-card text-xs px-2 py-1 rounded-sm text-content-primary border border-border outline-hidden ${mono ? 'font-mono' : ''}`}
       />
     </div>
   )
