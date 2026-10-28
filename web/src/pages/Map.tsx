@@ -24,6 +24,7 @@ import { EchoRequestPane } from '../components/echo/EchoRequestPane'
 import { ParamInventory } from '../components/echo/ParamInventory'
 import { RequestParams } from '../components/echo/RequestParams'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { getHostMenuItems } from '../lib/hostMenu'
 import { copyText } from '../lib/clipboard'
 import SitemapFilterModal, { emptySitemapFilter, hasModalFilters } from '../components/SitemapFilterModal'
 import type { SitemapFilter } from '../components/SitemapFilterModal'
@@ -39,6 +40,11 @@ const METHOD_COLORS: Record<string, string> = {
 
 function b64Decode(s: string) {
   try { return atob(s) } catch { return s }
+}
+
+// A sitemap host node's origin is a full origin URL; the host menu wants the bare host.
+function hostFromOrigin(origin: string): string {
+  try { return new URL(origin).host } catch { return origin }
 }
 
 export default function Map() {
@@ -709,6 +715,7 @@ export default function Map() {
                 }
               },
             },
+            ...getHostMenuItems(hostFromOrigin(hostMenu.origin)),
           ]}
         />
       )}

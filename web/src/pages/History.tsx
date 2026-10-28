@@ -23,6 +23,7 @@ import ContextMenu from '../components/ContextMenu'
 import ConfirmModal from '../components/ConfirmModal'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { getHostMenuItems } from '../lib/hostMenu'
 import { initiateScan } from '../lib/scanMenu'
 import { useScanOptionsStore } from '../stores/scanOptionsStore'
 import { copyText } from '../lib/clipboard'
@@ -640,6 +641,16 @@ function HTTPHistory() {
     copyText(rawToCurl(raw, selectedDetail.url))
   }
 
+  // Row menu carries only the summary, so fetch the raw bytes to build the curl command.
+  async function copyCurlRow(id: string) {
+    try {
+      const d = (await api.getRequest(id)) as RequestDetail
+      copyText(rawToCurl(b64Decode(d.reqRaw), d.url))
+    } catch {
+      addToast('Failed to copy curl')
+    }
+  }
+
   function copyRaw(tab: 'request' | 'response') {
     if (!selectedDetail) return
     const raw = tab === 'request' ? selectedDetail.reqRaw : selectedDetail.respRaw
@@ -700,9 +711,8 @@ function HTTPHistory() {
   // The right-clicked row's capture sequence. Taken from the summary the table
   // already holds rather than from the loaded detail, because the row menu can
   // open on a row that is not the selected one.
-  const rowSeq = rowMenu
-    ? sortedItems.find((i) => i.id === rowMenu.itemId)?.seq
-    : undefined
+  const rowSummary = rowMenu ? sortedItems.find((i) => i.id === rowMenu.itemId) : undefined
+  const rowSeq = rowSummary?.seq
 
   return (
     <div className="flex flex-col flex-1 min-h-0" ref={vSplit.containerRef}>
@@ -1162,6 +1172,13 @@ function HTTPHistory() {
                 }),
             },
             { label: 'Stage for Dead Drop', onClick: () => stageForDeadDrop(rowMenu.itemId) },
+            ...(rowSummary ? getHostMenuItems(rowSummary.host, { url: rowSummary.url }) : []),
+            ...(rowSummary
+              ? [
+                  { label: 'Copy URL', onClick: () => copyText(rowSummary.url) },
+                  { label: 'Copy as curl', onClick: () => copyCurlRow(rowSummary.id) },
+                ]
+              : []),
           ]}
         />
       )}
