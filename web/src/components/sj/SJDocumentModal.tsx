@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Upload, Link2, ClipboardPaste, AlertTriangle, Search } from 'lucide-react'
+import { Upload, Link2, ClipboardPaste, Search } from 'lucide-react'
 import { api } from '../../lib/api'
 import { b64DecodeUTF8 } from '../../lib/bytes'
 import { useSJStore, type SJTab } from '../../stores/sjStore'
@@ -65,7 +65,7 @@ export default function SJDocumentModal({
   }
 
   async function load() {
-    store.updateTab(tab.id, { loading: true, loadError: '', htmlHint: null })
+    store.updateTab(tab.id, { loading: true, htmlHint: null })
     try {
       const body =
         source === 'url'
@@ -206,13 +206,6 @@ export default function SJDocumentModal({
                   <Search size={12} /> Don't have one? Brute-force for it
                 </button>
               </div>
-
-              {tab.loadError && (
-                <div className="flex items-start gap-2 text-xs text-semantic-error">
-                  <AlertTriangle size={14} className="shrink-0 mt-px" />
-                  <span>{tab.loadError}</span>
-                </div>
-              )}
             </div>
           )}
 

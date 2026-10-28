@@ -7,6 +7,7 @@ import type { SJNavState } from '../lib/sjTypes'
 import type { RequestDetail } from '../stores/requestStore'
 import SJDocumentBar from '../components/sj/SJDocumentBar'
 import SJDocumentModal, { type DocTab } from '../components/sj/SJDocumentModal'
+import WarningModal from '../components/WarningModal'
 import SJProfilesModal from '../components/sj/SJProfilesModal'
 import SJOperationsView from '../components/sj/SJOperationsView'
 import SJAutomateView from '../components/sj/SJAutomateView'
@@ -42,6 +43,7 @@ export default function SJ() {
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]
   const [docModal, setDocModal] = useState<DocTab | null>(null)
   const [profilesOpen, setProfilesOpen] = useState(false)
+  const [loadErrorMsg, setLoadErrorMsg] = useState<string | null>(null)
 
   /** applyLoadFailure turns a rejection into either an error or, for the very
    *  common "that was the Swagger UI page" case, a pre-filled Brute tab. */
@@ -66,7 +68,8 @@ export default function SJ() {
       })
       return
     }
-    store.updateTab(tabId, { loading: false, loadError: String(err?.message ?? e) })
+    store.updateTab(tabId, { loading: false })
+    setLoadErrorMsg(String(err?.message ?? e))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -202,6 +205,14 @@ export default function SJ() {
           onFailure={applyLoadFailure}
           onClose={() => setDocModal(null)}
           onBrute={() => go('brute')}
+        />
+      )}
+
+      {loadErrorMsg && (
+        <WarningModal
+          title="Couldn't load document"
+          message={loadErrorMsg}
+          onClose={() => setLoadErrorMsg(null)}
         />
       )}
 

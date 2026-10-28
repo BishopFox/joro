@@ -158,7 +158,6 @@ export interface SJTab {
 
   spec: SJSpec | null
   loading: boolean
-  loadError: string
   /** Set when a load returned "that was the UI page, not a document". Carries
    *  the paths Discover should be pre-filled with. */
   htmlHint: { message: string; candidates: string[]; sourceUrl: string } | null
@@ -212,7 +211,6 @@ function makeTab(id: string, name: string, partial?: Partial<SJTab>): SJTab {
     name,
     spec: null,
     loading: false,
-    loadError: '',
     htmlHint: null,
     subTab: 'operations',
     serverIndex: 0,
@@ -432,7 +430,6 @@ export const useSJStore = create<SJState>((set, get) => ({
       return patchTab(s, tabId, {
         spec: normalized,
         loading: false,
-        loadError: '',
         htmlHint: null,
         name: normalized.title || 'Untitled',
         serverIndex: 0,
