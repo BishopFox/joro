@@ -1,6 +1,6 @@
 import { ShieldAlert } from 'lucide-react'
 import type { EchoSink, EchoTransform } from '../../lib/echoTypes'
-import { CONTEXT_LABELS, TRANSFORM_LABELS } from '../../lib/echoTypes'
+import { contextShort, describeSink, TRANSFORM_LABELS } from '../../lib/echoTypes'
 
 /**
  * Tone maps a transform to how much of the value reached the page intact. It is
@@ -19,12 +19,7 @@ function transformTone(t: EchoTransform): string {
 }
 
 export function EchoSinkPill({ sink }: { sink: EchoSink }) {
-  const ctx =
-    sink.context === 'attr_value' && sink.attr
-      ? `${sink.attr}=`
-      : sink.context === 'script' && sink.jsContext && sink.jsContext !== 'code'
-        ? `script ${sink.jsContext.replace('_', ' ')}`
-        : (CONTEXT_LABELS[sink.context] ?? sink.context)
+  const ctx = contextShort(sink)
 
   return (
     <span
@@ -32,9 +27,7 @@ export function EchoSinkPill({ sink }: { sink: EchoSink }) {
         bg-surface-input px-1.5 py-0.5 text-[11px] leading-none ${
           sink.breakout ? 'border-semantic-error' : ''
         }`}
-      title={`${TRANSFORM_LABELS[sink.transform] ?? sink.transform} in ${
-        CONTEXT_LABELS[sink.context] ?? sink.context
-      }${sink.attr ? ` (${sink.attr})` : ''} - seen ${sink.count}x`}
+      title={`${describeSink(sink)} - seen ${sink.count}x`}
     >
       {sink.breakout && <ShieldAlert size={11} className="text-semantic-error" />}
       <span className={transformTone(sink.transform)}>

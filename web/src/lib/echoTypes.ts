@@ -45,6 +45,13 @@ export interface EchoReflection {
   survived?: string
   breakout: boolean
   confidence: EchoConfidence
+  /** The specific message this occurrence came from (an Entry mixes several). */
+  requestId?: string
+  url?: string
+  /** A sanitized window of the response around the match, and where the match
+   *  sits inside it (offsets into `snippet`, not the document). */
+  snippet?: string
+  snippetMatch?: EchoSpan
 }
 
 export interface EchoSink {
@@ -230,13 +237,80 @@ export const CONTEXT_OPTIONS = Object.keys(CONTEXT_LABELS) as EchoContext[]
 export const TRANSFORM_OPTIONS = Object.keys(TRANSFORM_LABELS) as EchoTransform[]
 export const SOURCE_OPTIONS = Object.keys(SOURCE_LABELS) as EchoSource[]
 
+/**
+ * prettyParamName turns a server-synthesized positional name into something a
+ * human reads. The server indexes by position: a URL path segment becomes
+ * [1],[2],[3]; a root-level JSON array element is a bare [2]. Real names and
+ * dotted JSON paths (user.items[2].name) pass through untouched.
+ */
+export function prettyParamName(source: EchoSource, name: string): string {
+  const m = /^\[(\d+)\]$/.exec(name) // only a BARE positional token
+  if (m) {
+    if (source === 'path') return `path segment ${m[1]}`
+    if (source === 'json') return `array item ${m[1]}`
+  }
+  if (!name) return source === 'json' ? '(request body)' : '(unnamed)'
+  return name
+}
+
+/** transformWord names an encoding as a mid-sentence word. */
+export function transformWord(t: EchoTransform): string {
+  return t === 'identity' ? 'unencoded' : TRANSFORM_LABELS[t] ?? t
+}
+
+/** A shape both EchoReflection and EchoSink satisfy, so one set of context
+ *  helpers serves reflections, sinks and request rows. */
+type Contextual = Pick<EchoReflection, 'context' | 'attr' | 'quote' | 'jsContext'>
+
+/** contextShort is the compact noun for a pill or a table cell. */
+export function contextShort(x: Contextual): string {
+  if (x.context === 'attr_value' && x.attr) return `${x.attr}=`
+  if (x.context === 'script' && x.jsContext && x.jsContext !== 'code')
+    return `script ${x.jsContext.replace('_', ' ')}`
+  return CONTEXT_LABELS[x.context] ?? x.context
+}
+
+/** contextProse is the full phrase for a sentence; mirrors the server's
+ *  describe() in internal/echo/finding.go. */
+export function contextProse(x: Contextual): string {
+  switch (x.context) {
+    case 'attr_value': {
+      // A reflection reports quote '' for a genuinely unquoted value; a sink
+      // carries no quote at all, so only claim quotedness when it is known.
+      if (x.quote) {
+        return x.attr
+          ? `the ${x.quote}-quoted ${x.attr} attribute`
+          : `a ${x.quote}-quoted attribute`
+      }
+      if (x.quote === '') {
+        return x.attr ? `an unquoted ${x.attr} attribute` : 'an unquoted attribute'
+      }
+      return x.attr ? `the ${x.attr} attribute` : 'an attribute'
+    }
+    case 'script':
+      return !x.jsContext || x.jsContext === 'code'
+        ? 'script code'
+        : `a script ${x.jsContext.replace('_', ' ')}`
+    case 'header_value':
+      return 'a response header'
+    default:
+      return CONTEXT_LABELS[x.context] ?? x.context
+  }
+}
+
+/** describeReflection is the plain-English lead for a reflection row, e.g.
+ *  "Reflected unencoded into the "-quoted href attribute". */
+export function describeReflection(r: EchoReflection): string {
+  return `Reflected ${transformWord(r.transform)} into ${contextProse(r)}`
+}
+
+/** survivedLabel renders surviving metacharacters readably (LF/CR named). */
+export function survivedLabel(s?: string): string {
+  if (!s) return 'nothing'
+  return [...s].map((c) => (c === '\n' ? 'LF' : c === '\r' ? 'CR' : c)).join(' ')
+}
+
 /** describeSink renders one sink as a short phrase for a row. */
 export function describeSink(s: EchoSink): string {
-  const ctx =
-    s.context === 'attr_value' && s.attr
-      ? `${s.attr} attribute`
-      : s.context === 'script' && s.jsContext && s.jsContext !== 'code'
-        ? `script ${s.jsContext.replace('_', ' ')}`
-        : CONTEXT_LABELS[s.context] ?? s.context
-  return `${TRANSFORM_LABELS[s.transform] ?? s.transform} in ${ctx}`
+  return `${TRANSFORM_LABELS[s.transform] ?? s.transform} in ${contextProse(s)}`
 }

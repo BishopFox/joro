@@ -11,6 +11,7 @@ import type { EchoContext, EchoSource, EchoTransform } from '../lib/echoTypes'
 import {
   CONTEXT_LABELS,
   CONTEXT_OPTIONS,
+  prettyParamName,
   SOURCE_LABELS,
   SOURCE_OPTIONS,
   TRANSFORM_LABELS,
@@ -115,14 +116,15 @@ export default function Echo() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-3 py-2">
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-1.5 text-xs text-content-secondary">
           <input
             type="checkbox"
+            className="accent-accent"
             checked={enabled}
             disabled={busy}
             onChange={(e) => void toggleEnabled(e.target.checked)}
           />
-          <span className="text-content-primary">Reflection mapping</span>
+          Reflection mapping
         </label>
 
         <span className="text-xs text-content-muted">
@@ -241,16 +243,17 @@ export default function Echo() {
                 <th className="px-2 py-1 font-normal">Parameter</th>
                 <th className="px-2 py-1 font-normal">Source</th>
                 <th className="px-2 py-1 font-normal">Host</th>
+                <th className="px-2 py-1 font-normal">Example</th>
                 <th className="px-2 py-1 font-normal">Lands in</th>
                 <th className="px-2 py-1 text-right font-normal">Seen</th>
-                <th className="px-2 py-1 text-right font-normal">Values</th>
+                <th className="px-2 py-1 text-right font-normal">Distinct</th>
                 <th className="px-2 py-1 font-normal">Last</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={7} className="px-2 py-8 text-center text-xs text-content-muted">
+                  <td colSpan={8} className="px-2 py-8 text-center text-xs text-content-muted">
                     {!enabled
                       ? 'Reflection mapping is off. Switch it on, then browse through the proxy or run a backfill.'
                       : summary.params === 0
@@ -267,16 +270,25 @@ export default function Echo() {
                   }`}
                   onClick={() => setSelected(e)}
                 >
-                  <td className="max-w-[16rem] truncate px-2 py-1 text-content-secondary">
+                  <td
+                    className="max-w-[16rem] truncate px-2 py-1 text-content-secondary"
+                    title={`${e.name}${e.exampleUrl ? `\n${e.exampleUrl}` : ''}`}
+                  >
                     {e.breakouts > 0 && (
                       <ShieldAlert size={12} className="mr-1 inline text-semantic-error" />
                     )}
-                    {e.name}
+                    {prettyParamName(e.source, e.name)}
                   </td>
                   <td className="px-2 py-1 text-content-muted">
                     {SOURCE_LABELS[e.source] ?? e.source}
                   </td>
                   <td className="max-w-[12rem] truncate px-2 py-1 text-content-muted">{e.host}</td>
+                  <td
+                    className="max-w-[12rem] truncate px-2 py-1 font-mono text-content-secondary"
+                    title={e.exampleValue}
+                  >
+                    {e.exampleValue || <span className="text-content-muted">&mdash;</span>}
+                  </td>
                   <td className="px-2 py-1">
                     <div className="flex flex-wrap gap-1">
                       {e.sinks.slice(0, 4).map((s, i) => (

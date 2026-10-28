@@ -2,59 +2,95 @@ import { useEffect, useState } from 'react'
 import { ArrowUpRight, ShieldAlert } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { api } from '../../lib/api'
-import type { EchoEntry, EchoReflection } from '../../lib/echoTypes'
+import type { EchoEntry, EchoReflection, EchoSpan } from '../../lib/echoTypes'
 import {
-  CONTEXT_LABELS,
+  describeReflection,
+  prettyParamName,
   SOURCE_LABELS,
-  TRANSFORM_LABELS,
+  survivedLabel,
 } from '../../lib/echoTypes'
 
-/** survivedLabel renders the characters that made it through readably. */
-function survivedLabel(s?: string): string {
-  if (!s) return 'nothing'
-  return [...s]
-    .map((c) => (c === '\n' ? 'LF' : c === '\r' ? 'CR' : c))
-    .join(' ')
+/** renderSnippet highlights the matched run inside the response snippet. */
+function renderSnippet(snippet: string, match?: EchoSpan) {
+  if (!match) return snippet
+  const start = Math.max(0, Math.min(match.start, snippet.length))
+  const end = Math.max(start, Math.min(match.end, snippet.length))
+  return (
+    <>
+      {snippet.slice(0, start)}
+      <mark className="bg-transparent font-semibold text-semantic-warning">
+        {snippet.slice(start, end)}
+      </mark>
+      {snippet.slice(end)}
+    </>
+  )
 }
 
 function ReflectionRow({ r }: { r: EchoReflection }) {
+  const navigate = useNavigate()
   return (
     <div className="border-b border-border-subtle px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
         {r.breakout && (
-          <span className="inline-flex items-center gap-1 text-semantic-error">
-            <ShieldAlert size={12} />
-            can leave context
+          <span className="inline-flex items-center gap-1 rounded bg-semantic-error-bg px-1.5 py-0.5 text-[11px] font-medium text-semantic-error">
+            <ShieldAlert size={12} /> Can leave context
           </span>
         )}
-        <span className="text-content-secondary">
-          {TRANSFORM_LABELS[r.transform] ?? r.transform}
-        </span>
-        <span className="text-content-muted">in</span>
-        <span className="text-content-secondary">
-          {CONTEXT_LABELS[r.context] ?? r.context}
-          {r.attr ? ` (${r.attr}${r.quote ? `, ${r.quote}-quoted` : ', unquoted'})` : ''}
-          {r.jsContext && r.jsContext !== 'code'
-            ? ` / ${r.jsContext.replace('_', ' ')}`
-            : ''}
-        </span>
-        <span className="text-content-muted">{r.confidence} confidence</span>
+        <span className="text-xs text-content-primary">{describeReflection(r)}</span>
       </div>
-      <div className="mt-1 font-mono text-[11px] text-content-muted">
-        survived: <span className="text-content-secondary">{survivedLabel(r.survived)}</span>
-        <span className="mx-2">·</span>
-        {r.part} bytes {r.span.start}-{r.span.end}
+
+      <div className="mt-1 font-mono text-[11px]">
+        <span className="text-content-muted">{SOURCE_LABELS[r.source] ?? r.source}:</span>{' '}
+        <span className="text-content-secondary">{prettyParamName(r.source, r.name)}</span>
+      </div>
+
+      {r.url && (
+        <div className="mt-1 flex items-center gap-2 text-[11px]">
+          <span className="truncate font-mono text-content-muted" title={r.url}>
+            {r.url}
+          </span>
+          {r.requestId && (
+            <button
+              className="inline-flex shrink-0 items-center gap-1 text-accent-secondary hover:underline"
+              onClick={() => navigate('/history', { state: { focusRequestId: r.requestId } })}
+            >
+              Open <ArrowUpRight size={11} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {r.snippet ? (
+        <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded bg-surface-input px-1.5 py-1 font-mono text-[11px] text-content-secondary">
+          {renderSnippet(r.snippet, r.snippetMatch)}
+        </pre>
+      ) : (
+        <div className="mt-1 truncate font-mono text-[11px] text-content-muted">
+          value: {r.value}
+        </div>
+      )}
+
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 font-mono text-[11px] text-content-muted">
+        <span>
+          survived:{' '}
+          <span className={r.survived ? 'text-semantic-warning' : 'text-content-muted'}>
+            {survivedLabel(r.survived)}
+          </span>
+        </span>
+        <span>&middot;</span>
+        <span>
+          {r.part} bytes {r.span.start}-{r.span.end}
+        </span>
         {r.coord === 'decoded-body' && (
           <span
-            className="ml-2 text-semantic-info"
+            className="text-semantic-info"
             title="The response was compressed, so these offsets index the decompressed body rather than the raw document."
           >
             decoded-body offsets
           </span>
         )}
-      </div>
-      <div className="mt-1 truncate font-mono text-[11px] text-content-muted">
-        value: {r.value}
+        <span>&middot;</span>
+        <span>{r.confidence} confidence</span>
       </div>
     </div>
   )
@@ -81,12 +117,18 @@ export function EchoParamDetail({ entry }: { entry: EchoEntry }) {
   }, [entry.id])
 
   const examples = full?.examples ?? []
+  const pretty = prettyParamName(entry.source, entry.name)
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-content-primary">{entry.name}</span>
+          <span className="text-sm text-content-primary">{pretty}</span>
+          {pretty !== entry.name && (
+            <span className="rounded bg-surface-input px-1 py-0.5 font-mono text-[11px] text-content-muted">
+              {entry.name}
+            </span>
+          )}
           <span className="rounded bg-surface-input px-1.5 py-0.5 text-[11px] text-content-muted">
             {SOURCE_LABELS[entry.source] ?? entry.source}
           </span>
@@ -94,7 +136,9 @@ export function EchoParamDetail({ entry }: { entry: EchoEntry }) {
           {entry.exampleRequestId && (
             <button
               className="ml-auto inline-flex items-center gap-1 text-xs text-accent-secondary hover:underline"
-              onClick={() => navigate('/history', { state: { focusRequestId: entry.exampleRequestId } })}
+              onClick={() =>
+                navigate('/history', { state: { focusRequestId: entry.exampleRequestId } })
+              }
             >
               Open in History <ArrowUpRight size={12} />
             </button>

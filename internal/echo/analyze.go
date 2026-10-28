@@ -66,7 +66,7 @@ func Analyze(r *proxy.CapturedRequest, cfg Config) *Report {
 	seen := map[[2]int]bool{}
 	capped := false
 
-	record := func(v view, idx int32, start, end int, base int, coord string, part string, spans []ctxSpan) bool {
+	record := func(buf []byte, v view, idx int32, start, end int, base int, coord string, part string, spans []ctxSpan) bool {
 		if len(rep.Reflections) >= cfg.MaxReflectionsPerRequest {
 			capped = true
 			return false
@@ -83,6 +83,10 @@ func Analyze(r *proxy.CapturedRequest, cfg Config) *Report {
 			s = sinkAt(spans, srcStart)
 		}
 		sur := survivedChars(v, start, end)
+		// The snippet is cut from the buffer the offsets index, so it is correct
+		// regardless of coord: gzip bodies share no coordinates with the raw
+		// document, which is why the window cannot be reconstructed client-side.
+		snip, match := buildSnippet(buf, srcStart, srcEnd)
 		val := ac.needles[idx]
 		for _, vi := range index[val] {
 			src := values[vi]
@@ -95,6 +99,8 @@ func Analyze(r *proxy.CapturedRequest, cfg Config) *Report {
 				Survived:   sur,
 				Breakout:   breakout(s, sur),
 				Confidence: confidence(val),
+				RequestID:  rep.RequestID, URL: rep.URL,
+				Snippet: snip, SnippetMatch: match,
 			})
 		}
 		return true
@@ -105,7 +111,7 @@ func Analyze(r *proxy.CapturedRequest, cfg Config) *Report {
 	if len(m.RespRawHdr) > 0 {
 		for _, v := range buildViews(m.RespRawHdr, cfg) {
 			ac.find(v.b, func(idx int32, s, e int) bool {
-				return record(v, idx, s, e, 0, "raw", "response", nil)
+				return record(m.RespRawHdr, v, idx, s, e, 0, "raw", "response", nil)
 			})
 			if capped {
 				break
@@ -124,7 +130,7 @@ func Analyze(r *proxy.CapturedRequest, cfg Config) *Report {
 		}
 		for _, v := range buildViews(m.RespBody, cfg) {
 			ac.find(v.b, func(idx int32, s, e int) bool {
-				return record(v, idx, s, e, base, coord, "response", spans)
+				return record(m.RespBody, v, idx, s, e, base, coord, "response", spans)
 			})
 			if capped {
 				break

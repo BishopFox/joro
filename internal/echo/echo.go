@@ -178,6 +178,20 @@ type Reflection struct {
 	// Breakout reports that Survived is enough to leave Context.
 	Breakout   bool       `json:"breakout"`
 	Confidence Confidence `json:"confidence"`
+
+	// RequestID and URL name the specific message this occurrence came from. An
+	// Entry aggregates examples across requests, so an example's Span only makes
+	// sense against its own response: these carry that response's identity.
+	RequestID string `json:"requestId,omitempty"`
+	URL       string `json:"url,omitempty"`
+	// Snippet is a sanitized window of the response bytes around the match, and
+	// SnippetMatch locates the matched run within Snippet (offsets into Snippet,
+	// not the document). It lets the UI show the value in situ without refetching
+	// and re-decoding the raw body, which a compressed response makes impossible
+	// client-side. Bounded by snippetMaxBytes: a Reflection rides in capped slices
+	// but many of them, so the byte cap is the budget, not conditional population.
+	Snippet      string `json:"snippet,omitempty"`
+	SnippetMatch Span   `json:"snippetMatch"`
 }
 
 // SinkKey identifies a distinct place a parameter lands, for the roll-up.

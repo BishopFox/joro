@@ -4,7 +4,9 @@ import { api } from '../../lib/api'
 import type { EchoReport } from '../../lib/echoTypes'
 import {
   CONTEXT_LABELS,
+  prettyParamName,
   SOURCE_LABELS,
+  survivedLabel,
   TRANSFORM_LABELS,
 } from '../../lib/echoTypes'
 
@@ -96,7 +98,7 @@ export function EchoRequestPane({ requestId }: { requestId: string }) {
                 <span className="text-content-muted">
                   {SOURCE_LABELS[r.source] ?? r.source}:
                 </span>{' '}
-                {r.name}
+                {prettyParamName(r.source, r.name)}
               </td>
               <td className="px-2 py-1 text-content-muted">
                 {TRANSFORM_LABELS[r.transform] ?? r.transform}
@@ -109,11 +111,7 @@ export function EchoRequestPane({ requestId }: { requestId: string }) {
                   : ''}
               </td>
               <td className="px-2 py-1 font-mono text-content-secondary">
-                {r.survived
-                  ? [...r.survived]
-                      .map((c) => (c === '\n' ? 'LF' : c === '\r' ? 'CR' : c))
-                      .join(' ')
-                  : '-'}
+                {r.survived ? survivedLabel(r.survived) : '-'}
               </td>
               <td
                 className="px-2 py-1 text-right font-mono text-content-muted"
