@@ -148,6 +148,48 @@ func LooksLikeHTMLDocument(body []byte) bool {
 		strings.Contains(lower, "<head")
 }
 
+// docUIMarkers name the API-documentation UI frameworks that embed or reference
+// the document they render, each by strings unambiguous enough that an ordinary
+// web page never carries them. Order is match priority; the Swagger entry leads
+// because it is far and away the common case. The Swagger bundle names overlap
+// uiBundleNames on purpose — the same scripts that are skipped when hunting for
+// an embedded document are what positively identify the page as Swagger UI.
+var docUIMarkers = []struct {
+	label   string
+	markers []string
+}{
+	{"Swagger UI", []string{
+		"swagger-ui-bundle", "swagger-ui-standalone-preset", "swagger-ui.css",
+		"swaggeruibundle", `id="swagger-ui"`, "id='swagger-ui'",
+		"swagger-ui-init", "<title>swagger ui",
+	}},
+	{"ReDoc", []string{"redoc.standalone", "<redoc", "redoc.init("}},
+	{"RapiDoc", []string{"<rapi-doc", "rapidoc-min.js"}},
+	{"Stoplight Elements", []string{"<elements-api", "@stoplight/elements"}},
+	{"Scalar", []string{"scalar.min.js", "@scalar/api-reference"}},
+}
+
+// DetectDocUI reports which API-documentation UI framework an HTML page is, or
+// "" if it is just an HTML page. A doc UI embeds or names the document it loads,
+// so naming it turns the most common load failure into the next action; a plain
+// page must not be mislabelled as one.
+func DetectDocUI(body []byte) string {
+	// Bound the scan: these markers sit in the page head, near the top.
+	window := body
+	if len(window) > 64<<10 {
+		window = window[:64<<10]
+	}
+	lower := strings.ToLower(string(window))
+	for _, ui := range docUIMarkers {
+		for _, m := range ui.markers {
+			if strings.Contains(lower, m) {
+				return ui.label
+			}
+		}
+	}
+	return ""
+}
+
 var (
 	// specKeyRe matches a "url:" / "configUrl:" / "specUrl:" assignment, which is
 	// how a Swagger UI page names the document it loads.

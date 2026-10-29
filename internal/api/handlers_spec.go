@@ -140,11 +140,13 @@ func (s *APIServer) fetchSpecViaProxy(r *http.Request, rawURL, userAgent string)
 // notADocument builds the hint returned when a URL served something that is not
 // a description document.
 //
-// The most common case by far is a Swagger UI page: Joro's own detect rule
-// flags those under the same finding as a real document, because its pattern
-// matches the string "swagger-ui". Answering "that is the UI, and here is where
-// it usually loads its document from" turns the most common failure into the
-// next action rather than a dead end.
+// When the page is an API-documentation UI (Swagger UI and its siblings all
+// embed or name the document they render), the hint names it and offers the
+// references it loads from — the most common failure becomes the next action.
+// A plain HTML page names nothing, so following its own scripts would list the
+// site's analytics and bundles as if they were documents; it is offered the
+// well-known document paths to sweep instead. The two are told apart by the
+// bytes, not assumed from "this is HTML", so neither verdict overclaims.
 func notADocument(body []byte, contentType, sourceURL string) map[string]any {
 	isHTML := strings.Contains(strings.ToLower(contentType), "text/html") ||
 		apispec.LooksLikeHTMLDocument(body)
@@ -152,22 +154,41 @@ func notADocument(body []byte, contentType, sourceURL string) map[string]any {
 		return nil
 	}
 
-	candidates := apispec.ExtractSpecRefs(body, sourceURL)
-	if len(candidates) == 0 {
-		for _, p := range apispec.CandidatePaths("", apispec.CandidatePriority) {
-			candidates = append(candidates, p)
-			if len(candidates) >= 12 {
-				break
-			}
+	if ui := apispec.DetectDocUI(body); ui != "" {
+		candidates := apispec.ExtractSpecRefs(body, sourceURL)
+		if len(candidates) == 0 {
+			candidates = priorityCandidates()
+		}
+		return map[string]any{
+			"error":       fmt.Sprintf("that URL served the %s page, not an API description document — these are the paths it loads from", ui),
+			"kind":        "html",
+			"ui":          ui,
+			"contentType": contentType,
+			"sourceUrl":   sourceURL,
+			"candidates":  candidates,
 		}
 	}
 	return map[string]any{
-		"error":       "that URL served an HTML page, not an API description document",
+		"error":       "that URL served an HTML page, not an API description document — try these well-known document paths on this host",
 		"kind":        "html",
+		"ui":          "",
 		"contentType": contentType,
 		"sourceUrl":   sourceURL,
-		"candidates":  candidates,
+		"candidates":  priorityCandidates(),
 	}
+}
+
+// priorityCandidates is the head of the standard discovery wordlist, offered as
+// paths to try when a page names no document of its own.
+func priorityCandidates() []string {
+	var out []string
+	for _, p := range apispec.CandidatePaths("", apispec.CandidatePriority) {
+		out = append(out, p)
+		if len(out) >= 12 {
+			break
+		}
+	}
+	return out
 }
 
 func (s *APIServer) handleSpecList(w http.ResponseWriter, r *http.Request) {
