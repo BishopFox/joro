@@ -158,3 +158,18 @@ func (s *APIServer) handleClearRequests(w http.ResponseWriter, r *http.Request) 
 	s.clearDetectFindingsWithHistory()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
 }
+
+// handleDeleteRequestsByHost removes captured requests whose host matches a glob,
+// the "clear what is already captured" companion to adding a noise pattern. The
+// required "pattern" query param is the host glob (filepath.Match), the same value
+// stored as the noise pattern. Removing the requests also drops them from the site
+// map, which is derived from the same store.
+func (s *APIServer) handleDeleteRequestsByHost(w http.ResponseWriter, r *http.Request) {
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		writeError(w, http.StatusBadRequest, "pattern is required")
+		return
+	}
+	removed := s.store.DeleteByHostPattern(pattern)
+	writeJSON(w, http.StatusOK, map[string]int{"deleted": removed})
+}

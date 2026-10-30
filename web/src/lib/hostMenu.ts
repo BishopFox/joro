@@ -1,6 +1,7 @@
 import type { MenuItem } from '../components/ContextMenu'
 import { api } from './api'
 import { useToastStore } from '../stores/toastStore'
+import { useRequestStore } from '../stores/requestStore'
 
 // Host-level context-menu actions shared by the History table rows and the Site Map host
 // menu. Modeled on getSelectionMenuItems. Scope and noise both match a host glob with
@@ -27,11 +28,18 @@ async function addScope(pattern: string, path: string, label: string) {
   }
 }
 
+// addNoise adds a noise pattern and then purges the already-captured requests it matches:
+// noise means traffic to never see, so leaving the old rows behind would be the surprise.
+// invalidate() reloads History and, via the total change, the Site Map (both derive from the
+// same store). The deletion predicate is the server's, matching the pattern just stored.
 async function addNoise(pattern: string, label: string) {
   try {
     const { enabled } = await api.getNoise()
     await api.addNoisePattern(pattern)
-    toast(enabled ? `Added ${label} to noise filter` : `Added ${label} to noise filter — noise filtering is off`)
+    const { deleted } = await api.deleteRequestsByHost(pattern)
+    if (deleted > 0) useRequestStore.getState().invalidate()
+    const cleared = deleted > 0 ? ` — cleared ${deleted} request${deleted === 1 ? '' : 's'}` : ''
+    toast(enabled ? `Added ${label} to noise filter${cleared}` : `Added ${label} to noise filter — noise filtering is off${cleared}`)
   } catch {
     toast('Failed to add noise pattern', 'error')
   }

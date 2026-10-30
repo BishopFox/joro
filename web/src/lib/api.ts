@@ -1191,6 +1191,10 @@ export const api = {
     if (path !== undefined) qs.set('path', path)
     return req<{ deleted: number }>('DELETE', `/sitemap?${qs.toString()}`)
   },
+  // Delete captured requests whose host matches a glob (the host-level companion to
+  // adding a noise pattern). pattern is the host glob stored as the noise pattern.
+  deleteRequestsByHost: (pattern: string) =>
+    req<{ deleted: number }>('DELETE', `/requests/by-host?${new URLSearchParams({ pattern }).toString()}`),
   // Every parameter the node's requests carried. The node is 'origin', not 'host'
   // as deleteSitemapNode names it: this endpoint also takes the tree's filters,
   // where 'host' means a substring of the captured Host header. Filters must match

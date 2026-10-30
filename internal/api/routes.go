@@ -90,6 +90,7 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/requests/{id}", s.handleGetRequest)
 	mux.HandleFunc("GET /api/v1/requests/{id}/params", s.handleGetRequestParams)
 	mux.HandleFunc("DELETE /api/v1/requests", s.handleClearRequests)
+	mux.HandleFunc("DELETE /api/v1/requests/by-host", s.handleDeleteRequestsByHost)
 
 	// Intercept
 	mux.HandleFunc("GET /api/v1/intercept", s.handleGetInterceptQueue)

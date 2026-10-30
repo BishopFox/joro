@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/url"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -661,6 +662,37 @@ func (s *Store) DeleteSitemapNode(origin, path string, matchPath bool) int {
 			continue
 		}
 		kept = append(kept, r)
+	}
+	s.items = kept
+	return removed
+}
+
+// DeleteByHostPattern removes every captured request whose host matches the given
+// host glob, using the same filepath.Match predicate (case-insensitive) that the
+// NoiseFilter applies in IsNoisy and Scope applies in matchRule. It is the "clear
+// what is already captured" companion to adding a noise pattern, so the rows removed
+// are exactly the ones the pattern suppresses going forward. Host is derived like
+// Sitemap/DeleteSitemapNode (u.Host); requests whose URL cannot be parsed are kept.
+// Returns the number of requests removed.
+func (s *Store) DeleteByHostPattern(hostPattern string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pat := strings.ToLower(hostPattern)
+	kept := s.items[:0]
+	removed := 0
+	for _, r := range s.items {
+		u, err := url.Parse(r.URL)
+		if err != nil {
+			kept = append(kept, r)
+			continue
+		}
+		matched, merr := filepath.Match(pat, strings.ToLower(u.Host))
+		if merr != nil || !matched {
+			kept = append(kept, r)
+			continue
+		}
+		removed++
 	}
 	s.items = kept
 	return removed
